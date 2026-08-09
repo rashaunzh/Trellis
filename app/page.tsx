@@ -1,138 +1,446 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  contextPacket,
+  firstStep,
+  horizonMeta,
+  lineMeta,
+  normalizeHorizon,
+  routeStages,
+  starterConcepts,
+  starterRecords,
+  stars,
+  type ConceptCard,
+  type Horizon,
+  type Line,
+  type TrellisRecord,
+} from "../lib/trellis";
 
-type View = "today" | "workbench" | "projects" | "review";
-type Line = "G"|"J"|"B"|"I";
-type Status = "backlog"|"this_week"|"in_progress"|"pending_review"|"done";
-type Role = "focus"|"support"|"maintain"|"candidate";
-type Acceptance = "unreviewed"|"passed"|"rework"|"waived";
-type RecordItem = { id:string; title:string; line:Line|null; projectId:string|null; scheduleRole:Role; status:Status; estimatedMinutes:number; coreAction:string; learningScope:string; executionMethod:string; completionCriteria:string; evidence:string; blockers:string; nextStep:string; aiReview:string; acceptance:Acceptance; sourceUrl:string|null; notes:string };
-type ProjectInfo = { goal:string; outcome:string; next:string };
+type View = "week" | "routes" | "projects" | "concepts" | "tools" | "review";
+type Review = { progress:string; deviation:string; feedback:string; adjustments:string };
 
-const fallbackRecords: RecordItem[] = [
-  { id:"T-01", title:"完成 Notebook 测评方法与测试集复核", line:"J", projectId:"Notebook 专业测评", scheduleRole:"focus", status:"in_progress", estimatedMinutes:180, coreAction:"把首批测试题整理到可以直接执行的程度：来源清楚、答案清楚、证据清楚。", learningScope:"先做 L1–L3；只处理事实问答、无答案拒答、跨来源综合和引用定位。L4/L5 暂不做。", executionMethod:"打开现有测试集，检查每题是否有来源、版本、标准答案和证据 → 挑 2–3 题完整跑一遍 → 修正问题后冻结首批测试集", completionCriteria:"得到一份可以直接开测的首批测试集；每道题都有来源、答案和证据，别人按说明也能复现。", evidence:"", blockers:"先统一四个竞品的输入条件。", nextStep:"测试集冻结后，直接执行事实题和无答案题。", aiReview:"", acceptance:"unreviewed", sourceUrl:"https://allenai.org/data/qasper", notes:"" },
-  { id:"T-02", title:"梳理目标 JD 的核心能力要求", line:"J", projectId:"求职准备", scheduleRole:"focus", status:"this_week", estimatedMinutes:120, coreAction:"收集 20 个目标岗位 JD，找出企业服务 AI 产品岗位真正反复要求的能力。", learningScope:"企业服务 AI 产品经理、AI 解决方案产品经理及相邻岗位。", executionMethod:"先收集 20 个 JD → 合并意思相近的职责和能力 → 标出高频要求 → 对照自己的作品找缺口", completionCriteria:"交付一张清晰的岗位能力表，包含高频要求、代表性原文、自己的现有证据和待补动作。", evidence:"", blockers:"目标公司和岗位范围可边收集边校准，不需要先想得完美。", nextStep:"把高频能力要求映射到作品和面试故事。", aiReview:"", acceptance:"unreviewed", sourceUrl:"https://www.linkedin.com/jobs/ai-product-manager-jobs-worldwide", notes:"" },
-  { id:"T-03", title:"学习 Eval 指标与 Bad Case 归因", line:"G", projectId:"Notebook 专业测评", scheduleRole:"support", status:"in_progress", estimatedMinutes:120, coreAction:"只学本次 Notebook 测评会用到的指标，并把它们直接写进测评表。", learningScope:"Recall@K、引用可核验率、拒答率、冲突识别率；不扩展到完整模型评测课程。", executionMethod:"先用一句话理解每个指标 → 看一个计算例子 → 写进自己的测评表 → 给一条通过样例和一条失败样例", completionCriteria:"交付一页指标字典；每个指标都有定义、计算方式、适用题型和正反样例。", evidence:"", blockers:"延迟指标需要重复计时或产品日志，可先单独标记。", nextStep:"用指标字典跑首组测试，发现不清楚的地方再补学。", aiReview:"", acceptance:"unreviewed", sourceUrl:"https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/", notes:"" },
-  { id:"T-04", title:"输出一篇测评方法复盘", line:"B", projectId:"内容实验", scheduleRole:"maintain", status:"pending_review", estimatedMinutes:60, coreAction:"把一次真实测评的做法写成新手也能看懂的复盘。", learningScope:"只讲清测试集、测试方法和评分指标，不展开完整技术架构。", executionMethod:"先写读者遇到的问题 → 用一组真实测试说明专业做法 → 放入一个 Bad Case → 总结可复用模板", completionCriteria:"交付一篇可发布草稿，读者看完能判断一份测评是否可复现。", evidence:"", blockers:"先完成一组真实测试，避免只有方法没有结果。", nextStep:"补入真实截图和 Bad Case 后发布。", aiReview:"", acceptance:"unreviewed", sourceUrl:null, notes:"" },
-  { id:"T-05", title:"筛选企业知识库开源底座", line:"I", projectId:"企业知识库", scheduleRole:"candidate", status:"backlog", estimatedMinutes:120, coreAction:"比较 3–5 个成熟开源项目，选出最适合改造成企业知识库作品的底座。", learningScope:"只比较权限、文档解析、RAG、引用、反馈、评测和二次开发成本。", executionMethod:"先写清作品要证明什么 → 建候选清单 → 按同一组维度比较 → 选首选和备选", completionCriteria:"交付一张候选对比表，明确首选、备选和不选原因。", evidence:"", blockers:"本周只是候选，不挤占求职和 Notebook 主攻时间。", nextStep:"先用目标 JD 确认这个作品最需要证明的能力。", aiReview:"", acceptance:"unreviewed", sourceUrl:"https://github.com/infiniflow/ragflow", notes:"" },
+const nav: Array<{ key:View; label:string; hint:string }> = [
+  { key:"week", label:"本周", hint:"阶段看板" },
+  { key:"routes", label:"路线", hint:"长期地图" },
+  { key:"projects", label:"项目", hint:"成果链路" },
+  { key:"concepts", label:"概念", hint:"闪卡记忆" },
+  { key:"tools", label:"工具", hint:"工作台地图" },
+  { key:"review", label:"复盘", hint:"更新判断" },
 ];
-const nav: {key:View;label:string;hint:string}[] = [
-  {key:"today",label:"Today",hint:"本周行动"},{key:"workbench",label:"Workbench",hint:"统一记录"},{key:"projects",label:"Projects",hint:"项目成果"},{key:"review",label:"Review",hint:"周复盘"},
+const boardHorizons: Horizon[] = ["active", "near", "later", "paused"];
+const toolMap = [
+  { name:"Trellis", role:"路线、任务、关系、决策、证据索引与连续记忆", write:"正式状态与已确认结论", action:"在这里决定下一步" },
+  { name:"NotebookLM / Gemini", role:"基于给定资料的阅读、问答、引用和综合", write:"页面链接、关键结论与证据", action:"打开资料工作台" },
+  { name:"ChatGPT", role:"开放讨论、解释、方案比较和计划校准", write:"结论、分歧、待确认提案", action:"粘贴任务上下文" },
+  { name:"Codex", role:"仓库、代码、结构化记忆、测试与执行", write:"提交、测试证据和 handoff", action:"推进可验证实现" },
+  { name:"Obsidian / Hermes", role:"信息流 Inbox、剪藏、去重、分类和原文", write:"来源链接与候选摘要", action:"不在 Trellis 重复剪藏" },
+  { name:"Anki（以后）", role:"概念闪卡的间隔复习", write:"熟悉度与复习记录", action:"从概念卡导出" },
 ];
-const statusLabel: Record<Status,string> = { backlog:"待安排", this_week:"本周待做", in_progress:"进行中", pending_review:"已交成果", done:"已完成" };
-const lineLabel: Record<Line,string> = { G:"成长线", J:"成果与求职线", B:"商业线", I:"创新与想法线" };
-const projectInfo: Record<string,ProjectInfo> = {
-  "Notebook 专业测评": { goal:"验证 Gemini Notebook 能否把多源资料转化为有依据、可验证、可继续加工的成果。", outcome:"专业测评报告、可复现测试集、评分规则与 Bad Case 分析。", next:"先冻结首批测试集，再执行事实题与无答案题。" },
-  "求职准备": { goal:"把目标岗位反复要求的能力，转成可补齐、可展示、可面试表达的证据。", outcome:"岗位能力地图、作品证据清单与面试故事。", next:"先收集并归纳 20 个目标岗位 JD。" },
-  "内容实验": { goal:"把真实学习与项目过程转化为可复用、可公开的内容资产。", outcome:"可发布文章、图文或方法模板。", next:"优先使用已完成项目的真实材料，不单独制造选题。" },
-  "企业知识库": { goal:"选择成熟开源底座，改造成能证明企业级 AI 产品能力的作品。", outcome:"底座对比、方案选择与可演示的企业知识库作品。", next:"保持候选状态，先由目标 JD 校准作品要证明的能力。" },
+
+const defaultReview: Review = {
+  progress:"产品骨架和路线记忆已经确定，接下来用 Notebook 测评验证完整链路。",
+  deviation:"",
+  feedback:"",
+  adjustments:"本周只推进 Notebook 测评的前两步；其余路线保持可见但不承诺。",
 };
 
-function actionSteps(value:string) {
-  return value.split(/\s*(?:→|\n)\s*/).map((step) => step.trim()).filter(Boolean);
+function currentWeekKey() {
+  const now = new Date();
+  const first = new Date(Date.UTC(now.getFullYear(),0,1));
+  const days = Math.floor((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()) - first.getTime()) / 86400000);
+  return `${now.getFullYear()}-W${String(Math.ceil((days + first.getUTCDay() + 1) / 7)).padStart(2,"0")}`;
 }
 
-function firstAction(item:RecordItem) {
-  return actionSteps(item.executionMethod)[0] || item.coreAction;
-}
-
-function actionLabel(item:RecordItem) {
-  if (item.status === "in_progress") return "继续";
-  if (item.status === "backlog" || item.status === "this_week") return "开始";
-  return "查看";
+function cleanRecord(row:Partial<TrellisRecord>): TrellisRecord {
+  const fallback = starterRecords.find((item) => item.id === row.id);
+  const base = fallback ?? starterRecords[0];
+  return {
+    ...base,
+    ...row,
+    id:String(row.id ?? base.id),
+    title:String(row.title ?? base.title),
+    line:(row.line ?? base.line) as Line,
+    module:String(row.module ?? base.module ?? ""),
+    projectId:String(row.projectId ?? base.projectId ?? ""),
+    status:normalizeHorizon(String(row.status ?? base.status)),
+    estimatedMinutes:Math.max(15,Number(row.estimatedMinutes ?? base.estimatedMinutes)),
+    actualMinutes:Math.max(0,Number(row.actualMinutes ?? 0)),
+    coreAction:String(row.coreAction ?? base.coreAction ?? ""),
+    learningScope:String(row.learningScope ?? base.learningScope ?? ""),
+    executionMethod:String(row.executionMethod ?? base.executionMethod ?? ""),
+    completionCriteria:String(row.completionCriteria ?? base.completionCriteria ?? ""),
+    evidence:String(row.evidence ?? ""),
+    blockers:String(row.blockers ?? base.blockers ?? ""),
+    nextStep:String(row.nextStep ?? base.nextStep ?? ""),
+    aiReview:String(row.aiReview ?? ""),
+    sourceUrl:row.sourceUrl || null,
+    notes:String(row.notes ?? ""),
+  };
 }
 
 export default function Home() {
-  const [view,setView] = useState<View>("today");
-  const [records,setRecords] = useState<RecordItem[]>(fallbackRecords);
-  const [lineFilter,setLineFilter] = useState<"全部"|Line>("全部");
-  const [query,setQuery] = useState("");
-  const [modalOpen,setModalOpen] = useState(false);
-  const [selectedId,setSelectedId] = useState<string|null>(null);
-  const [draft,setDraft] = useState<RecordItem|null>(null);
-  const [selectedProject,setSelectedProject] = useState("Notebook 专业测评");
+  const [view,setView] = useState<View>("week");
+  const [records,setRecords] = useState<TrellisRecord[]>(starterRecords);
+  const [lineFilter,setLineFilter] = useState<"all"|Line>("all");
+  const [selected,setSelected] = useState<TrellisRecord|null>(null);
+  const [concepts,setConcepts] = useState<ConceptCard[]>(starterConcepts);
+  const [conceptOpen,setConceptOpen] = useState(false);
+  const [conceptFilter,setConceptFilter] = useState<"learning"|"familiar">("learning");
+  const [newOpen,setNewOpen] = useState(false);
   const [notice,setNotice] = useState("");
-  const [review,setReview] = useState({ progress:"测评方法已从体验描述收敛为测试集、测试方法和评分指标三部分。", deviation:"", adjustments:"先冻结 Notebook 测试集；企业知识库继续留在候选池；保留 2 小时用于 JD 与面试准备。" });
+  const [review,setReview] = useState<Review>(defaultReview);
+  const [routeLine,setRouteLine] = useState<Line>("G");
+  const [project,setProject] = useState("Notebook 测评");
+  const weekKey = currentWeekKey();
 
   useEffect(() => {
-    fetch("/api/records").then((r) => r.ok ? r.json() : Promise.reject()).then((data) => data.records?.length && setRecords(data.records.map((row:RecordItem) => { const example = fallbackRecords.find((item) => item.id === row.id); return example ? {...row,coreAction:example.coreAction,learningScope:example.learningScope,executionMethod:example.executionMethod,completionCriteria:example.completionCriteria,evidence:row.evidence?.startsWith("待补") ? "" : row.evidence,blockers:example.blockers,nextStep:example.nextStep,sourceUrl:row.sourceUrl || example.sourceUrl,aiReview:"",acceptance:row.acceptance || "unreviewed",notes:row.notes || ""} : {...row,coreAction:row.coreAction || "",learningScope:row.learningScope || "",executionMethod:row.executionMethod || "明确本次要完成的结果 → 打开相关资料并开始执行 → 保存成果并更新状态",completionCriteria:row.completionCriteria || "完成一份可打开的成果，并把结果补充到任务中。",evidence:row.evidence || "",blockers:row.blockers || "",nextStep:row.nextStep || "",aiReview:row.aiReview || "",acceptance:row.acceptance || "unreviewed",sourceUrl:row.sourceUrl || null,notes:row.notes || ""}; }))).catch(() => setNotice("当前展示演示数据；联网后可保存。"));
-    fetch("/api/reviews?weekKey=2026-W32").then((r) => r.ok ? r.json() : Promise.reject()).then((data) => data.review && setReview({ progress:data.review.progress, deviation:data.review.deviation, adjustments:data.review.adjustments })).catch(() => undefined);
-  }, []);
-  const filtered = useMemo(() => records.filter((item) => (lineFilter === "全部" || item.line === lineFilter) && `${item.title}${item.projectId ?? ""}`.toLowerCase().includes(query.toLowerCase())), [records,lineFilter,query]);
-  const active = records.filter((item) => item.scheduleRole !== "candidate" && item.status !== "done");
-  const plannedHours = active.reduce((sum,item) => sum + item.estimatedMinutes / 60,0);
-  const focusCount = active.filter((item) => item.scheduleRole === "focus").length;
-  const submittedCount = records.filter((item) => item.status === "pending_review").length;
-  const projects = Array.from(new Set(records.map((item) => item.projectId).filter((value): value is string => Boolean(value))));
-  const projectRecords = records.filter((item) => item.projectId === selectedProject);
-  const currentProject = projectInfo[selectedProject] || { goal:`围绕“${selectedProject}”形成一组能直接展示或继续使用的成果。`, outcome:"一份可打开的项目成果，以及与它关联的任务和资料。", next:projectRecords.find((item) => item.status !== "done")?.nextStep || "从第一项未完成任务开始。" };
+    fetch("/api/records")
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => {
+        const remote = (data.records ?? []).map(cleanRecord) as TrellisRecord[];
+        const ids = new Set(remote.map((item) => item.id));
+        setRecords([...remote,...starterRecords.filter((item) => !ids.has(item.id))]);
+      })
+      .catch(() => setNotice("当前使用本地演示数据；连接 D1 后会跨设备保存。"));
+    fetch(`/api/reviews?weekKey=${weekKey}`)
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => data.review && setReview({
+        progress:data.review.progress ?? "",
+        deviation:data.review.deviation ?? "",
+        feedback:data.review.feedback ?? "",
+        adjustments:data.review.adjustments ?? "",
+      }))
+      .catch(() => undefined);
+    fetch("/api/concepts")
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => data.concepts?.length && setConcepts(data.concepts))
+      .catch(() => undefined);
+  }, [weekKey]);
 
-  function openRecord(item:RecordItem) { setSelectedId(item.id); setDraft({...item}); }
+  const visibleRecords = useMemo(
+    () => records.filter((item) => lineFilter === "all" || item.line === lineFilter),
+    [records,lineFilter],
+  );
+  const projects = useMemo(
+    () => Array.from(new Set(records.map((item) => item.projectId).filter(Boolean))),
+    [records],
+  );
+  const projectRecords = useMemo(
+    () => records.filter((item) => item.projectId === project).sort((a,b) => a.module.localeCompare(b.module,"zh-CN")),
+    [records,project],
+  );
+  const activeMinutes = records.filter((item) => item.status === "active").reduce((sum,item) => sum + item.estimatedMinutes,0);
+  const doneCount = records.filter((item) => item.status === "done").length;
+  const evidenceCount = records.filter((item) => item.evidence.trim()).length;
 
-  async function startRecord(item:RecordItem) {
-    const nextItem = item.status === "backlog" || item.status === "this_week" ? {...item,status:"in_progress" as Status} : item;
-    openRecord(nextItem);
-    if (nextItem.status !== item.status) await updateStatus(item.id,"in_progress");
+  function updateLocal(item:TrellisRecord) {
+    setRecords((current) => current.map((record) => record.id === item.id ? item : record));
+    setSelected(item);
   }
 
-  async function saveRecord(event:FormEvent<HTMLFormElement>) {
+  async function saveTask(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft) return;
-    const response = await fetch(`/api/records/${draft.id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(draft) }).catch(() => null);
-    if (!response?.ok) return setNotice("任务详情保存失败，请稍后重试。");
-    const data = await response.json();
-    setRecords((items) => items.map((item) => item.id === draft.id ? {...item,...data.record} : item));
-    setDraft({...draft,...data.record}); setNotice("任务详情已保存");
+    if (!selected) return;
+    updateLocal(selected);
+    const response = await fetch(`/api/records/${selected.id}`,{
+      method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(selected),
+    }).catch(() => null);
+    if (response?.ok) {
+      const data = await response.json();
+      const saved = cleanRecord(data.record);
+      updateLocal(saved);
+      setNotice("任务、证据和讨论摘要已保存。");
+    } else {
+      setNotice("已保留在当前页面；连接 D1 后才能跨设备保存。");
+    }
   }
 
-  async function updateStatus(id:string,status:Status) {
-    const before = records;
-    setRecords((items) => items.map((item) => item.id === id ? {...item,status} : item));
-    const response = await fetch(`/api/records/${id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({status}) }).catch(() => null);
-    if (!response?.ok) { setRecords(before); setNotice("状态保存失败，请稍后重试。"); }
-    else setNotice("状态已保存");
+  async function setHorizon(item:TrellisRecord,status:Horizon) {
+    const updated = {...item,status};
+    setRecords((current) => current.map((record) => record.id === item.id ? updated : record));
+    const response = await fetch(`/api/records/${item.id}`,{
+      method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({status}),
+    }).catch(() => null);
+    setNotice(response?.ok ? `已移到“${horizonMeta[status].label}”。` : "页面已更新，远端保存暂不可用。");
   }
 
-  async function createRecord(event:FormEvent<HTMLFormElement>) {
+  async function createTask(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const payload = { title:String(form.get("title") ?? ""), recordType:"task", line:form.get("line"), projectId:String(form.get("projectId") ?? ""), scheduleRole:"support", estimatedMinutes:Number(form.get("hours"))*60, coreAction:String(form.get("coreAction") ?? ""), executionMethod:"明确本次要完成的结果 → 打开相关资料并开始执行 → 保存成果并更新状态", completionCriteria:"完成一份可打开的成果，并把结果链接或结果说明补充到任务中。", sourceUrl:String(form.get("sourceUrl") ?? "") || null, nextStep:"打开核心资料，从第一步开始。" };
-    const response = await fetch("/api/records", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) }).catch(() => null);
-    if (!response?.ok) return setNotice("新建失败，请检查后重试。");
-    const data = await response.json(); setRecords((items) => [data.record,...items]); setModalOpen(false); setView("workbench"); setNotice("记录已新建");
+    const line = String(form.get("line")) as Line;
+    const estimatedMinutes = Math.max(15,Number(form.get("minutes")) || 15);
+    const payload = {
+      title:String(form.get("title") ?? ""),
+      recordType:"task",
+      line,
+      module:String(form.get("module") ?? ""),
+      projectId:String(form.get("projectId") ?? ""),
+      scheduleRole:"support",
+      status:String(form.get("status") ?? "near"),
+      estimatedMinutes,
+      actualMinutes:0,
+      coreAction:String(form.get("why") ?? ""),
+      learningScope:"",
+      executionMethod:String(form.get("next") ?? ""),
+      completionCriteria:String(form.get("evidence") ?? ""),
+      evidence:"",
+      blockers:"",
+      nextStep:String(form.get("next") ?? ""),
+      aiReview:"",
+      sourceUrl:String(form.get("sourceUrl") ?? "") || null,
+      notes:"",
+    };
+    const response = await fetch("/api/records",{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),
+    }).catch(() => null);
+    const created = response?.ok
+      ? cleanRecord((await response.json()).record)
+      : cleanRecord({
+          id:crypto.randomUUID(),
+          title:payload.title,
+          recordType:"task",
+          line,
+          module:payload.module,
+          projectId:payload.projectId,
+          scheduleRole:"support",
+          status:normalizeHorizon(payload.status),
+          estimatedMinutes,
+          actualMinutes:0,
+          coreAction:payload.coreAction,
+          learningScope:"",
+          executionMethod:payload.executionMethod,
+          completionCriteria:payload.completionCriteria,
+          evidence:"",
+          blockers:"",
+          nextStep:payload.nextStep,
+          aiReview:"",
+          acceptance:"unreviewed",
+          sourceUrl:payload.sourceUrl,
+          notes:"",
+        });
+    setRecords((current) => [created,...current]);
+    setNewOpen(false);
+    setSelected(created);
+    setNotice(response?.ok ? "任务已创建。" : "已创建本地任务；连接 D1 后才能跨设备保存。");
+  }
+
+  async function copyContext(item:TrellisRecord) {
+    await navigator.clipboard.writeText(contextPacket(item));
+    setNotice("任务上下文已复制，可粘贴到 NotebookLM、Gemini、ChatGPT 或 Codex。");
+  }
+
+  async function toggleConcept(card:ConceptCard) {
+    const updated = {...card,familiar:!card.familiar};
+    setConcepts((current) => current.map((item) => item.id === card.id ? updated : item));
+    const response = await fetch(`/api/concepts/${card.id}`,{
+      method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({familiar:updated.familiar}),
+    }).catch(() => null);
+    setNotice(response?.ok ? (updated.familiar ? "已标记熟悉；仍可在熟悉卡片中找回。" : "已移回待学习。") : "熟悉度已在页面更新，远端保存暂不可用。");
+  }
+
+  async function createConcept(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      title:String(form.get("title") ?? ""),
+      module:String(form.get("module") ?? ""),
+      officialDefinition:String(form.get("officialDefinition") ?? ""),
+      plainExplanation:String(form.get("plainExplanation") ?? ""),
+      example:String(form.get("example") ?? ""),
+      misconception:String(form.get("misconception") ?? ""),
+      sourceUrl:String(form.get("sourceUrl") ?? ""),
+    };
+    const response = await fetch("/api/concepts",{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),
+    }).catch(() => null);
+    const concept:ConceptCard = response?.ok
+      ? (await response.json()).concept
+      : {...payload,id:crypto.randomUUID(),familiar:false};
+    setConcepts((current) => [concept,...current]);
+    setConceptOpen(false);
+    setNotice(response?.ok ? "概念卡已保存。" : "概念卡已加入当前页面，远端保存暂不可用。");
   }
 
   async function saveReview(event:FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const response = await fetch("/api/reviews", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({weekKey:"2026-W32",...review}) }).catch(() => null);
-    setNotice(response?.ok ? "本周复盘已保存" : "复盘保存失败，请稍后重试。");
+    const response = await fetch("/api/reviews",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({weekKey,...review}),
+    }).catch(() => null);
+    setNotice(response?.ok ? "本周复盘已保存。" : "复盘保留在页面，远端保存暂不可用。");
   }
 
-  return <main className="app-shell">
-    <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">L</div><div><strong>Learning OS</strong><span>个人成长工作台</span></div></div>
-      <nav className="nav-list" aria-label="主导航">{nav.map((item) => <button key={item.key} className={view === item.key ? "nav-item active" : "nav-item"} onClick={() => setView(item.key)}><span>{item.label}</span><small>{item.hint}</small></button>)}</nav>
-      <div className="sidebar-foot"><p>V0.1 · 计划工作台</p><span>先替代表格，再逐步长出 AI</span></div>
+  return <main className="trellis-shell">
+    <aside className="trellis-sidebar">
+      <div className="trellis-brand"><span>T</span><div><strong>Trellis</strong><small>成长与行动中台</small></div></div>
+      <nav aria-label="主导航">{nav.map((item) =>
+        <button key={item.key} className={view === item.key ? "active" : ""} onClick={() => setView(item.key)}>
+          <span>{item.label}</span><small>{item.hint}</small>
+        </button>
+      )}</nav>
+      <div className="sidebar-note"><strong>V0.1 验证期</strong><p>一周检查重点，两周决定是否扩建。</p></div>
     </aside>
-    <section className="workspace">
-      <header className="topbar"><div><p className="eyebrow">2026 · 第 32 周</p><h1>{nav.find((item) => item.key === view)?.hint}</h1></div><div className="top-actions">{notice && <span className="notice">{notice}</span>}<button className="primary-button" onClick={() => setModalOpen(true)}>＋ 新建记录</button></div></header>
 
-      {view === "today" && <div className="page-stack">
-        <section className="goal-card"><div><p className="eyebrow">当前阶段目标</p><h2>完成 AI 产品经理转行面试准备</h2><p>求职优先，同时保留 AI 与 Business 两条长期能力轴。</p></div><div className="goal-meta"><span>两周滚动计划</span><strong>W1 / W2</strong></div></section>
-        <section className="metric-grid"><article><span>本周计划</span><strong>{plannedHours}<small> / 10h</small></strong><div className="progress"><i style={{width:`${Math.min(plannedHours * 10,100)}%`}} /></div></article><article><span>主攻事项</span><strong>{focusCount}</strong><small>先完成最重要的两件事</small></article><article><span>已交成果</span><strong>{submittedCount}</strong><small>有结果，待整理或发布</small></article><article><span>已完成</span><strong>{records.filter((item) => item.status === "done").length}</strong><small>本周有效产出</small></article></section>
-        <div className="two-column"><section className="panel"><div className="panel-head"><div><p className="eyebrow">Focus</p><h3>本周行动组合</h3></div><button className="text-button" onClick={() => setView("workbench")}>查看全部 →</button></div><div className="task-list">{active.map((item) => <article className="task-row action-task" key={item.id}><span className="line-badge">{item.line ? lineLabel[item.line] : "未归类"}</span><button className="task-open" onClick={() => openRecord(item)}><strong>{item.title}</strong><p><b>先做：</b>{firstAction(item)}</p></button><div className="task-meta"><span>{statusLabel[item.status]}</span><strong>{item.estimatedMinutes/60}h</strong><button className="start-link" onClick={() => startRecord(item)}>{actionLabel(item)} →</button></div></article>)}</div></section><section className="panel decision-panel"><div className="panel-head"><div><p className="eyebrow">Decision</p><h3>本周只需要判断两件事</h3></div></div><div className="decision"><span>•</span><div><strong>测试集是否可以正式开测？</strong><p>来源、答案和证据都齐全，就开始跑第一组。</p></div></div><div className="decision"><span>•</span><div><strong>企业知识库要不要本周启动？</strong><p>暂不启动，继续留在候选区。</p></div></div></section></div>
+    <section className="trellis-main">
+      <header className="trellis-topbar">
+        <div><p>{weekKey}</p><h1>{nav.find((item) => item.key === view)?.hint}</h1></div>
+        <div className="topbar-actions">{notice && <span>{notice}</span>}<button className="primary" onClick={() => setNewOpen(true)}>＋ 添加任务</button></div>
+      </header>
+
+      {view === "week" && <div className="view-stack">
+        <section className="focus-banner">
+          <div><span>本周重点 · Notebook 测评</span><h2>先跑通一条链路，再讨论更多功能。</h2><p>固定资料 → 设计测试 → 建立指标 → 执行 → 结论 → 作品与复盘</p></div>
+          <button onClick={() => {setProject("Notebook 测评");setView("projects");}}>查看完整链路 →</button>
+        </section>
+        <section className="summary-grid">
+          <article><span>进行中预算</span><strong>{stars(activeMinutes)} 星</strong><small>{activeMinutes} 分钟，只是粗估</small></article>
+          <article><span>完成任务</span><strong>{doneCount}</strong><small>完成后记录实际用时</small></article>
+          <article><span>已有证据</span><strong>{evidenceCount}</strong><small>链接或一句可核验结果</small></article>
+          <article><span>计划方式</span><strong>周区间</strong><small>不把任务排死到某一天</small></article>
+        </section>
+        <div className="line-filter" aria-label="主线筛选">
+          <button className={lineFilter === "all" ? "active" : ""} onClick={() => setLineFilter("all")}>全部主线</button>
+          {(Object.keys(lineMeta) as Line[]).map((line) =>
+            <button key={line} className={lineFilter === line ? "active" : ""} onClick={() => setLineFilter(line)}>{line} · {lineMeta[line].name}</button>
+          )}
+        </div>
+        <section className="horizon-board">
+          {boardHorizons.map((horizon) => {
+            const items = visibleRecords.filter((item) => item.status === horizon);
+            return <div className="board-column" key={horizon}>
+              <header><div><strong>{horizonMeta[horizon].label}</strong><small>{horizonMeta[horizon].help}</small></div><span>{items.length}</span></header>
+              <div>{items.map((item) => <article className="task-card" key={item.id}>
+                <button className="task-card-main" onClick={() => setSelected({...item})}>
+                  <span style={{color:lineMeta[item.line].color}}>{item.line} · {lineMeta[item.line].short}</span>
+                  <strong>{item.title}</strong>
+                  <p>{firstStep(item.executionMethod,item.nextStep)}</p>
+                  <footer><span>{item.module.split("·")[0]}</span><b>{stars(item.estimatedMinutes)} ★</b></footer>
+                </button>
+                <select aria-label={`移动 ${item.title}`} value={item.status} onChange={(event) => setHorizon(item,event.target.value as Horizon)}>
+                  {boardHorizons.concat(["done","proposal"]).map((value) => <option key={value} value={value}>{horizonMeta[value].label}</option>)}
+                </select>
+              </article>)}
+              {items.length === 0 && <p className="empty-column">这里暂时没有任务。</p>}
+              </div>
+            </div>;
+          })}
+        </section>
       </div>}
 
-      {view === "workbench" && <section className="panel full-panel"><div className="panel-head wrap"><div><p className="eyebrow">All records</p><h3>统一工作台</h3><p className="section-help">这里只保留执行需要的信息：做什么、先做哪一步、用什么资料、现在是什么状态。</p></div><div className="toolbar"><input aria-label="搜索记录" placeholder="搜索任务或项目" value={query} onChange={(e) => setQuery(e.target.value)} /><div className="segmented">{(["全部","G","J","B","I"] as const).map((line) => <button key={line} className={lineFilter === line ? "selected" : ""} onClick={() => setLineFilter(line)}>{line === "全部" ? "全部任务" : lineLabel[line]}</button>)}</div></div></div><div className="record-list">{filtered.map((item) => <article className="record-card" key={item.id}><div className="record-main"><div className="record-kicker"><span>{item.line ? lineLabel[item.line] : "未归类"}</span><i>·</i><span>{item.projectId || "未关联项目"}</span><i>·</i><span>{item.estimatedMinutes/60}h</span></div><button className="record-title" onClick={() => openRecord(item)}>{item.title}<span>打开任务 →</span></button><p className="next-action"><b>下一步</b>{firstAction(item)}</p></div><div className="record-actions">{item.sourceUrl && <a href={item.sourceUrl} target="_blank" rel="noreferrer">打开资料 ↗</a>}<select aria-label={`修改 ${item.title} 状态`} value={item.status} onChange={(e) => updateStatus(item.id,e.target.value as Status)}>{Object.entries(statusLabel).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></div></article>)}{filtered.length === 0 && <div className="empty">没有匹配记录，换个关键词或新建一条。</div>}</div></section>}
+      {view === "routes" && <div className="view-stack">
+        <section className="route-intro"><p>路线不是待办清单，而是解释前后顺序。任务可以调整，成长方向保持可见。</p></section>
+        <div className="line-tabs">{(Object.keys(lineMeta) as Line[]).map((line) =>
+          <button key={line} className={routeLine === line ? "active" : ""} onClick={() => setRouteLine(line)}>
+            <span>{line}</span><strong>{lineMeta[line].name}</strong><small>{lineMeta[line].purpose}</small>
+          </button>
+        )}</div>
+        <section className="route-list">
+          {routeStages[routeLine].map((stage,index) => {
+            const tasks = records.filter((item) => item.line === routeLine && item.module.startsWith(stage.id));
+            return <article key={stage.id}>
+              <div className="route-marker"><span>{stage.order}</span>{index < routeStages[routeLine].length - 1 && <i />}</div>
+              <div className="route-content"><header><div><small>{stage.id}</small><h3>{stage.name}</h3><p>{stage.topics}</p></div><b>{tasks.length} 项任务</b></header>
+                {tasks.length > 0 && <div className="route-tasks">{tasks.map((item) => <button key={item.id} onClick={() => setSelected({...item})}><span>{horizonMeta[item.status].label}</span>{item.title}<b>{stars(item.estimatedMinutes)} ★</b></button>)}</div>}
+              </div>
+            </article>;
+          })}
+        </section>
+      </div>}
 
-      {view === "projects" && <div className="project-layout"><div className="project-switcher" aria-label="选择项目">{projects.map((project) => <button key={project} className={selectedProject === project ? "active" : ""} onClick={() => setSelectedProject(project)}><span>{project}</span><small>{records.filter((item) => item.projectId === project && item.status !== "done").length} 项待推进</small></button>)}</div><section className="project-hero"><p className="eyebrow">Project workspace · 项目工作空间</p><h2>{selectedProject}</h2><p>{currentProject.goal}</p><div className="project-tags"><span>{projectRecords.some((item) => item.status === "in_progress") ? "进行中" : "待推进"}</span><span>{projectRecords.length} 条关联任务</span><span>{projectRecords.filter((item) => item.evidence).length} 项已有成果</span></div></section><section className="project-grid context-grid"><article className="panel project-next"><p className="eyebrow">Next</p><h3>现在先做什么</h3><p>{currentProject.next}</p>{projectRecords.find((item) => item.status !== "done") && <button className="primary-button" onClick={() => startRecord(projectRecords.find((item) => item.status !== "done")!)}>开始当前任务</button>}</article><article className="panel"><p className="eyebrow">Outcome</p><h3>这个项目最后留下什么</h3><p className="body-copy">{currentProject.outcome}</p></article><article className="panel wide"><div className="panel-head"><div><p className="eyebrow">Tasks & resources</p><h3>任务与核心资料</h3></div><span className="soft-pill">只展示每项任务最需要的一份资料</span></div><div className="project-task-list">{projectRecords.map((item) => <div className="project-task" key={item.id}><button onClick={() => openRecord(item)}><span>{statusLabel[item.status]}</span><strong>{item.title}</strong><small>{firstAction(item)}</small></button>{item.sourceUrl ? <a href={item.sourceUrl} target="_blank" rel="noreferrer">核心资料 ↗</a> : <em>无需额外资料</em>}</div>)}</div></article><article className="panel wide"><div className="panel-head"><div><p className="eyebrow">Outputs</p><h3>已经留下的成果</h3></div></div><div className="output-list">{projectRecords.filter((item) => item.evidence).map((item) => <a key={item.id} href={item.evidence.startsWith("http") ? item.evidence : undefined} target="_blank" rel="noreferrer"><span>{item.title}</span><strong>{item.evidence}</strong></a>)}{projectRecords.every((item) => !item.evidence) && <div className="resource-empty">还没有成果。完成第一项任务后，把文档、仓库或一句结果放进任务里，这里会自动出现。</div>}</div></article></section></div>}
+      {view === "projects" && <div className="project-layout">
+        <aside><p>项目</p>{projects.map((name) => <button key={name} className={project === name ? "active" : ""} onClick={() => setProject(name)}>{name}<span>{records.filter((item) => item.projectId === name).length}</span></button>)}</aside>
+        <section className="project-detail"><header><span>可交付成果容器</span><h2>{project}</h2><p>{project === "Notebook 测评" ? "验证基于资料的 AI 工作台能否产出有依据、可复现、可继续加工的成果。" : "项目可以跨主线；每一步必须留下能继续使用的结果。"}</p></header>
+          <div className="chain">{projectRecords.map((item,index) => <article key={item.id}>
+            <div className="chain-index">{item.status === "done" ? "✓" : index + 1}</div>
+            <button onClick={() => setSelected({...item})}><span>{item.module}</span><strong>{item.title}</strong><p>{item.completionCriteria}</p><footer><b>{horizonMeta[item.status].label}</b><span>{stars(item.estimatedMinutes)} ★</span>{item.evidence && <em>已有证据</em>}</footer></button>
+          </article>)}</div>
+        </section>
+      </div>}
 
-      {view === "review" && <section className="review-layout"><div className="review-intro"><p className="eyebrow">Weekly review</p><h2>不是汇报完成率，而是更新下一轮判断。</h2><p>每周保存一条独立记录，保留“计划—结果—偏差—调整”的历史。</p></div><form className="panel review-form" onSubmit={saveReview}><label>本周最大进展<textarea value={review.progress} onChange={(e) => setReview({...review,progress:e.target.value})} /></label><label>主要偏差与原因<textarea placeholder="哪些事情比预计更慢？为什么？" value={review.deviation} onChange={(e) => setReview({...review,deviation:e.target.value})} /></label><label>下周调整动作<textarea value={review.adjustments} onChange={(e) => setReview({...review,adjustments:e.target.value})} /></label><div className="form-actions"><span>保存后可在下一次打开时继续复盘</span><button className="primary-button" type="submit">保存复盘</button></div></form></section>}
+      {view === "concepts" && <div className="view-stack">
+        <section className="concept-head"><div><span>学习主线 · 闪卡</span><h2>先回忆，再核对官方解释。</h2><p>熟悉后可以隐藏概念标签；未来直接导出到 Anki，不在这里重做间隔复习算法。</p></div><button className="primary" onClick={() => setConceptOpen(true)}>＋ 新增概念</button></section>
+        <div className="concept-filter"><button className={conceptFilter === "learning" ? "active" : ""} onClick={() => setConceptFilter("learning")}>待学习 {concepts.filter((item) => !item.familiar).length}</button><button className={conceptFilter === "familiar" ? "active" : ""} onClick={() => setConceptFilter("familiar")}>已熟悉 {concepts.filter((item) => item.familiar).length}</button></div>
+        <section className="concept-grid">{concepts.filter((item) => conceptFilter === "familiar" ? item.familiar : !item.familiar).map((card) => <article className="concept-card" key={card.id}>
+          <header><span>{card.module}</span><button onClick={() => toggleConcept(card)}>{card.familiar ? "移回学习" : "标记熟悉"}</button></header>
+          <h3>{card.title}</h3>
+          <details><summary>展开核对</summary><div className="concept-body"><section><b>官方解释</b><p>{card.officialDefinition}</p></section><section><b>白话解释</b><p>{card.plainExplanation}</p></section><section><b>例子</b><p>{card.example}</p></section><section><b>常见误区</b><p>{card.misconception}</p></section><a href={card.sourceUrl} target="_blank" rel="noreferrer">查看官方来源 ↗</a></div></details>
+        </article>)}</section>
+      </div>}
+
+      {view === "tools" && <div className="view-stack">
+        <section className="tool-head"><span>工作台地图</span><h2>Trellis 是串联中台，不吞掉专用工具。</h2><p>每个工具只做最擅长的部分；回到 Trellis 的是链接、结论、决定、证据和下一步。</p></section>
+        <section className="tool-map">{toolMap.map((tool,index) => <article key={tool.name} className={index === 0 ? "core" : ""}><header><span>{String(index + 1).padStart(2,"0")}</span><h3>{tool.name}</h3></header><p>{tool.role}</p><div><span>回写 Trellis</span><strong>{tool.write}</strong></div><footer>{tool.action}</footer></article>)}</section>
+        <section className="tool-flow"><span>外部 Inbox / 资料</span><b>→</b><span>专用 AI 工作台</span><b>→</b><strong>Trellis 决策与行动</strong><b>→</b><span>作品 / 证据 / 复盘</span></section>
+      </div>}
+
+      {view === "review" && <div className="review-layout-v1">
+        <section><span>Weekly review</span><h2>不是汇报完成率，<br/>而是更新下一轮判断。</h2><p>记录完成第四次发生在第几天、真实投入和有效证据；不追究任务为什么没在某个固定日期完成。</p>
+          <div className="review-facts"><div><strong>{doneCount}</strong><span>完成</span></div><div><strong>{records.reduce((sum,item) => sum + item.actualMinutes,0)}</strong><span>实际分钟</span></div><div><strong>{evidenceCount}</strong><span>证据</span></div></div>
+        </section>
+        <form onSubmit={saveReview}>
+          <label>本周最大进展<textarea value={review.progress} onChange={(e) => setReview({...review,progress:e.target.value})}/></label>
+          <label>主要偏差与原因<textarea value={review.deviation} onChange={(e) => setReview({...review,deviation:e.target.value})} placeholder="哪些事情比预计慢？真正原因是什么？"/></label>
+          <label>哪些安排有效 / 无效<textarea value={review.feedback} onChange={(e) => setReview({...review,feedback:e.target.value})} placeholder="星级、任务大小、资料入口是否帮助启动？"/></label>
+          <label>下一周调整<textarea value={review.adjustments} onChange={(e) => setReview({...review,adjustments:e.target.value})}/></label>
+          <button className="primary" type="submit">保存本周判断</button>
+        </form>
+      </div>}
     </section>
 
-    {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && setModalOpen(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="new-record-title"><div className="panel-head"><div><p className="eyebrow">New record</p><h3 id="new-record-title">记下一件要做的事</h3><p className="section-help">不用写编号和评判标准，系统会先生成基础步骤与完成结果。</p></div><button className="close-button" aria-label="关闭" onClick={() => setModalOpen(false)}>×</button></div><form onSubmit={createRecord} className="new-form"><label>任务名称<input name="title" required autoFocus placeholder="例如：完成企业知识库底座对比" /></label><div className="form-grid simple"><label>属于哪条线<select name="line" defaultValue="G">{(["G","J","B","I"] as Line[]).map((line) => <option key={line} value={line}>{lineLabel[line]}</option>)}</select></label><label>预计时间<input name="hours" type="number" min="0.5" max="20" step="0.5" defaultValue="1" /></label></div><label>关联项目<input name="projectId" required placeholder="例如：Notebook 专业测评" /></label><label>你想完成什么<textarea name="coreAction" required placeholder="用一句话写清想得到的结果，后续步骤和完成标准由系统补齐" /></label><label>相关资料链接（选填）<input name="sourceUrl" type="url" placeholder="https://..." /></label><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setModalOpen(false)}>取消</button><button className="primary-button" type="submit">创建任务</button></div></form></section></div>}
+    {newOpen && <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && setNewOpen(false)}>
+      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="new-title">
+        <header><div><span>动态添加</span><h2 id="new-title">新增一个能开始的任务</h2></div><button onClick={() => setNewOpen(false)} aria-label="关闭">×</button></header>
+        <form onSubmit={createTask}>
+          <label>任务名称<input required name="title" autoFocus placeholder="例如：整理 Notebook 的三份核心资料"/></label>
+          <div className="form-row"><label>主线<select name="line">{(Object.keys(lineMeta) as Line[]).map((line) => <option key={line} value={line}>{line} · {lineMeta[line].name}</option>)}</select></label><label>状态<select name="status" defaultValue="near">{boardHorizons.concat(["proposal"]).map((value) => <option key={value} value={value}>{horizonMeta[value].label}</option>)}</select></label><label>时间预算<select name="minutes" defaultValue="30">{[15,30,45,60,75,90,120].map((minutes) => <option key={minutes} value={minutes}>{stars(minutes)} ★ · {minutes} 分钟</option>)}</select></label></div>
+          <div className="form-row two"><label>路线阶段<input required name="module" placeholder="例如：G5 · LLM 应用工程"/></label><label>关联项目<input required name="projectId" placeholder="例如：Notebook 测评"/></label></div>
+          <label>为什么现在做<textarea required name="why" placeholder="它解决什么问题，为什么排在这里？"/></label>
+          <label>第一步是什么<textarea required name="next" placeholder="写一个打开页面后马上能做的动作"/></label>
+          <label>完成后留下什么<textarea required name="evidence" placeholder="链接、文档、截图、代码或一句可核验结果"/></label>
+          <label>核心资料链接（选填）<input name="sourceUrl" type="url" placeholder="https://..."/></label>
+          <footer><button type="button" onClick={() => setNewOpen(false)}>取消</button><button className="primary" type="submit">创建任务</button></footer>
+        </form>
+      </section>
+    </div>}
 
-    {selectedId && draft && <div className="drawer-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && (setSelectedId(null),setDraft(null))}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-detail-title"><div className="drawer-head"><div><p className="eyebrow">{draft.line ? lineLabel[draft.line] : "任务"} · {draft.projectId || "未关联项目"}</p><h2 id="task-detail-title">{draft.title}</h2></div><button className="close-button" aria-label="关闭任务详情" onClick={() => (setSelectedId(null),setDraft(null))}>×</button></div><form className="detail-form simple-detail" onSubmit={saveRecord}><section className="start-panel"><p className="task-label">现在只做这一步</p><h3>{firstAction(draft)}</h3><div><span>预计投入 {draft.estimatedMinutes / 60} 小时</span>{draft.sourceUrl && <a href={draft.sourceUrl} target="_blank" rel="noreferrer">打开核心资料 ↗</a>}</div></section><section className="quick-status"><div><span>当前状态</span><select value={draft.status} onChange={(e) => setDraft({...draft,status:e.target.value as Status})}>{Object.entries(statusLabel).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></div><div><span>完成以后</span><strong>{draft.status === "done" ? "成果已归档" : "把结果留在任务中"}</strong></div></section><section className="task-section"><p className="task-label">为什么做 / 要得到什么</p><textarea className="plain-editor" value={draft.coreAction} onChange={(e) => setDraft({...draft,coreAction:e.target.value})} /></section><section className="task-section"><p className="task-label">照着做</p><div className="step-list numbered">{actionSteps(draft.executionMethod).map((step,index) => <div key={`${step}-${index}`}><span aria-hidden="true">{index + 1}</span><p>{step}</p></div>)}</div></section><section className="task-section"><p className="task-label">核心资料</p>{draft.sourceUrl ? <a className="resource-card" href={draft.sourceUrl} target="_blank" rel="noreferrer"><span><b>打开后只看任务需要的部分</b><small>{draft.learningScope || "按任务范围查阅即可，不需要从头学完。"}</small></span><strong>打开 ↗</strong></a> : <div className="resource-empty">这项任务暂时不需要额外资料，直接按步骤开始。</div>}</section><section className="task-section deliverable-card"><p className="task-label">最后留下什么</p><p>{draft.completionCriteria}</p></section>{draft.blockers && <section className="task-section blocker-card"><p className="task-label">如果卡住</p><p>{draft.blockers}</p></section>}<section className="task-section result-section"><p className="task-label">完成后记录结果</p><input value={draft.evidence} onChange={(e) => setDraft({...draft,evidence:e.target.value})} placeholder="粘贴文档、仓库或成果链接；没有链接也可写一句结果" /></section><details className="advanced-edit"><summary>调整任务信息</summary><div className="advanced-fields"><label>任务名称<input value={draft.title} onChange={(e) => setDraft({...draft,title:e.target.value})} /></label><div className="detail-grid"><label>主线<select value={draft.line ?? "G"} onChange={(e) => setDraft({...draft,line:e.target.value as Line})}>{(["G","J","B","I"] as Line[]).map((line) => <option key={line} value={line}>{lineLabel[line]}</option>)}</select></label><label>预计分钟<input type="number" min="0" step="30" value={draft.estimatedMinutes} onChange={(e) => setDraft({...draft,estimatedMinutes:Number(e.target.value)})} /></label></div><label>执行步骤<textarea value={draft.executionMethod} onChange={(e) => setDraft({...draft,executionMethod:e.target.value})} /></label><label>核心资料链接<input type="url" value={draft.sourceUrl ?? ""} onChange={(e) => setDraft({...draft,sourceUrl:e.target.value || null})} /></label><label>最后交付结果<textarea value={draft.completionCriteria} onChange={(e) => setDraft({...draft,completionCriteria:e.target.value})} /></label></div></details><div className="drawer-actions"><span>不需要自己写评判标准；执行、留下结果即可。</span><button className="primary-button" type="submit">保存任务进度</button></div></form></aside></div>}
+    {conceptOpen && <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && setConceptOpen(false)}>
+      <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="concept-title">
+        <header><div><span>Concept flashcard</span><h2 id="concept-title">新增概念卡</h2></div><button onClick={() => setConceptOpen(false)} aria-label="关闭">×</button></header>
+        <form onSubmit={createConcept}>
+          <div className="form-row two"><label>概念名称<input required name="title" autoFocus placeholder="例如：Embedding / 向量嵌入"/></label><label>学习阶段<input required name="module" defaultValue="G5 · LLM 应用工程"/></label></div>
+          <label>官方解释<textarea required name="officialDefinition" placeholder="优先依据官方文档、论文或教材"/></label>
+          <label>白话解释<textarea required name="plainExplanation" placeholder="用自己的话讲清楚"/></label>
+          <div className="form-row two"><label>例子<textarea required name="example"/></label><label>常见误区<textarea required name="misconception"/></label></div>
+          <label>官方来源链接<input required name="sourceUrl" type="url" placeholder="https://..."/></label>
+          <footer><button type="button" onClick={() => setConceptOpen(false)}>取消</button><button className="primary" type="submit">保存概念卡</button></footer>
+        </form>
+      </section>
+    </div>}
+
+    {selected && <div className="overlay drawer-overlay" onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}>
+      <aside className="task-drawer-v1" role="dialog" aria-modal="true" aria-labelledby="task-title">
+        <header><div><span style={{color:lineMeta[selected.line].color}}>{selected.line} · {lineMeta[selected.line].name} / {selected.projectId}</span><h2 id="task-title">{selected.title}</h2></div><button onClick={() => setSelected(null)} aria-label="关闭">×</button></header>
+        <form onSubmit={saveTask}>
+          <section className="next-panel"><span>现在只做这一步</span><h3>{firstStep(selected.executionMethod,selected.nextStep)}</h3><div><b>{stars(selected.estimatedMinutes)} ★ · 约 {selected.estimatedMinutes} 分钟</b>{selected.sourceUrl && <a href={selected.sourceUrl} target="_blank" rel="noreferrer">打开核心资料 ↗</a>}</div></section>
+          <div className="drawer-grid three">
+            <label>状态<select value={selected.status} onChange={(e) => setSelected({...selected,status:e.target.value as Horizon})}>{Object.keys(horizonMeta).map((value) => <option key={value} value={value}>{horizonMeta[value as Horizon].label}</option>)}</select></label>
+            <label>预计分钟<input type="number" min="15" step="15" value={selected.estimatedMinutes} onChange={(e) => setSelected({...selected,estimatedMinutes:Number(e.target.value)})}/></label>
+            <label>实际分钟<input type="number" min="0" step="5" value={selected.actualMinutes} onChange={(e) => setSelected({...selected,actualMinutes:Number(e.target.value)})}/></label>
+          </div>
+          <label>路线阶段与顺序<input value={selected.module} onChange={(e) => setSelected({...selected,module:e.target.value})}/></label>
+          <label>为什么这样安排<textarea value={selected.coreAction} onChange={(e) => setSelected({...selected,coreAction:e.target.value})}/></label>
+          <label>任务边界<textarea value={selected.learningScope} onChange={(e) => setSelected({...selected,learningScope:e.target.value})}/></label>
+          <label>执行步骤<textarea value={selected.executionMethod} onChange={(e) => setSelected({...selected,executionMethod:e.target.value})}/></label>
+          <label>前置条件 / 卡住时怎么办<textarea value={selected.blockers} onChange={(e) => setSelected({...selected,blockers:e.target.value})}/></label>
+          <label>完成标准<textarea value={selected.completionCriteria} onChange={(e) => setSelected({...selected,completionCriteria:e.target.value})}/></label>
+          <div className="drawer-grid two"><label>核心资料链接<input type="url" value={selected.sourceUrl ?? ""} onChange={(e) => setSelected({...selected,sourceUrl:e.target.value || null})}/></label><label>证据链接或结果<input value={selected.evidence} onChange={(e) => setSelected({...selected,evidence:e.target.value})} placeholder="完成后回写"/></label></div>
+          <section className="ai-panel"><header><div><span>与 AI 讨论</span><p>复制包含路线、原因、前置、下一步和资料的最小上下文。</p></div><button type="button" onClick={() => copyContext(selected)}>复制上下文</button></header>
+            <textarea value={selected.aiReview} onChange={(e) => setSelected({...selected,aiReview:e.target.value})} placeholder="把外部讨论的结论、分歧和下一步粘贴到这里；路线修改必须先标为待确认提案。"/>
+          </section>
+          <footer className="drawer-save"><span>保存会同时记录实际用时、证据和讨论摘要。</span><button className="primary" type="submit">保存任务</button></footer>
+        </form>
+      </aside>
+    </div>}
   </main>;
 }

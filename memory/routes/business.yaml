@@ -1,0 +1,24 @@
+schema_version: 1
+updated_at: 2026-08-07
+id: B
+name: 商业探索
+status: confirmed
+principle: "商业探索不以已有验证成果为前提；先通过低成本发布与真实反馈验证方向"
+directions:
+  - id: B1
+    name: X + 小红书自媒体
+    type: channel_experiment
+    ai_roles: [选题研究, 素材整理, 草稿, 多平台改写, 数据复盘]
+    horizon: 短期启动
+  - id: B2
+    name: 短视频 / 抖音
+    type: channel_experiment
+    ai_roles: [脚本, 分镜, 剪辑辅助, 标题封面, 数据复盘]
+    horizon: 长期规划
+  - id: B3
+    name: 能源平台
+    type: product_project
+    ai_roles: [研究, 需求分析, 原型, 文档, 开发辅助]
+    horizon: 长期规划
+    note: 暂不视为长期运营主线
+validation_fields: [假设, 最小发布物, 渠道, 反馈, 成本, 是否继续]

@@ -1,0 +1,58 @@
+schema_version: 1
+updated_at: 2026-08-07
+status: confirmed
+
+product_name: Trellis
+language: zh-CN
+default_learning_depth: practice
+
+planning:
+  horizon_labels:
+    active: 进行中
+    near: 短期启动
+    later: 长期规划
+    paused: 暂停
+    done: 完成
+    proposal: 待确认
+  interval_first: true
+  fixed_daily_schedule: false
+  weekly_board: true
+  show_route_ahead: true
+  limit_weekly_commitments: true
+
+time_budget:
+  unit_minutes: 15
+  unit_stars: 0.5
+  minimum_stars: 0.5
+  live_timer_v0_1: false
+  record_actual_minutes: true
+
+task_design:
+  micro_habit_is_principle: true
+  required_context:
+    - why_now
+    - route_stage
+    - order
+    - prerequisites
+    - next_action
+    - estimated_stars
+    - completion_criteria
+    - expected_evidence
+    - source_links
+
+ai:
+  model_neutral: true
+  paid_api_required_v0_1: false
+  fine_tuning_for_memory: false
+  contextual_discussion: true
+  writes_require_confirmation: true
+
+knowledge_boundary:
+  inbox_owner: Obsidian/Hermes
+  trellis_stores:
+    - links
+    - summaries
+    - decisions
+    - tasks
+    - evidence
+  avoid_duplicate_raw_content: true
