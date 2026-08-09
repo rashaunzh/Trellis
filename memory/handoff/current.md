@@ -1,10 +1,10 @@
 # Current Handoff
 
-Updated: 2026-08-07
+Updated: 2026-08-10
 
 ## Current objective
 
-完成 Trellis V0.1 的构建、运行验证与 owner-only 发布，然后开始第一周 Notebook 测评真实使用。
+将已合并并通过 CI 的 Trellis V0.1 发布到 owner-only Sites，完成线上冒烟验证，然后开始第一周 Notebook 测评真实使用。
 
 ## Implemented
 
@@ -20,28 +20,40 @@ Updated: 2026-08-07
 - 学习、求职、商业和想法各阶段的长期入口任务。
 - 周复盘及“安排是否有效”反馈。
 - D1 API 新状态、旧状态兼容和新版 starter records。
-- CI 工作流与 Trellis SSR 测试。
+- CI 工作流、Trellis SSR 测试及 Sites 发布构建包上传。
 
-## Authoritative branch
+## Authoritative source
 
 - GitHub repository: `rashaunzh/AI-Learning-OS`
-- Branch: `codex/trellis-foundation-memory`
-- Draft PR: https://github.com/rashaunzh/AI-Learning-OS/pull/1
+- Release PR: https://github.com/rashaunzh/AI-Learning-OS/pull/2
+- Release PR CI: passed
+- Squash merge commit: `d0427b05d98ed0b24dfd76f79c9d90a0594840d3`
+- Current release-tooling commit on `main`: `fcd8b2cbaed3991809c610674462a445f3e2527d`
 - Sites project: `appgprj_6a72003abefc8191a4bd0c79702ee892`
-- Sites display title has been updated to Trellis; existing production URL still serves the old deployed version.
+- Sites title: Trellis
+- Production URL: https://ai-learning-os.rashaunzh.chatgpt.site
+- Access: custom, owner only
+- Production is still version 7 and does not yet contain Trellis V0.1.
 
-## Validation still required
+## Completed validation
 
-1. Run `npm test` on the exact branch head.
-2. Fix any build/type/render failure.
-3. Push the verified source state to the Sites-configured `main` source branch.
-4. Save a Sites version and inspect build/screenshot.
-5. Because the access policy is owner-only, use the private deployment path after verification.
-6. Test task create, status move, evidence save, AI summary save, review save and refresh persistence.
+1. Pull request branch was rebased onto the latest `main` before release.
+2. GitHub Actions ran `npm ci` and `npm test` successfully on PR #2.
+3. PR #2 was merged into `main`.
+4. The old superseded PR #1 was closed.
+5. CI now packages `dist` as a short-retention Sites artifact.
+
+## Release still required
+
+1. Produce a CI artifact for the exact release handoff commit.
+2. Push the exact verified source state to the Sites-configured `main` source branch.
+3. Save and privately deploy a new Sites version.
+4. Inspect deployment status and screenshot.
+5. Test task create, status move, evidence save, AI summary save, review save and refresh persistence.
 
 ## Current tooling issue
 
-The desktop shell command layer hangs even for `cmd /c echo` in `C:\tmp`. Two command styles and multiple working directories were tried and terminated. GitHub connector writes work normally. GitHub Actions currently reports no run for the branch workflow.
+The desktop shell command layer still hangs even for a directory listing, so GitHub and Sites connector operations are being used wherever possible. A Sites deployment must not be saved until its exact verified source state has been pushed to the configured Sites source repository.
 
 ## First real task after deployment
 
