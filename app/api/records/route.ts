@@ -10,7 +10,14 @@ const allowedStatuses = new Set(["active", "near", "later", "paused", "done", "p
 export async function GET() {
   try {
     const db = await getDb();
-    await db.insert(records).values(starterRecords).onConflictDoNothing();
+    // D1 limits the number of bound parameters in one statement. Each starter
+    // record supplies many columns, so inserting the full route map at once
+    // exceeds that limit even though smaller concept-card seeds succeed.
+    for (let index = 0; index < starterRecords.length; index += 3) {
+      await db.insert(records)
+        .values(starterRecords.slice(index, index + 3))
+        .onConflictDoNothing();
+    }
     const rows = await db.select().from(records).where(isNull(records.deletedAt)).orderBy(desc(records.updatedAt));
     return Response.json({
       records: rows
