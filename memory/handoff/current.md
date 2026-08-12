@@ -1,10 +1,10 @@
 # Current Handoff
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 ## Current objective
 
-完成 Trellis V0.1 生产数据链路修复与最终验收，然后从 `NB-01` 开始第一周 Notebook 测评真实使用。
+保留 Trellis V0.1 生产版本和数据，完成 V0.2 产品方案落库。下一阶段先固定本地开发环境，再设计 AI 通识 V1 内容包；尚未开始 V0.2 代码实现。
 
 ## Production status
 
@@ -12,26 +12,35 @@ Updated: 2026-08-11
 - Production URL: https://ai-learning-os.rashaunzh.chatgpt.site
 - Sites project: `appgprj_6a72003abefc8191a4bd0c79702ee892`
 - Access: custom, owner only
-- Sites version 8 已于 2026-08-11 发布。
-- Version 8 source: `f22e79dad394bf8ec8801392ff433879c1ab1c58`
-- 首页返回 200，并显示 Trellis 与 Notebook V0.1 内容。
+- V0.1 D1 分批写入修复已通过 PR #4 合并到 `main`，合并提交为 `59a5258cee5e0b3903460b4dad97f05d3db79c7f`。
+- 当前文档工作不修改生产代码或部署。
 
-## Current fix
+## Confirmed V0.2 direction
 
-- 生产验收发现 `GET /api/records` 首次批量插入 23 条任务超过 D1 单语句参数上限。
-- `app/api/records/route.ts` 已改为每批写入 3 条。
-- CI 发布包已改为保留 `dist/` 目录。
-- 修复已在本地通过生产构建和 2 项渲染测试，尚待提交、CI、合并和再次部署。
+- 长期服务所有学习领域，首期使用 AI 通识基础验证通用内核。
+- 产品中心是领域底图、个性路径、学习陪伴、掌握评估和动态调整，不是 Todo 或职业导航。
+- 资源采用 AI 从一手来源起草、人工审核后发布的版本化内容包。
+- 学习者面对一个长期导师；低风险调整自动执行，重大路径变化需要确认。
+- 只做周容量与核心/可选活动，不做日排程。
+- 单用户验证、多用户兼容、模型中立 BYOK。
+- V0.1 数据和四主线保留并渐进迁移。
+
+## Authoritative documents
+
+- V0.2 PRD: `docs/TRELLIS_V0.2_PRD.md`
+- Market and learning foundations: `docs/V0.2_MARKET_AND_LEARNING_FOUNDATIONS.md`
+- Confirmed decision: `memory/decisions/2026-08-12-v0.2-adaptive-learning.md`
+- Design session: `memory/sessions/2026-08-12-v0.2-product-design.md`
 
 ## Exact next step
 
-1. 提交 D1 分批写入与 CI 打包修复。
-2. 等待 CI 通过后合并并发布新的 Sites 版本。
-3. 验证任务创建、状态迁移、实际用时、证据、AI 摘要、周复盘与刷新持久化。
-4. 打开 `NB-01 确定 Notebook 测评对象与核心资料`，填写 Notebook 链接、3–5 份资料和一句测评目标。
+1. 固定本机开发环境：VS Code、Node 22 LTS、Git Bash、Wrangler 和固定仓库目录。
+2. 在不写代码前先设计 AI 通识 V1 内容包：能力节点、知识前置、综合情境任务、量规和来源目录。
+3. 审核内容包后，再为通用数据模型和 V0.1 渐进迁移制定实现规格。
 
-## Product boundary
+## Boundaries
 
-- 先进行一周重点验证和连续两周真实使用，再决定 V0.2。
-- V0.1 不增加 MCP、自动 Inbox 同步、实时计时器或付费模型路由。
-- 不公开 owner-only 站点或敏感资料。
+- 不在产品方案提交中修改应用代码、数据库或生产部署。
+- 不清空或覆盖 V0.1 数据。
+- 不同时建设第二个领域内容包。
+- 不建设日历、每日打卡、实时计时器、完整课程平台或公开多用户市场。
