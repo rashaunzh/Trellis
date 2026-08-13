@@ -28,8 +28,8 @@ scope: product, routes, memory
 
 ## 形成的文档
 
-- `docs/TRELLIS_PRD.md`
-- `docs/MEMORY_ARCHITECTURE.md`
-- `docs/AI_INTERACTION_PROTOCOL.md`
+- `docs/product/TRELLIS_V0.1_PRD.md`
+- `docs/architecture/MEMORY_ARCHITECTURE.md`
+- `docs/architecture/AI_INTERACTION_PROTOCOL.md`
 - `memory/routes/*.yaml`
 - `memory/decisions/2026-08-07-foundation.md`

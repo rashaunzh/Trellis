@@ -4,7 +4,7 @@ Updated: 2026-08-13
 
 ## Current objective
 
-保留 Trellis V0.1 生产版本和数据，完成 V0.2 产品方案落库。本地开发环境已固定为 D 盘仓库、Git Bash 和 Node 22.23.2；当前进入仓库整理，之后继续讨论 AI 通识 V1 内容包。尚未开始 V0.2 代码实现。
+保留 Trellis V0.1 生产版本和数据，以 V0.2 自适应学习方案推进下一版本。开发环境与仓库信息架构均已固定；当前立即讨论 AI 通识 V1 内容包，确认后制定第一条功能切片并开始编码。尚未开始 V0.2 代码实现。
 
 ## Production status
 
@@ -27,16 +27,16 @@ Updated: 2026-08-13
 
 ## Authoritative documents
 
-- V0.2 PRD: `docs/TRELLIS_V0.2_PRD.md`
-- Market and learning foundations: `docs/V0.2_MARKET_AND_LEARNING_FOUNDATIONS.md`
+- V0.2 PRD: `docs/product/TRELLIS_V0.2_PRD.md`
+- Market and learning foundations: `docs/research/V0.2_MARKET_AND_LEARNING_FOUNDATIONS.md`
 - Confirmed decision: `memory/decisions/2026-08-12-v0.2-adaptive-learning.md`
 - Design session: `memory/sessions/2026-08-12-v0.2-product-design.md`
 
 ## Exact next step
 
-1. 整理当前分支的环境配置与已有 `package-lock.json` 修改，保持改动边界清晰。
-2. 在不写代码前先设计 AI 通识 V1 内容包：能力节点、知识前置、综合情境任务、量规和来源目录。
-3. 审核内容包后，再为通用数据模型和 V0.1 渐进迁移制定实现规格。
+1. 以 `docs/product/TRELLIS_V0.2_PRD.md` 为唯一基线，确认 AI 通识 V1 的目标用户与毕业能力。
+2. 继续确认能力节点、知识前置、综合情境任务、量规和来源目录，并按提案 → 审核 → 确认落库。
+3. 内容包确认后，为第一条可运行功能切片与 V0.1 渐进迁移制定实现规格并开始编码。
 
 ## Local development environment
 
@@ -44,7 +44,15 @@ Updated: 2026-08-13
 - 已固定：VS Code 工作区默认 Git Bash、仓库根目录、项目内 Wrangler 4.92.0、Wrangler 日志进入 `.wrangler/`。
 - Node 安装：`D:\tools\node-v22.23.2-win-x64`；`.nvmrc` 与 `.node-version` 均固定为 22.23.2。
 - VS Code 新终端会把 Node 22 放在 PATH 最前；已打开的旧终端需要关闭重开。PowerShell 中使用 `npm.cmd` / `npx.cmd`，或直接使用 Git Bash。
-- 详细记录：`docs/LOCAL_DEVELOPMENT.md`、`memory/sessions/2026-08-13-local-development-environment.md`。
+- 详细记录：`docs/development/LOCAL_DEVELOPMENT.md`、`memory/sessions/2026-08-13-local-development-environment.md`。
+
+## Repository information architecture
+
+- 文档索引：`docs/README.md`。
+- 当前产品基线：`docs/product/TRELLIS_V0.2_PRD.md`；V0.1 仅作为生产兼容基线。
+- 目录契约：`docs/development/REPOSITORY_STRUCTURE.md`。
+- 旧版材料：`docs/archive/legacy-v0.1/`，仅供追溯。
+- 整理记录：`memory/sessions/2026-08-13-repository-information-architecture.md`。
 
 ## Boundaries
 

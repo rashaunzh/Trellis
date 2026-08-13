@@ -16,7 +16,7 @@ Before changing product state:
 2. Read memory/profile/preferences.yaml.
 3. Read memory/decisions/README.md and the decisions relevant to the task.
 4. Read the relevant route file under memory/routes/.
-5. Read docs/TRELLIS_PRD.md and docs/MEMORY_ARCHITECTURE.md for product or data-model work.
+5. Read docs/product/TRELLIS_V0.2_PRD.md and docs/architecture/MEMORY_ARCHITECTURE.md for product or data-model work. Read docs/product/TRELLIS_V0.1_PRD.md only when V0.1 compatibility is relevant.
 
 Before ending a material session:
 
