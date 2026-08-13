@@ -1,10 +1,10 @@
 # Current Handoff
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 ## Current objective
 
-保留 Trellis V0.1 生产版本和数据，完成 V0.2 产品方案落库。下一阶段先固定本地开发环境，再设计 AI 通识 V1 内容包；尚未开始 V0.2 代码实现。
+保留 Trellis V0.1 生产版本和数据，完成 V0.2 产品方案落库。本地开发环境已固定为 D 盘仓库、Git Bash 和 Node 22.23.2；当前进入仓库整理，之后继续讨论 AI 通识 V1 内容包。尚未开始 V0.2 代码实现。
 
 ## Production status
 
@@ -34,9 +34,17 @@ Updated: 2026-08-12
 
 ## Exact next step
 
-1. 固定本机开发环境：VS Code、Node 22 LTS、Git Bash、Wrangler 和固定仓库目录。
+1. 整理当前分支的环境配置与已有 `package-lock.json` 修改，保持改动边界清晰。
 2. 在不写代码前先设计 AI 通识 V1 内容包：能力节点、知识前置、综合情境任务、量规和来源目录。
 3. 审核内容包后，再为通用数据模型和 V0.1 渐进迁移制定实现规格。
+
+## Local development environment
+
+- 唯一仓库：`D:\02-Production\01-Trellis`；禁止操作 C 盘仓库副本。
+- 已固定：VS Code 工作区默认 Git Bash、仓库根目录、项目内 Wrangler 4.92.0、Wrangler 日志进入 `.wrangler/`。
+- Node 安装：`D:\tools\node-v22.23.2-win-x64`；`.nvmrc` 与 `.node-version` 均固定为 22.23.2。
+- VS Code 新终端会把 Node 22 放在 PATH 最前；已打开的旧终端需要关闭重开。PowerShell 中使用 `npm.cmd` / `npx.cmd`，或直接使用 Git Bash。
+- 详细记录：`docs/LOCAL_DEVELOPMENT.md`、`memory/sessions/2026-08-13-local-development-environment.md`。
 
 ## Boundaries
 
