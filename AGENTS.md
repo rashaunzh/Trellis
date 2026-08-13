@@ -44,6 +44,17 @@ Before ending a material session:
 - Fine-tuning is not a memory strategy. Durable memory belongs to Trellis.
 - NotebookLM and Gemini may be learning workbenches; Codex may be an execution workbench; Obsidian/Hermes may manage external information. Trellis stores state, decisions, relationships, and links rather than duplicating those tools.
 
+## User collaboration style
+
+- The current priority is to deliver a usable MVP, not to teach every line of code.
+- Codex may implement complete, testable feature slices across multiple files.
+- Before implementation, explain the goal, scope, and acceptance criteria in simple Chinese.
+- After implementation, summarize the important files, architecture decisions, and verification results.
+- Explain concepts that affect product decisions, debugging, security, or future maintenance.
+- Do not interrupt implementation to explain routine syntax line by line.
+- Keep changes reviewable and avoid unrelated refactors.
+- For risky or irreversible decisions, stop and ask for confirmation.
+
 ## Repository and privacy
 
 - V0.1 keeps code and personal memory in this private repository to support two-computer continuity.
