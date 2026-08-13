@@ -1,64 +1,71 @@
-# Trellis repository instructions
+# Trellis 仓库协作规则
 
-## Product identity
+## 产品身份
 
-- The product name is Trellis. Do not introduce the legacy names AI Learning OS, LOS, ALS, PACE, PAI, or PAA as current names.
-- Trellis is a personal growth and action system. It connects four long-running lines: Learning & Growth (G), Career (J), Business Exploration (B), and Ideas & Innovation (I).
-- Learning and Career have maintained route maps. Business and Ideas remain flexible.
-- A project is a deliverable container that may support more than one line. A stage is a route marker. A task is the smallest actionable unit. Do not treat stages and projects as synonyms.
-- A work artifact is evidence. It is not automatically a separate main line.
+- 产品正式名称是 Trellis。不得把 AI Learning OS、LOS、ALS、PACE、PAI 或 PAA 作为当前产品名称。
+- Trellis 是个人成长与行动系统，连接学习成长（G）、求职发展（J）、商业探索（B）和创新想法（I）四条长期主线。
+- 学习与求职维护路线图；商业与想法保持灵活。
+- 项目是交付容器，可以支持多条主线；阶段是路线标记；任务是最小行动。不得把阶段和项目视为同义词。
+- 工作成果属于证据，不自动成为独立主线。
 
-## Start and close every agent session
+## 每次会话的开始与结束
 
-Before changing product state:
+修改产品状态前：
 
-1. Read memory/handoff/current.md.
-2. Read memory/profile/preferences.yaml.
-3. Read memory/decisions/README.md and the decisions relevant to the task.
-4. Read the relevant route file under memory/routes/.
-5. Read docs/product/TRELLIS_V0.2_PRD.md and docs/architecture/MEMORY_ARCHITECTURE.md for product or data-model work. Read docs/product/TRELLIS_V0.1_PRD.md only when V0.1 compatibility is relevant.
+1. 阅读 `memory/handoff/current.md`。
+2. 阅读 `memory/profile/preferences.yaml`。
+3. 阅读 `memory/decisions/README.md` 和与当前任务相关的决策。
+4. 阅读 `memory/routes/` 下相关路线文件。
+5. 产品或数据模型工作需阅读 `docs/product/TRELLIS_V0.2_PRD.md` 和 `docs/architecture/MEMORY_ARCHITECTURE.md`；只有涉及 V0.1 兼容时才阅读 `docs/product/TRELLIS_V0.1_PRD.md`。
 
-Before ending a material session:
+产生持久结果后结束会话前：
 
-1. Create a dated note under memory/sessions/ when a durable result was produced.
-2. Update memory/handoff/current.md with the current focus, confirmed decisions, open questions, and exact next step.
-3. Propose, rather than silently apply, changes to long-term routes or user preferences.
-4. Link evidence and sources. Do not turn a conversational guess into a user fact.
+1. 在 `memory/sessions/` 新建按日期命名的会话记录。
+2. 更新 `memory/handoff/current.md`，写明当前重点、已确认决策、开放问题和准确下一步。
+3. 对长期路线或用户偏好的修改先提出建议，不得静默写入。
+4. 链接证据与来源，不得把对话中的推测写成用户事实。
 
-## Planning rules
+## 规划规则
 
-- Default time unit: 0.5 star = 15 minutes; 1 star = 30 minutes. Estimates may increase in 0.5-star steps.
-- Do not add a live timer in V0.1. Record actual time after work.
-- Weekly planning is an interval commitment, not a fixed calendar schedule. A recurring target such as four workouts may be completed on any days inside the week.
-- User-facing horizons are: 进行中, 短期启动, 长期规划, 暂停, 完成. Proposed AI changes remain in 待确认 until accepted.
-- Every important task should explain why it exists, its prerequisite or sequence when relevant, the next physical action, the expected evidence, and its primary source link.
-- A task may be immediately actionable without introducing a separate micro-habit feature.
-- Keep enough downstream tasks visible to preserve a sense of the long route, while limiting the weekly commitment.
+- 默认时间单位：0.5 星 = 15 分钟，1 星 = 30 分钟，按 0.5 星递增。
+- V0.1 不增加实时计时器，工作完成后记录实际用时。
+- 周计划是区间承诺，不是固定日程；例如每周锻炼四次可以在该周任意日期完成。
+- 用户可见周期为：进行中、短期启动、长期规划、暂停、完成。AI 未确认修改使用待确认。
+- 重要任务需要解释存在原因、前置与顺序、下一个实际动作、预期证据和主要来源链接。
+- 任务可以直接做到足够容易启动，不需要建立独立的微习惯功能。
+- 展示足够的后续任务以保留长期方向，但限制每周承诺数量。
 
-## AI rules
+## AI 规则
 
-- Trellis is model-neutral and V0.1 must not require paid model APIs.
-- AI discussion is contextual behavior on routes, stages, tasks, concepts, resources, projects, evidence, and JDs; do not make it a standalone destination.
-- AI may explain, compare, split, recommend, draft, and evaluate. It may not silently rewrite confirmed plans or memories.
-- All AI writes use proposal -> review -> confirmation.
-- Fine-tuning is not a memory strategy. Durable memory belongs to Trellis.
-- NotebookLM and Gemini may be learning workbenches; Codex may be an execution workbench; Obsidian/Hermes may manage external information. Trellis stores state, decisions, relationships, and links rather than duplicating those tools.
+- Trellis 保持模型中立，V0.1 不得要求付费模型 API。
+- AI 讨论是路线、阶段、任务、概念、资源、项目、证据和 JD 的上下文能力，不建立独立目的地。
+- AI 可以解释、比较、拆分、推荐、起草和评价，但不得静默重写已确认计划或记忆。
+- 所有 AI 写入遵循“提案 → 审核 → 确认”。
+- 微调不是记忆策略；持久记忆属于 Trellis。
+- NotebookLM 和 Gemini 可以作为学习工作台，Codex 可以作为执行工作台，Obsidian/Hermes 可以管理外部信息。Trellis 保存状态、决策、关系和链接，不复制这些工具。
 
-## User collaboration style
+## 文档语言
 
-- The current priority is to deliver a usable MVP, not to teach every line of code.
-- Codex may implement complete, testable feature slices across multiple files.
-- Before implementation, explain the goal, scope, and acceptance criteria in simple Chinese.
-- After implementation, summarize the important files, architecture decisions, and verification results.
-- Explain concepts that affect product decisions, debugging, security, or future maintenance.
-- Do not interrupt implementation to explain routine syntax line by line.
-- Keep changes reviewable and avoid unrelated refactors.
-- For risky or irreversible decisions, stop and ask for confirmation.
+- 面向用户和协作者的说明性文件默认使用简体中文，包括 `AGENTS.md`、README、PRD、架构说明、开发说明、决策、会话和交接记录。
+- 代码标识、命令、路径、协议名、标准字段名和必要技术术语可以保留英文，并在需要时提供中文解释。
+- 历史归档保留原文，不为统一语言改写历史证据。
 
-## Repository and privacy
+## 用户协作方式
 
-- V0.1 keeps code and personal memory in this private repository to support two-computer continuity.
-- Never commit API keys, cookies, access tokens, passwords, employer-confidential material, government identifiers, or unredacted sensitive resume data.
-- Git history is persistent. If a datum may need true deletion, store only a pointer to an approved external location.
-- Prefer one file per session or durable decision to reduce cross-device merge conflicts.
-- Pull before writing and push after closing a session. Stop on conflicts; do not overwrite another device's work.
+- 当前优先事项是交付可用 MVP，不是逐行教授代码。
+- Codex 可以跨多个文件实现完整、可测试的功能切片。
+- 实现前用简单中文说明目标、范围和验收标准。
+- 实现后总结重要文件、架构决策和验证结果。
+- 解释会影响产品决策、调试、安全或未来维护的概念。
+- 不因常规语法逐行讲解而打断实现。
+- 保持改动可审阅，避免无关重构。
+- 风险高或不可逆的决策必须暂停并请求确认。
+- 用户负责确认目标、产品边界和现实约束；能力结构、知识前置、活动、量规和来源目录由 Codex 在已确认边界内提出完整方案，不要求用户代替课程设计者逐项决策。
+
+## 仓库与隐私
+
+- V0.1 将代码和个人记忆保存在同一个私有仓库中，以支持两台电脑连续工作。
+- 禁止提交 API 密钥、Cookie、访问令牌、密码、雇主机密、政府身份标识或未脱敏的敏感简历数据。
+- Git 历史具有持久性；可能需要真正删除的数据只能保存指向已批准外部位置的链接。
+- 会话和持久决策优先一事一文件，减少跨设备合并冲突。
+- 会话开始前拉取，结束后推送；发生冲突时停止，不得覆盖另一台设备的工作。

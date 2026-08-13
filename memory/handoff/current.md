@@ -4,7 +4,7 @@ Updated: 2026-08-13
 
 ## Current objective
 
-保留 Trellis V0.1 生产版本和数据，以 V0.2 自适应学习方案推进下一版本。开发环境与仓库信息架构均已固定；当前立即讨论 AI 通识 V1 内容包，确认后制定第一条功能切片并开始编码。尚未开始 V0.2 代码实现。
+保留 Trellis V0.1 生产版本和数据，以 V0.2 自适应学习方案推进下一版本。AI 通识 V1 PRD 与第一条 `/learn` 功能切片已完成本地实现和测试，尚未部署生产。
 
 ## Production status
 
@@ -34,9 +34,9 @@ Updated: 2026-08-13
 
 ## Exact next step
 
-1. 以 `docs/product/TRELLIS_V0.2_PRD.md` 为唯一基线，确认 AI 通识 V1 的目标用户与毕业能力。
-2. 继续确认能力节点、知识前置、综合情境任务、量规和来源目录，并按提案 → 审核 → 确认落库。
-3. 内容包确认后，为第一条可运行功能切片与 V0.1 渐进迁移制定实现规格并开始编码。
+1. 审阅本地 `/learn` 的初始诊断和路径提案体验；不替换 V0.1 首页。
+2. Excel 文档控制可用后，对两份历史课程/计划表做只读差异审计，提出内容包修改而不自动写入。
+3. 确认第一切片体验后，实现首个能力的结构化学习会话；生产部署另行确认。
 
 ## Local development environment
 
@@ -53,6 +53,15 @@ Updated: 2026-08-13
 - 目录契约：`docs/development/REPOSITORY_STRUCTURE.md`。
 - 旧版材料：`docs/archive/legacy-v0.1/`，仅供追溯。
 - 整理记录：`memory/sessions/2026-08-13-repository-information-architecture.md`。
+
+## V0.2 first learning slice
+
+- 当前 PRD：`docs/product/TRELLIS_V0.2_PRD.md`。
+- 确认决策：`memory/decisions/2026-08-13-ai-literacy-v1.md`。
+- 本地入口：`/learn`；包含内容包、诊断草稿、确定性评分、路径提案和用户确认。
+- 新迁移：`drizzle/0002_tiny_masque.sql`；只新增学习表，不修改 V0.1 数据。
+- 验证：Node 22.23.2 lint 通过，构建通过，5 项测试通过。
+- 会话记录：`memory/sessions/2026-08-13-v0.2-first-learning-slice.md`。
 
 ## Boundaries
 

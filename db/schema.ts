@@ -59,3 +59,51 @@ export const weeklyReviews = sqliteTable("weekly_reviews", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const learningDiagnostics = sqliteTable("learning_diagnostics", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  contentPackId: text("content_pack_id").notNull(),
+  contentPackVersion: text("content_pack_version").notNull(),
+  goal: text("goal").notNull().default(""),
+  weeklyMinutes: integer("weekly_minutes").notNull().default(180),
+  selfReportJson: text("self_report_json").notNull().default("{}"),
+  materialsJson: text("materials_json").notNull().default("[]"),
+  answersJson: text("answers_json").notNull().default("{}"),
+  scoresJson: text("scores_json").notNull().default("{}"),
+  status: text("status", { enum:["draft","submitted"] }).notNull().default("draft"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("learning_diagnostics_owner_idx").on(table.ownerId),
+  uniqueIndex("learning_diagnostics_owner_pack_idx").on(table.ownerId, table.contentPackId, table.contentPackVersion),
+]);
+
+export const learningPathProposals = sqliteTable("learning_path_proposals", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  diagnosticId: text("diagnostic_id").notNull(),
+  contentPackVersion: text("content_pack_version").notNull(),
+  status: text("status", { enum:["pending","confirmed","rejected"] }).notNull().default("pending"),
+  explanation: text("explanation").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("learning_path_proposals_diagnostic_idx").on(table.diagnosticId, table.contentPackVersion),
+  index("learning_path_proposals_owner_idx").on(table.ownerId),
+]);
+
+export const learningPathItems = sqliteTable("learning_path_items", {
+  id: text("id").primaryKey(),
+  proposalId: text("proposal_id").notNull(),
+  capabilityId: text("capability_id").notNull(),
+  title: text("title").notNull(),
+  sequence: integer("sequence").notNull(),
+  targetLevel: integer("target_level").notNull(),
+  itemRole: text("item_role", { enum:["core","optional"] }).notNull().default("core"),
+  estimatedMinutes: integer("estimated_minutes").notNull(),
+  rationale: text("rationale").notNull(),
+}, (table) => [
+  uniqueIndex("learning_path_items_proposal_capability_idx").on(table.proposalId, table.capabilityId),
+  index("learning_path_items_proposal_idx").on(table.proposalId),
+]);
