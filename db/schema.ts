@@ -107,3 +107,17 @@ export const learningPathItems = sqliteTable("learning_path_items", {
   uniqueIndex("learning_path_items_proposal_capability_idx").on(table.proposalId, table.capabilityId),
   index("learning_path_items_proposal_idx").on(table.proposalId),
 ]);
+
+export const learningMvpStates = sqliteTable("learning_mvp_states", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  proposalId: text("proposal_id").notNull(),
+  activeCapabilityId: text("active_capability_id").notNull().default("mechanism"),
+  completedActivitiesJson: text("completed_activities_json").notNull().default("[]"),
+  evidenceJson: text("evidence_json").notNull().default("{}"),
+  reviewAnswersJson: text("review_answers_json").notNull().default("{}"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("learning_mvp_states_owner_idx").on(table.ownerId),
+  index("learning_mvp_states_proposal_idx").on(table.proposalId),
+]);

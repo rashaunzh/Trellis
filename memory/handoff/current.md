@@ -1,71 +1,36 @@
-# Current Handoff
+# 当前接力
 
-Updated: 2026-08-13
+更新时间：2026-08-13
 
-## Current objective
+## 当前目标
 
-保留 Trellis V0.1 生产版本和数据，以 V0.2 自适应学习方案推进下一版本。AI 通识 V1 PRD 与第一条 `/learn` 功能切片已完成本地实现和测试，尚未部署生产。
+把 Trellis 按 V0.2 最新讨论更新为可实际体验的自适应学习 MVP，而不是继续展示 V0.1 看板或止于静态路径提案。
 
-## Production status
+## 已完成
 
-- GitHub repository: `rashaunzh/AI-Learning-OS`
-- Production URL: https://ai-learning-os.rashaunzh.chatgpt.site
-- Sites project: `appgprj_6a72003abefc8191a4bd0c79702ee892`
-- Access: custom, owner only
-- V0.1 D1 分批写入修复已通过 PR #4 合并到 `main`，合并提交为 `59a5258cee5e0b3903460b4dad97f05d3db79c7f`。
-- 当前文档工作不修改生产代码或部署。
+- 默认 `/` 重定向到 `/learn`，V0.1 数据和 API 保留但不再作为默认界面。
+- AI 通识内容包升级为 1.1.0，六项能力包含前置、核心问题、学习结果、关键概念、情境练习和一手来源。
+- 新版流程支持：初始诊断、确定性评分、路径提案、拒绝重做、用户确认、首周编排和学习状态恢复。
+- 确认后提供继续学习、学习路径、复习与评估、资源库四个视图。
+- 第一项能力已具备结构化学习、情境回答和待复核证据闭环；未满足前置时不能进入后续能力。
+- 新增本地迁移 `drizzle/0003_lonely_blink.sql` 和 `learning_mvp_states` 状态表。
+- Node 22.23.2 下 lint、构建及 6 项测试通过；本地端到端数据链通过。
 
-## Confirmed V0.2 direction
+## 当前本地状态
 
-- 长期服务所有学习领域，首期使用 AI 通识基础验证通用内核。
-- 产品中心是领域底图、个性路径、学习陪伴、掌握评估和动态调整，不是 Todo 或职业导航。
-- 资源采用 AI 从一手来源起草、人工审核后发布的版本化内容包。
-- 学习者面对一个长期导师；低风险调整自动执行，重大路径变化需要确认。
-- 只做周容量与核心/可选活动，不做日排程。
-- 单用户验证、多用户兼容、模型中立 BYOK。
-- V0.1 数据和四主线保留并渐进迁移。
+- 唯一仓库：`D:\02-Production\01-Trellis`，禁止操作 C 盘仓库副本。
+- 本地入口：`http://127.0.0.1:3000/`，当前开发服务器已运行。
+- 本地验证数据已经确认一条 AI 通识 1.1.0 路径，并保存一项机制能力学习活动，可直接看到新版工作台。
+- 尚未部署生产，也没有修改生产 D1。
 
-## Authoritative documents
+## 尚未完成
 
-- V0.2 PRD: `docs/product/TRELLIS_V0.2_PRD.md`
-- Market and learning foundations: `docs/research/V0.2_MARKET_AND_LEARNING_FOUNDATIONS.md`
-- Confirmed decision: `memory/decisions/2026-08-12-v0.2-adaptive-learning.md`
-- Design session: `memory/sessions/2026-08-12-v0.2-product-design.md`
+- 浏览器自动化 CLI 当前不可用，需用户实际查看桌面/移动端视觉与交互。
+- 综合任务正式提交、AI 六维评分、用户确认掌握和延迟复测自动调度尚未实现。
+- 用户提供的两份 Excel 仍只作为参考材料名称保存，尚未完成内容差异审计。
 
-## Exact next step
+## 精确下一步
 
-1. 审阅本地 `/learn` 的初始诊断和路径提案体验；不替换 V0.1 首页。
-2. Excel 文档控制可用后，对两份历史课程/计划表做只读差异审计，提出内容包修改而不自动写入。
-3. 确认第一切片体验后，实现首个能力的结构化学习会话；生产部署另行确认。
-
-## Local development environment
-
-- 唯一仓库：`D:\02-Production\01-Trellis`；禁止操作 C 盘仓库副本。
-- 已固定：VS Code 工作区默认 Git Bash、仓库根目录、项目内 Wrangler 4.92.0、Wrangler 日志进入 `.wrangler/`。
-- Node 安装：`D:\tools\node-v22.23.2-win-x64`；`.nvmrc` 与 `.node-version` 均固定为 22.23.2。
-- VS Code 新终端会把 Node 22 放在 PATH 最前；已打开的旧终端需要关闭重开。PowerShell 中使用 `npm.cmd` / `npx.cmd`，或直接使用 Git Bash。
-- 详细记录：`docs/development/LOCAL_DEVELOPMENT.md`、`memory/sessions/2026-08-13-local-development-environment.md`。
-
-## Repository information architecture
-
-- 文档索引：`docs/README.md`。
-- 当前产品基线：`docs/product/TRELLIS_V0.2_PRD.md`；V0.1 仅作为生产兼容基线。
-- 目录契约：`docs/development/REPOSITORY_STRUCTURE.md`。
-- 旧版材料：`docs/archive/legacy-v0.1/`，仅供追溯。
-- 整理记录：`memory/sessions/2026-08-13-repository-information-architecture.md`。
-
-## V0.2 first learning slice
-
-- 当前 PRD：`docs/product/TRELLIS_V0.2_PRD.md`。
-- 确认决策：`memory/decisions/2026-08-13-ai-literacy-v1.md`。
-- 本地入口：`/learn`；包含内容包、诊断草稿、确定性评分、路径提案和用户确认。
-- 新迁移：`drizzle/0002_tiny_masque.sql`；只新增学习表，不修改 V0.1 数据。
-- 验证：Node 22.23.2 lint 通过，构建通过，5 项测试通过。
-- 会话记录：`memory/sessions/2026-08-13-v0.2-first-learning-slice.md`。
-
-## Boundaries
-
-- 不在产品方案提交中修改应用代码、数据库或生产部署。
-- 不清空或覆盖 V0.1 数据。
-- 不同时建设第二个领域内容包。
-- 不建设日历、每日打卡、实时计时器、完整课程平台或公开多用户市场。
+1. 用户打开本地新版 MVP，反馈信息层级与实际学习会话体验。
+2. 修正体验问题后，实现综合任务提交与可见六维量规评分。
+3. 经用户明确确认后，再决定生产迁移和部署。

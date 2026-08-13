@@ -87,7 +87,11 @@ export async function POST(request:Request) {
     await db.insert(learningPathProposals).values({
       id:proposalId, ownerId:单用户OwnerId, diagnosticId, contentPackVersion:AI通识V1.版本,
       explanation:"路径由诊断表现和能力前置关系确定。自报与材料只调整支架，不降低毕业标准；确认前不会成为正式路径。",
-    }).onConflictDoNothing();
+    }).onConflictDoUpdate({ target:learningPathProposals.id, set:{
+      status:"pending",
+      explanation:"路径由诊断表现和能力前置关系确定。自报与材料只调整支架，不降低毕业标准；确认前不会成为正式路径。",
+      updatedAt:new Date().toISOString(),
+    }});
     for (const item of path) {
       await db.insert(learningPathItems).values({
         id:稳定Id("path-item", `${proposalId}:${item.capabilityId}`), proposalId, ...item,

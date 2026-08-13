@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Trellis",
-  description: "连接长期路线、当前任务、AI 工作台、作品证据与连续记忆的个人成长中台。",
+  description: "从学习诉求与真实证据出发，生成、执行并持续校准个性学习路径。",
   other: {
     "codex-preview": "development",
   },

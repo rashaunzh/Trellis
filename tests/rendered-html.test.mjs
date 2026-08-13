@@ -15,7 +15,7 @@ async function renderPath(path = "/") {
   );
 }
 
-async function renderHome() { return renderPath("/"); }
+async function renderHome() { return renderPath("/learn"); }
 
 test("renders development preview metadata", async () => {
   const response = await renderHome();
@@ -24,22 +24,18 @@ test("renders development preview metadata", async () => {
   assert.match(await response.text(),developmentPreviewMeta);
 });
 
-test("renders the Trellis V0.1 first-run workflow", async () => {
+test("renders the Trellis adaptive learning MVP entry", async () => {
   const response = await renderHome();
   const html = await response.text();
   assert.match(html,/Trellis/);
-  assert.match(html,/阶段看板/);
-  assert.match(html,/Notebook 测评/);
-  assert.match(html,/概念/);
-  assert.match(html,/工作台地图/);
-  assert.match(html,/一周检查重点，两周决定是否扩建/);
+  assert.match(html,/正在准备你的学习环境/);
 });
 
 test("renders the independent Chinese learning entry", async () => {
   const response = await renderPath("/learn");
   const html = await response.text();
   assert.equal(response.status,200);
-  assert.match(html,/正在读取 AI 通识内容包/);
+  assert.match(html,/正在准备你的学习环境/);
 });
 
 test("serves the validated AI literacy content pack", async () => {
@@ -49,4 +45,12 @@ test("serves the validated AI literacy content pack", async () => {
   assert.equal(data.contentPack.能力.length,6);
   assert.equal(data.contentPack.诊断题.length,6);
   assert.equal(data.contentPack.建议分钟下限,720);
+  assert.equal(data.contentPack.版本,"1.1.0");
+  assert.equal(data.contentPack.能力[0].关键概念.length,4);
+});
+
+test("redirects the default entry to the new learning MVP", async () => {
+  const response = await renderPath("/");
+  assert.ok([307,308].includes(response.status));
+  assert.equal(new URL(response.headers.get("location")).pathname,"/learn");
 });
