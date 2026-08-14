@@ -113,7 +113,7 @@ export function transitionNode(
 // 活动进入 evidence_submitted/reviewed/completed 都不会直接改变节点；
 // 只有证据评估 accepted 才会驱动节点迁移。
 export function nodeEffectOfActivityEvent(
-  activityStatus: ActivityStatus,
+  _activityStatus: ActivityStatus,
 ): NodeEvent | null {
   // 活动完成本身不产生节点事件；证据评估独立驱动节点
   return null;

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Git Bash/MSYS 下 pwd 返回 /d/... 风格，Node 工具链无法解析；
+# 统一转换为 Windows 风格（Linux/CI 无 pwd -W，自动回退）。
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -W 2>/dev/null || pwd)"
 runtime_root="${SITES_RUNTIME_ROOT:-${project_root}/.sites-runtime}"
 
 mkdir -p \

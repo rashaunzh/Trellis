@@ -4,10 +4,9 @@
 
 import {
   findAdjacentBranches,
-  getPrerequisiteNodeIds,
   learningContentPack,
 } from "../domain/content.ts";
-import type { ActivityType, LearningActivity, NodeStatus } from "../domain/types.ts";
+import type { ActivityType } from "../domain/types.ts";
 import type {
   DiagnosticInput,
   PlannerPort,
@@ -15,8 +14,6 @@ import type {
   WeeklyPlanDraft,
   WeeklyPlanInput,
 } from "./types.ts";
-
-const PREREQUISITE = "prerequisite";
 
 // 每个路线的推荐节点序列（按学习顺序）
 const ROUTE_SEQUENCE: Record<string, string[]> = {
