@@ -39,20 +39,22 @@
 - [x] 可交互产品网页：新增 `/product`，包含价值主张、三功能结构、互动周计划演示、核心闭环切换、证据驱动节点变色演示，并可跳转 `/learn`、`/grow`、`/workbench`。
 - [x] 产品页 UI 调整：缩小 `/product` 首屏标题和品牌区，修复导航 logo 文本溢出。
 - [x] 本地交互页修复：对当前 Miniflare D1 应用 `drizzle/0004` 与 `drizzle/0005`，解决 `/learn` 报 `D1_ERROR: no such table: learning_routes`；开发文档已补本地 D1 初始化命令。
+- [x] 产品体验修复（本轮）：每周时间上限 6h→20h；规划器一个节点拆多个活动（按容量，上限 8 核心）；学习页周看板 + 容量统计 + 活动抽屉交互（步骤勾选/笔记/自检/证据类型/外部链接）；成长页中文节点名、相邻分支、主动调整表单；新增 `POST /api/learning/adjustments/propose`；工作台收集箱 + 资源加入 + 工具本周使用 + AI 接入说明。
 
 ## 最近验证证据
 
-用户在 2026-08-14 提供的最新验证结果：
+本机（trellis-cleanup）复跑（2026-08-14 体验修复轮）：
 
 - `npm run test`：6/6 通过，含 build 与 Sites artifact 校验。
-- `npm run test:domain`：41/41 通过。
-- `npm run lint`：0 problems。
-- `git status --short`：干净。
-- HEAD：`2285092`，与远端对齐。
+- `npm run test:domain`：41/41 通过（相邻分支测试已随 ai-literacy 行为变更更新）。
+- eslint（app + lib，排除 dist/.next）：0 problems。
+- 浏览器 UI 验证（Playwright，真实 Chromium，8h 容量新用户）：16/16 通过——时间选项含 20h、周看板 18 个活动、抽屉 5 项交互、成长页中文/相邻分支/调整表单、工作台收集箱/资源/工具、AI 接入说明。
+- `POST /api/learning/adjustments/propose` → proposed → confirm → accepted 全链路验证通过。
 
-本次交付整理只改文档和 memory；浏览器自动化验收由另一条任务补证。
+更早的验证（交付整理轮，用户 2026-08-14 提供）：
 
-追加验证：`/product`、`/learn` 返回 200；`/api/learning/workspace` 返回 200，且不再报缺表。产品页 TSX eslint 通过，`vinext build` 通过。
+- `npm run test`：6/6、`npm run test:domain`：41/41、`npm run lint`：0 problems、`git status`：干净，HEAD `2285092`。
+- `/product`、`/learn` 返回 200；`/api/learning/workspace` 返回 200，不再报缺表；产品页 TSX eslint 通过，`vinext build` 通过。
 
 ## 重要文档入口
 
@@ -67,7 +69,8 @@
 
 ## 尚未完成 / 开放问题
 
-- 浏览器自动化验收尚未由本任务完成，需等待另一条任务提供证据。
+- 浏览器自动化验收已由本任务完成（Playwright 16/16），证据见"最近验证证据"。
+- 旧 D1 状态不会自动重排：已确认的旧周计划保持原样。用户如需看到新编排效果，需重新诊断或后续补"重排本周"入口（本轮未加，建议下一步优先）。
 - Sites 保存/部署需要基于已推送 commit；如本轮已提交推送新页面，后续可保存站点版本并部署生产 URL。
 - 本地 D1 数据只存在于当前机器 `.wrangler/state`；新机器首次打开交互页前如遇缺表，按 `docs/development/LOCAL_DEVELOPMENT.md` 的“本地 D1 初始化”执行迁移。
 - 综合情境任务正式提交、AI 多维评分、用户确认掌握、延迟复测自动调度仍是下一阶段 P0。
@@ -78,11 +81,10 @@
 
 ## 精确下一步
 
-1. 如需线上访问，基于最新已推送 commit 保存 Sites 版本并部署生产 URL。
-2. 等待另一条任务补齐浏览器自动化验收结果。
-3. 若用户放行，进入下一阶段 P0：
+1. 提交推送本轮体验修复（核心文件 + 测试更新 + memory），不要 `git add .`。
+2. 若用户放行，最优先补"重排本周 / 重新诊断"入口——否则旧状态测试时无法看到新编排效果。
+3. 进入下一阶段 P0：
    - 综合情境任务正式提交流；
    - AI 多维评分与用户确认掌握；
    - 延迟复测候选与复核状态；
    - AI 通识 V1 内容包来源与量规审计。
-4. 若继续工程推进，先读 `docs/product/TRELLIS_V0.2_MVP_DELIVERY.md`，按其中 P0/P1/P2 执行，不重新讨论已确认的三功能结构。

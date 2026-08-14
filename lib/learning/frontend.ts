@@ -201,6 +201,20 @@ export async function confirmAdjustment(adjustmentId: string): Promise<Workspace
   return data.workspace;
 }
 
+export async function proposeAdjustment(input: {
+  adjustmentType: WorkspaceAdjustment["adjustmentType"];
+  reason: string;
+}): Promise<Workspace> {
+  const data = await readJson<{ workspace: Workspace }>(
+    await fetch("/api/learning/adjustments/propose", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    }),
+  );
+  return data.workspace;
+}
+
 export async function skipNode(nodeId: string): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
     await fetch(`/api/learning/nodes/${nodeId}/skip`, { method: "POST" }),
@@ -241,3 +255,23 @@ export const ADJUSTMENT_TYPE_TEXT: Record<WorkspaceAdjustment["adjustmentType"],
   weekly_light: "周计划微调",
   route_revision: "路线调整",
 };
+
+export const NODE_TITLE_BY_ID: Record<string, string> = {
+  "ai-literacy.mechanism": "模型机制",
+  "ai-literacy.context": "上下文与提示",
+  "ai-literacy.fit": "适用边界",
+  "ai-literacy.architecture": "AI 应用结构",
+  "ai-literacy.evaluation": "评估与质量",
+  "ai-literacy.responsibility": "责任与安全",
+  "ai-app-dev.prompting": "提示工程",
+  "ai-app-dev.rag": "RAG 检索增强",
+  "ai-app-dev.tools": "工具调用",
+  "ai-app-dev.eval-harness": "评估脚手架",
+  "ai-product.problem-def": "问题定义",
+  "ai-product.capability-design": "能力设计",
+  "ai-product.eval-decision": "评估决策",
+};
+
+export function nodeTitle(nodeId: string): string {
+  return NODE_TITLE_BY_ID[nodeId] ?? nodeId;
+}

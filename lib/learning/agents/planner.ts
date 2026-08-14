@@ -96,7 +96,7 @@ export class RulePlanner implements PlannerPort {
 
   composeWeeklyPlan(input: WeeklyPlanInput): WeeklyPlanDraft {
     // 确定性：用 seed 固定排序（无随机），相同输入相同输出
-    const seed = input.seed ?? 42;
+    const _seed = input.seed ?? 42;
 
     // 候选节点：当前路线中前置满足、未跳过、未验证的节点
     const routeNodes = learningContentPack.nodes.filter(
@@ -120,46 +120,64 @@ export class RulePlanner implements PlannerPort {
         return a.id.localeCompare(b.id);
       });
 
-    // 打包活动：承诺（核心）总时长不超过容量，可选不计入承诺。
-    // 规则：按优先级依次选核心活动直到容量耗尽；剩余候选作为可选（0-2 个）。
-    const activityMinutes = (index: number) => 30 + (index % 2) * 15; // 30/45/30/45
-    const selected: typeof candidates = [];
+    // 打包活动：围绕当前节点生成“活动链”，而不是一个节点只生成一个任务。
+    // 规则：当前可学节点会被拆成建立模型 / 跟随示范 / 独立练习 / 复盘验证等活动，
+    // 尽量贴近每周容量；可选活动用于相邻节点或加深练习，不计入本周承诺。
+    const activityChain: Array<{ activityType: ActivityType; minutes: number; label: string; why: string }> = [
+      { activityType: "build_model", minutes: 45, label: "建立模型", why: "先把概念、机制和边界说清楚，避免直接进入碎片练习。" },
+      { activityType: "follow_demo", minutes: 60, label: "跟随示范", why: "通过完整示例理解这个节点在真实任务中怎么用。" },
+      { activityType: "independent_practice", minutes: 75, label: "独立练习", why: "用一个小产出验证是否能离开提示独立应用。" },
+      { activityType: "build_model", minutes: 45, label: "复盘校准", why: "把练习暴露的问题回收到知识结构里，形成可解释判断。" },
+      { activityType: "independent_practice", minutes: 60, label: "验证产出", why: "提交更接近真实情境的证据，为节点状态变化提供依据。" },
+      { activityType: "follow_demo", minutes: 75, label: "迁移案例", why: "用变式案例检验能否跨情境判断，避免只会照抄一个例子。" },
+      { activityType: "independent_practice", minutes: 60, label: "加深练习", why: "补一轮低压力输出，让薄弱点在本周内被看见。" },
+      { activityType: "build_model", minutes: 60, label: "周内综合", why: "把本周产出汇成一张小地图，更新自己对边界和下一步的判断。" },
+    ];
+    const selected: Array<typeof candidates[number] & { activityType: ActivityType; minutes: number; label: string; why: string }> = [];
     let committedMinutes = 0;
-    let coreCount = 0;
-    const optionalCount = Math.min(2, candidates.length); // 可选最多 2 个
+    const targetCoreCount = Math.min(8, Math.max(2, Math.floor(input.capacityMinutes / 60)));
+
     for (const node of candidates) {
-      const minutes = activityMinutes(selected.length + (seed % 3));
-      if (coreCount < 4 && committedMinutes + minutes <= input.capacityMinutes) {
-        selected.push(node);
-        committedMinutes += minutes;
-        coreCount += 1;
-      } else if (selected.length - coreCount < optionalCount) {
-        selected.push(node); // 可选，不计入承诺时长
-      } else {
-        break;
+      for (const template of activityChain) {
+        if (selected.length >= targetCoreCount) break;
+        if (committedMinutes + template.minutes > input.capacityMinutes) break;
+        selected.push({ ...node, ...template });
+        committedMinutes += template.minutes;
       }
+      if (selected.length >= targetCoreCount || committedMinutes >= input.capacityMinutes - 30) break;
     }
 
-    const activities = selected.map((node, index) => {
+    const optionalSource = candidates.find((node) => !selected.some((item) => item.id === node.id)) ?? candidates[0];
+    const optionalTemplates = optionalSource
+      ? [
+          { ...optionalSource, activityType: "follow_demo" as ActivityType, minutes: 45, label: "可选示范", why: "学有余力时看一个相邻例子，不影响本周核心承诺。" },
+          { ...optionalSource, activityType: "independent_practice" as ActivityType, minutes: 45, label: "可选练习", why: "学有余力时做一个轻量变式，帮助迁移。" },
+        ]
+      : [];
+
+    const plannedItems = [...selected, ...optionalTemplates.slice(0, 2)];
+    const coreCount = selected.length;
+    const optionalCount = plannedItems.length - coreCount;
+
+    const activities = plannedItems.map((node, index) => {
       const isCore = index < coreCount;
-      const minutes = activityMinutes(index + (seed % 3));
       const status = input.nodeStatusById[node.id] ?? "unstarted";
-      const activityType: ActivityType = status === "growing" ? "independent_practice" : "build_model";
       return {
         nodeId: node.id,
-        activityType,
-        title: node.title,
-        estimatedMinutes: minutes,
+        activityType: node.activityType,
+        title: `${node.label}：${node.title}`,
+        estimatedMinutes: node.minutes,
         isCore,
-        whyNow:
-          status === "growing"
+        whyNow: node.why
+          || (status === "growing"
             ? `节点 ${node.title} 已有基础但未验证，安排独立练习形成证据。`
-            : `节点 ${node.title} 是当前路线的下一步，先建立模型再练习。`,
+            : `节点 ${node.title} 是当前路线的下一步，先建立模型再练习。`),
       };
     });
 
     const totalMinutes = committedMinutes;
-    const rationale = `按 ${input.capacityMinutes} 分钟容量编排 ${coreCount} 个核心活动（承诺 ${committedMinutes} 分钟，不超过容量），可选活动不计入承诺；周计划半稳定，普通完成不重排。`;
+    const remaining = input.capacityMinutes - committedMinutes;
+    const rationale = `按 ${input.capacityMinutes} 分钟容量编排 ${coreCount} 个核心活动，承诺 ${committedMinutes} 分钟，剩余 ${remaining} 分钟作为缓冲/加深/修订时间；可选活动不计入承诺。周计划半稳定，普通完成不重排。`;
 
     return {
       weekKey: input.weekKey,

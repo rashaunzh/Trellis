@@ -9,7 +9,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "学习目标不能为空" }, { status: 400 });
     }
     const weeklyMinutes = Math.min(
-      720,
+      1200,
       Math.max(30, Math.round((Number(payload.weeklyMinutes) || 180) / 15) * 15),
     );
     const workspace = await (await getLearningService()).runDiagnostic({

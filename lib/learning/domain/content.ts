@@ -382,6 +382,9 @@ export function findAdjacentBranches(
   routeId: RouteId,
   pack: LearningContentPack = learningContentPack,
 ): LearningBranch[] {
+  if (routeId === "ai-literacy") {
+    return pack.branches.filter((b) => b.routeId !== routeId);
+  }
   // 当前路线的主干节点
   const mainBranch = pack.branches.find((b) => b.routeId === routeId);
   if (!mainBranch) return [];

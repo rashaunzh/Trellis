@@ -61,9 +61,17 @@ test("当前路线能找到相邻分支", () => {
     adjacentForAppDev.some((b) => b.routeId === "ai-product"),
     "ai-app-dev 的相邻分支应包含 ai-product",
   );
-  // 通识主干是共同起点，无 related 边相连
+  // 通识主干是共同起点：V0.2 产品上它能看到所有分支（ai-app-dev / ai-product）
   const adjacentForLiteracy = findAdjacentBranches("ai-literacy");
-  assert.equal(adjacentForLiteracy.length, 0);
+  assert.ok(
+    adjacentForLiteracy.length >= 2,
+    `ai-literacy 应展示所有相邻分支（app-dev + product），实际 ${adjacentForLiteracy.length}`,
+  );
+  assert.ok(
+    adjacentForLiteracy.some((b) => b.routeId === "ai-app-dev") &&
+      adjacentForLiteracy.some((b) => b.routeId === "ai-product"),
+    "ai-literacy 相邻分支应包含 ai-app-dev 与 ai-product",
+  );
 });
 
 test("前置查询与满足判断", () => {

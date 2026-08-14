@@ -9,6 +9,8 @@ import {
   NODE_STATUS_TEXT,
   confirmAdjustment,
   fetchWorkspace,
+  nodeTitle,
+  proposeAdjustment,
   skipNode,
   type Workspace,
   type WorkspaceNodeProgress,
@@ -20,6 +22,8 @@ export default function GrowPage() {
   const [error, setError] = useState("");
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [adjustmentType, setAdjustmentType] = useState<"weekly_light" | "activity_replan" | "route_revision">("weekly_light");
+  const [adjustmentReason, setAdjustmentReason] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -87,9 +91,9 @@ export default function GrowPage() {
       {/* 相邻分支 */}
       {ws.adjacentBranches.length > 0 && (
         <div className="t2-map-adjacent">
-          <span>相邻分支</span>
+          <span>当前路线旁边可选的分支</span>
           {ws.adjacentBranches.map((b) => (
-            <em key={b.id}>{b.name} — {b.description}</em>
+            <em key={b.id}>{b.name}：{b.description}</em>
           ))}
         </div>
       )}
@@ -121,7 +125,7 @@ export default function GrowPage() {
       {/* 节点详情 */}
       {selected && (
         <section className="t2-section">
-          <header><h3>节点详情</h3><span className="t2-muted">{selected.nodeId}</span></header>
+          <header><h3>{nodeTitle(selected.nodeId)}</h3><span className="t2-muted">{selected.nodeId}</span></header>
           <div className="t2-node-detail">
             <div className="t2-node-detail-row">
               <span>状态</span>
@@ -168,9 +172,40 @@ export default function GrowPage() {
       {/* 调整记录 */}
       <section className="t2-section">
         <header>
-          <h3>调整记录</h3>
-          <span className="t2-muted">路线变化可追溯、可确认</span>
+          <h3>调整提案</h3>
+          <span className="t2-muted">用户可提出调整，系统先保存为待确认，不直接改路线。</span>
         </header>
+        <div className="t2-adjust-form">
+          <label>
+            调整类型
+            <select value={adjustmentType} onChange={(e) => setAdjustmentType(e.target.value as typeof adjustmentType)}>
+              <option value="weekly_light">本周节奏微调</option>
+              <option value="activity_replan">活动重新编排</option>
+              <option value="route_revision">路线/分支调整</option>
+            </select>
+          </label>
+          <label>
+            为什么要调整？
+            <textarea
+              value={adjustmentReason}
+              onChange={(e) => setAdjustmentReason(e.target.value)}
+              placeholder="例如：这周只有碎片时间；我已经会提示词了，想验证后跳到 RAG；当前任务太抽象，需要更多示例。"
+            />
+          </label>
+          <button
+            className="t2-primary"
+            disabled={busy || !adjustmentReason.trim()}
+            onClick={() => void run(
+              () => proposeAdjustment({ adjustmentType, reason: adjustmentReason }).then((next) => {
+                setAdjustmentReason("");
+                return next;
+              }),
+              "已生成待确认调整提案",
+            )}
+          >
+            生成调整提案
+          </button>
+        </div>
         <div className="t2-adjust-list">
           {ws.adjustments.map((a) => (
             <div key={a.id} className={`t2-adjust ${a.status === "proposed" ? "proposed" : ""}`}>
@@ -210,7 +245,7 @@ function NodeCard({
   onSkip: () => void;
   busy: boolean;
 }) {
-  const nodeLabel = progress.nodeId.split(".").pop() ?? progress.nodeId;
+  const nodeLabel = nodeTitle(progress.nodeId);
   return (
     <article className={`t2-node-card ${active ? "active" : ""}`} onClick={onSelect}>
       <i className={`t2-node-dot st-${progress.status}`} />

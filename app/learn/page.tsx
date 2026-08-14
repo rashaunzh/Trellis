@@ -13,10 +13,22 @@ import {
   submitEvidence,
   reviewEvidence,
   confirmAdjustment,
+  nodeTitle,
   type AssessmentResult,
   type Workspace,
   type WorkspaceActivity,
 } from "../../lib/learning/frontend";
+
+const WEEKLY_TIME_OPTIONS = [
+  [120, "2 小时"],
+  [240, "4 小时"],
+  [360, "6 小时"],
+  [480, "8 小时"],
+  [600, "10 小时"],
+  [720, "12 小时"],
+  [900, "15 小时"],
+  [1200, "20 小时"],
+] as const;
 
 export default function LearnPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
@@ -25,11 +37,16 @@ export default function LearnPage() {
   const [error, setError] = useState("");
   // 诊断表单
   const [goal, setGoal] = useState("");
-  const [weeklyMinutes, setWeeklyMinutes] = useState(180);
+  const [weeklyMinutes, setWeeklyMinutes] = useState(360);
   const [preference, setPreference] = useState<"breadth_first" | "build_first">("breadth_first");
   // 活动抽屉
   const [activeActivity, setActiveActivity] = useState<WorkspaceActivity | null>(null);
   const [evidenceDraft, setEvidenceDraft] = useState("");
+  const [activityNote, setActivityNote] = useState("");
+  const [evidenceType, setEvidenceType] = useState<"explanation" | "artifact" | "code" | "judgment" | "notes" | "external">("explanation");
+  const [externalUrl, setExternalUrl] = useState("");
+  const [checkedSteps, setCheckedSteps] = useState<Record<number, boolean>>({});
+  const [selfChecks, setSelfChecks] = useState<Record<string, boolean>>({});
   // 最近一次评估结果（展示 reasons/missing，让用户理解判断依据）
   const [lastAssessment, setLastAssessment] = useState<AssessmentResult | null>(null);
 
@@ -103,11 +120,9 @@ export default function LearnPage() {
               <label>
                 每周可用时间
                 <select value={weeklyMinutes} onChange={(e) => setWeeklyMinutes(Number(e.target.value))}>
-                  <option value={120}>2 小时</option>
-                  <option value={180}>3 小时</option>
-                  <option value={240}>4 小时</option>
-                  <option value={300}>5 小时</option>
-                  <option value={360}>6 小时</option>
+                  {WEEKLY_TIME_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
                 </select>
               </label>
               <label>
@@ -155,7 +170,7 @@ export default function LearnPage() {
             <div className="t2-proposal-meta">
               <span>地图节点 <b>{ws.nodeProgress.length}</b></span>
               <span>已有基础 <b>{growingCount}</b></span>
-              <span>首个节点 <b>{firstNode?.nodeId.split(".").pop() ?? "—"}</b></span>
+              <span>首个节点 <b>{firstNode ? nodeTitle(firstNode.nodeId) : "—"}</b></span>
             </div>
             {ws.adjacentBranches.length > 0 && (
               <div className="t2-adjacent">
@@ -185,6 +200,21 @@ export default function LearnPage() {
   const optional = ws.activities.filter((a) => !a.isCore);
   const doneCount = core.filter((a) => a.status === "completed").length;
   const plannedMinutes = core.reduce((s, a) => s + a.estimatedMinutes, 0);
+  const optionalMinutes = optional.reduce((s, a) => s + a.estimatedMinutes, 0);
+  const capacityMinutes = ws.weeklyPlan?.capacityMinutes ?? ws.profile.weeklyMinutes;
+  const remainingMinutes = Math.max(0, capacityMinutes - plannedMinutes);
+  const completionPercent = core.length ? (doneCount / core.length) * 100 : 0;
+
+  function openActivity(activity: WorkspaceActivity) {
+    setActiveActivity(activity);
+    setEvidenceDraft("");
+    setActivityNote("");
+    setExternalUrl("");
+    setEvidenceType("explanation");
+    setCheckedSteps({});
+    setSelfChecks({});
+    setLastAssessment(null);
+  }
 
   return (
     <Shell>
@@ -193,7 +223,7 @@ export default function LearnPage() {
           <p className="t2-kicker">学习 · 第 {ws.weeklyPlan?.weekKey.replace("2026-W", "") ?? "?"} 周</p>
           <h1>{ws.profile.goal}</h1>
         </div>
-        <span className="t2-muted">计划 {plannedMinutes} / {ws.weeklyPlan?.capacityMinutes} 分钟</span>
+        <span className="t2-muted">核心承诺 {plannedMinutes} / {capacityMinutes} 分钟</span>
       </div>
 
       {message && <p className="t2-message">{message}</p>}
@@ -203,15 +233,42 @@ export default function LearnPage() {
         <div>
           <p className="t2-kicker">本周进度</p>
           <h2>{doneCount} / {core.length} 个核心活动完成</h2>
-          <p>周计划半稳定：普通完成只更新状态，不重新编排整个星期。</p>
+          <p>按需推进，不按日历切碎；只要本周完成核心承诺即可。普通完成只更新状态，不重排整周。</p>
         </div>
-        <div className="t2-week-bar"><i style={{ width: `${core.length ? (doneCount / core.length) * 100 : 0}%` }} /></div>
+        <div className="t2-week-meter">
+          <div className="t2-week-bar"><i style={{ width: `${completionPercent}%` }} /></div>
+          <div className="t2-week-caps">
+            <span><b>{Math.round(capacityMinutes / 60 * 10) / 10}h</b> 可用</span>
+            <span><b>{Math.round(plannedMinutes / 60 * 10) / 10}h</b> 核心</span>
+            <span><b>{Math.round(remainingMinutes / 60 * 10) / 10}h</b> 缓冲</span>
+            <span><b>{Math.round(optionalMinutes / 60 * 10) / 10}h</b> 可选</span>
+          </div>
+        </div>
       </div>
 
       <section className="t2-section">
         <header>
-          <h3>核心活动（本周建议完成）</h3>
-          <span className="t2-muted">每个活动关联节点、预计时间、学习动作与产出证据</span>
+          <h3>本周看板</h3>
+          <span className="t2-muted">核心活动按顺序推进；可选活动放在缓冲区，不强行塞满。</span>
+        </header>
+        <div className="t2-week-board">
+          {core.map((activity, index) => (
+            <ActivityCard
+              key={activity.id}
+              activity={activity}
+              nodeTitle={activity.title}
+              order={index + 1}
+              onOpen={() => openActivity(activity)}
+            />
+          ))}
+          {core.length === 0 && <p className="t2-empty">本周暂无核心活动，先去成长页看看地图。</p>}
+        </div>
+      </section>
+
+      <section className="t2-section">
+        <header>
+          <h3>核心活动详情</h3>
+          <span className="t2-muted">每个活动都关联节点、预计时间、学习动作与产出证据</span>
         </header>
         <div className="t2-activity-list">
           {core.map((activity) => (
@@ -219,7 +276,7 @@ export default function LearnPage() {
               key={activity.id}
               activity={activity}
               nodeTitle={activity.title}
-              onOpen={() => { setActiveActivity(activity); setEvidenceDraft(""); }}
+              onOpen={() => openActivity(activity)}
             />
           ))}
           {core.length === 0 && <p className="t2-empty">本周暂无核心活动，先去成长页看看地图。</p>}
@@ -238,7 +295,7 @@ export default function LearnPage() {
                 key={activity.id}
                 activity={activity}
                 nodeTitle={activity.title}
-                onOpen={() => { setActiveActivity(activity); setEvidenceDraft(""); }}
+                onOpen={() => openActivity(activity)}
               />
             ))}
           </div>
@@ -292,11 +349,18 @@ export default function LearnPage() {
             <div className="t2-drawer-body">
               <section>
                 <span className="t2-drawer-label">操作步骤</span>
-                <ol className="t2-steps">
+                <div className="t2-step-checklist">
                   {activeActivity.steps.split("\n").filter(Boolean).map((step, i) => (
-                    <li key={i}>{step}</li>
+                    <label key={i} className={checkedSteps[i] ? "checked" : ""}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(checkedSteps[i])}
+                        onChange={(e) => setCheckedSteps((prev) => ({ ...prev, [i]: e.target.checked }))}
+                      />
+                      <span>{step}</span>
+                    </label>
                   ))}
-                </ol>
+                </div>
               </section>
 
               <section>
@@ -323,17 +387,64 @@ export default function LearnPage() {
 
               {(activeActivity.status === "in_progress") && (
                 <section className="t2-evidence-form">
+                  <span className="t2-drawer-label">活动笔记</span>
+                  <textarea
+                    value={activityNote}
+                    onChange={(e) => setActivityNote(e.target.value)}
+                    placeholder="先写草稿：我理解了什么？哪里不确定？用了哪个材料或工具？"
+                  />
+                  <div className="t2-self-checks">
+                    {[
+                      ["explain", "我能用自己的话解释这个节点"],
+                      ["boundary", "我知道它适用/不适用的边界"],
+                      ["artifact", "我留下了可复核的产出或判断"],
+                    ].map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        className={selfChecks[key] ? "active" : ""}
+                        onClick={() => setSelfChecks((prev) => ({ ...prev, [key]: !prev[key] }))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                   <span className="t2-drawer-label">提交你的证据</span>
+                  <div className="t2-evidence-meta">
+                    <label>
+                      证据类型
+                      <select value={evidenceType} onChange={(e) => setEvidenceType(e.target.value as typeof evidenceType)}>
+                        <option value="explanation">解释</option>
+                        <option value="artifact">作品/产出</option>
+                        <option value="code">代码</option>
+                        <option value="judgment">判断</option>
+                        <option value="notes">笔记</option>
+                        <option value="external">外部链接</option>
+                      </select>
+                    </label>
+                    <label>
+                      外部链接（可选）
+                      <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="作品、文档、代码或材料链接" />
+                    </label>
+                  </div>
                   <textarea
                     value={evidenceDraft}
                     onChange={(e) => setEvidenceDraft(e.target.value)}
-                    placeholder="写下你的解释、判断、作品或学习笔记……"
+                    placeholder="写下最终证据：解释、判断、作品摘要、代码说明或学习笔记……"
                   />
                   <button
                     className="t2-primary"
                     disabled={busy || !evidenceDraft.trim()}
                     onClick={() => void run(
-                      () => submitEvidence(activeActivity.id, { content: evidenceDraft }).then((next) => {
+                      () => submitEvidence(activeActivity.id, {
+                        evidenceType,
+                        externalUrl: externalUrl.trim(),
+                        content: [
+                          activityNote.trim() ? `活动笔记：${activityNote.trim()}` : "",
+                          `自检：${Object.values(selfChecks).filter(Boolean).length}/3`,
+                          `证据：${evidenceDraft.trim()}`,
+                        ].filter(Boolean).join("\n\n"),
+                      }).then((next) => {
                         setLastAssessment(null);
                         setActiveActivity(next.activities.find((a) => a.id === activeActivity.id) ?? null);
                         return next;
@@ -418,10 +529,12 @@ export default function LearnPage() {
 function ActivityCard({
   activity,
   nodeTitle,
+  order,
   onOpen,
 }: {
   activity: WorkspaceActivity;
   nodeTitle: string;
+  order?: number;
   onOpen: () => void;
 }) {
   const evidence = null; // 卡片上不展示证据详情，抽屉内展示
@@ -429,7 +542,7 @@ function ActivityCard({
     <article className={`t2-activity-card ${activity.status === "completed" ? "done" : ""}`}>
       <div className="t2-activity-main" onClick={onOpen}>
         <div className="t2-activity-head">
-          <span>{ACTIVITY_TYPE_TEXT[activity.activityType]}{activity.isSkipValidation ? " · 跳学验证" : ""}</span>
+          <span>{order ? `#${order} · ` : ""}{ACTIVITY_TYPE_TEXT[activity.activityType]}{activity.isSkipValidation ? " · 跳学验证" : ""}</span>
           <em>{activity.estimatedMinutes} 分钟</em>
         </div>
         <h4>{nodeTitle}</h4>

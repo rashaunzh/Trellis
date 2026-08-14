@@ -17,6 +17,7 @@ import {
 } from "../domain/state-machine.ts";
 import type {
   AdjustmentRecord,
+  AdjustmentType,
   Evidence,
   LearningActivity,
   NodeProgress,
@@ -285,7 +286,7 @@ export class LearningApplicationService {
         .map((m) => m.resourceId);
       const draft: ActivityDraft = this.agents.activityComposer.composeActivity({
         nodeId: item.nodeId,
-        nodeTitle: node.title,
+        nodeTitle: item.title,
         nodeDescription: node.description,
         activityType: item.activityType,
         isSkipValidation: false,
@@ -293,7 +294,7 @@ export class LearningApplicationService {
         estimatedMinutes: item.estimatedMinutes,
       });
       const activity: LearningActivity = {
-        id: stableId("activity", `${weeklyPlan.id}:${item.nodeId}:${item.activityType}`),
+        id: stableId("activity", `${weeklyPlan.id}:${sequence}:${item.nodeId}:${item.activityType}:${item.title}`),
         ownerId,
         weeklyPlanId: weeklyPlan.id,
         nodeId: item.nodeId,
@@ -469,6 +470,43 @@ export class LearningApplicationService {
     }
     adjustment.status = "accepted";
     await this.store.saveAdjustment(adjustment);
+    return this.getWorkspace(ownerId);
+  }
+
+  // ── POST /api/learning/adjustments/propose ─────────
+  async proposeAdjustment(
+    ownerId: string,
+    input: { adjustmentType: AdjustmentType; reason: string },
+  ): Promise<Workspace> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    if (profile.status !== "confirmed") throw new LearningError("路线尚未确认，不能调整", 400);
+
+    const reason = input.reason.trim().slice(0, 600);
+    if (!reason) throw new LearningError("调整理由不能为空", 400);
+
+    const weeklyPlan = await this.store.getWeeklyPlanByWeek(
+      ownerId,
+      profile.activeRouteId,
+      currentWeekKey(),
+    );
+    const summaryByType: Record<AdjustmentType, string> = {
+      weekly_light: `用户提出本周容量/节奏微调：${reason}`,
+      activity_replan: `用户提出重排学习活动：${reason}`,
+      route_revision: `用户提出路线或分支调整：${reason}`,
+    };
+    const adjustment: AdjustmentRecord = {
+      id: stableId("adjustment", `${ownerId}:${Date.now()}:${input.adjustmentType}:${reason}`),
+      ownerId,
+      routeId: profile.activeRouteId,
+      weeklyPlanId: weeklyPlan?.id ?? null,
+      adjustmentType: input.adjustmentType,
+      reason,
+      status: "proposed",
+      summary: summaryByType[input.adjustmentType],
+    };
+    await this.store.saveAdjustment(adjustment);
+
     return this.getWorkspace(ownerId);
   }
 
