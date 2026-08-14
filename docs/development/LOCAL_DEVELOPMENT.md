@@ -2,14 +2,15 @@
 
 ## 固定环境
 
-- 唯一仓库目录：`D:\02-Production\01-Trellis`
+- 交付源：GitHub 仓库 `rashaunzh/AI-Learning-OS` 的当前分支；本地目录只是工作区，不另设"唯一仓库"
+- 本地工作区：`D:\02-Production\01-Trellis`
 - 编辑器：VS Code
 - 终端：Git Bash
 - Node.js：22.23.2 LTS（安装在 `D:\tools\node-v22.23.2-win-x64`，仓库通过 `.nvmrc` 和 `.node-version` 固定版本）
 - 包管理器：随 Node 22 提供的 npm
 - Cloudflare CLI：项目内 Wrangler，版本由 `package-lock.json` 固定
 
-不要从 C 盘上的仓库副本运行、编辑、安装依赖或执行 Git 操作。开发会话开始后，先运行 `pwd` 和 `git rev-parse --show-toplevel`，两者都必须指向 D 盘的唯一仓库。
+避免在 C 盘保留另一份仓库副本运行或编辑。开发会话开始后，先运行 `pwd` 和 `git rev-parse --show-toplevel`，确认当前在 D 盘工作区；提交前先 `git pull`，结束后 `git push` 到 GitHub 当前分支。
 
 ## 首次准备
 
