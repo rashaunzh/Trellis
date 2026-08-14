@@ -5,6 +5,7 @@
 ## 当前权威文档
 
 - `product/TRELLIS_V0.2_PRD.md`：当前产品方向和后续实现基线
+- `product/TRELLIS_V0.2_MVP_DELIVERY.md`：Checkpoint 5 后的 MVP 交付、验收、产品复盘和下一阶段计划
 - `product/TRELLIS_V0.1_PRD.md`：生产版本的产品骨架与兼容边界
 - `architecture/TRELLIS_V0.2_ARCHITECTURE.md`：V0.2 学习编排内核架构基线（agent 接口边界、领域模型、状态机、API）
 - `architecture/MEMORY_ARCHITECTURE.md`：长期记忆分层和写入协议
