@@ -4,7 +4,7 @@ Trellis 是证据驱动的自适应学习系统：从学习诉求和真实表现
 
 ## 当前状态
 
-V0.2 自适应学习 MVP 已进入实现，默认入口为 `/learn`。AI 通识 V1.1 已支持诊断、路径提案、用户确认、首周编排、结构化学习会话、情境证据、能力地图、评估门槛和一手来源。V0.1 数据与 API 继续保留为兼容层。
+V0.2 已完成产品基线，正在把早期学习切片重构为“学习、成长、工作台”三个一级功能。当前 `/learn` 中仍有待替换的实验界面，不代表最终信息架构；诊断、路径提案、用户确认、状态恢复和 AI 通识 V1.1 内容包可继续复用。V0.1 数据与 API 保留为兼容层。
 
 ## 当前 MVP 重点
 
@@ -19,7 +19,7 @@ V0.2 自适应学习 MVP 已进入实现，默认入口为 `/learn`。AI 通识 
 ## 权威入口
 
 - [文档索引](docs/README.md)
-- [V0.2 产品方案](docs/product/TRELLIS_V0.2_PRD.md)
+- [V0.2 正式 PRD](docs/product/TRELLIS_V0.2_PRD.md)
 - [V0.1 产品骨架](docs/product/TRELLIS_V0.1_PRD.md)
 - [仓库目录契约](docs/development/REPOSITORY_STRUCTURE.md)
 - [当前接力状态](memory/handoff/current.md)

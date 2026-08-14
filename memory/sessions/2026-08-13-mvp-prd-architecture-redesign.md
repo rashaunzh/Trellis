@@ -6,8 +6,8 @@
 
 ## 本次产出
 
-- `docs/product/TRELLIS_MVP_PRD_PROPOSAL.md`
-- `docs/architecture/TRELLIS_MVP_ARCHITECTURE_PROPOSAL.md`
+- `docs/archive/v0.2-drafts/TRELLIS_MVP_PRD_PROPOSAL.md`
+- `docs/archive/v0.2-drafts/TRELLIS_MVP_ARCHITECTURE_PROPOSAL.md`
 
 两份文件均为待确认提案，没有授权继续编码、修改数据模型、撤销提交或部署。
 
