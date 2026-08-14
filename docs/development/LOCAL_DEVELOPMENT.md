@@ -37,3 +37,21 @@ npx --no-install wrangler --version
 预期结果：git root 位于当前克隆、分支与远端同步、Node 为 22.23.2、Wrangler 从当前项目的 `node_modules` 加载。VS Code 工作区还会把 `WRANGLER_LOG_PATH` 指向被 Git 忽略的 `.wrangler/`，避免 Wrangler 把开发日志写入用户配置目录。
 
 若必须从 PowerShell 检查，使用 `npm.cmd` 和 `npx.cmd`；这可以避开 Windows 执行策略对 `npm.ps1`、`npx.ps1` 的拦截。
+
+## 本地 D1 初始化
+
+如果打开 `/learn`、`/grow` 或 `/workbench` 时看到：
+
+```text
+D1_ERROR: no such table: learning_routes
+```
+
+说明本地 Miniflare D1 还没有应用 learning 域迁移。先启动或构建一次项目，确保 `dist/server/wrangler.json` 已生成，然后在仓库根目录执行：
+
+```powershell
+$env:WRANGLER_LOG_PATH = "$PWD\.wrangler\wrangler.log"
+.\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0004_kind_boomerang.sql
+.\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0005_premium_ultron.sql
+```
+
+注意：`--persist-to` 应指向 `.wrangler\state`，不要写成 `.wrangler\state\v3`，否则 Wrangler 会创建错误的 `.wrangler\state\v3\v3\d1` 目录。

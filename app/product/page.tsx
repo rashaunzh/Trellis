@@ -12,7 +12,10 @@ export default function ProductPage() {
     <main className="tp-page">
       <section className="tp-hero">
         <nav className="tp-nav">
-          <b>Trellis</b>
+          <Link className="tp-brand" href="/product" aria-label="Trellis 产品介绍首页">
+            <i>T</i>
+            <span>Trellis</span>
+          </Link>
           <div>
             <Link href="/learn">进入学习页</Link>
             <Link href="/grow">看成长地图</Link>
@@ -83,4 +86,3 @@ export default function ProductPage() {
     </main>
   );
 }
-

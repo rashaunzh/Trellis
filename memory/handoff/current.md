@@ -37,6 +37,8 @@
 - [x] 交付整理：新增 `docs/product/TRELLIS_V0.2_MVP_DELIVERY.md`，明确最终验收口径、MVP 交付说明、产品复盘和下一阶段计划。
 - [x] 产品介绍：新增 `docs/product/TRELLIS_PRODUCT_INTRODUCTION.md`，面向协作者、潜在用户和产品评审者。
 - [x] 可交互产品网页：新增 `/product`，包含价值主张、三功能结构、互动周计划演示、核心闭环切换、证据驱动节点变色演示，并可跳转 `/learn`、`/grow`、`/workbench`。
+- [x] 产品页 UI 调整：缩小 `/product` 首屏标题和品牌区，修复导航 logo 文本溢出。
+- [x] 本地交互页修复：对当前 Miniflare D1 应用 `drizzle/0004` 与 `drizzle/0005`，解决 `/learn` 报 `D1_ERROR: no such table: learning_routes`；开发文档已补本地 D1 初始化命令。
 
 ## 最近验证证据
 
@@ -49,6 +51,8 @@
 - HEAD：`2285092`，与远端对齐。
 
 本次交付整理只改文档和 memory；浏览器自动化验收由另一条任务补证。
+
+追加验证：`/product`、`/learn` 返回 200；`/api/learning/workspace` 返回 200，且不再报缺表。产品页 TSX eslint 通过，`vinext build` 通过。
 
 ## 重要文档入口
 
@@ -65,6 +69,7 @@
 
 - 浏览器自动化验收尚未由本任务完成，需等待另一条任务提供证据。
 - Sites 保存/部署需要基于已推送 commit；如本轮已提交推送新页面，后续可保存站点版本并部署生产 URL。
+- 本地 D1 数据只存在于当前机器 `.wrangler/state`；新机器首次打开交互页前如遇缺表，按 `docs/development/LOCAL_DEVELOPMENT.md` 的“本地 D1 初始化”执行迁移。
 - 综合情境任务正式提交、AI 多维评分、用户确认掌握、延迟复测自动调度仍是下一阶段 P0。
 - AI 通识 V1 的完整来源目录、节点量规、可信度审计仍需补齐。
 - 工作台资源映射已具备骨架，但外部材料自动同步和摘要卡片仍需深化。
