@@ -229,6 +229,21 @@ export const learningToolMappings = sqliteTable("learning_tool_mappings", {
 
 // ── 状态层：用户运行状态（可写）────────────────────────────────
 
+export const learningProfiles = sqliteTable("learning_profiles", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  goal: text("goal").notNull().default(""),
+  activeRouteId: text("active_route_id").notNull().references(() => learningRoutes.id),
+  weeklyMinutes: integer("weekly_minutes").notNull().default(180),
+  status: text("status", { enum: ["diagnosed", "proposed", "confirmed"] })
+    .notNull()
+    .default("diagnosed"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("learning_profiles_owner_idx").on(table.ownerId),
+]);
+
 export const learningWeeklyPlans = sqliteTable("learning_weekly_plans", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull(),

@@ -52,8 +52,35 @@ test("planner.composeWeeklyPlan 确定性：相同输入相同输出", () => {
   // 核心活动 2-4 个
   assert.ok(planA.coreActivityCount >= 2 && planA.coreActivityCount <= 4);
   assert.ok(planA.activities.filter((a) => a.isCore).length === planA.coreActivityCount);
-  // 总时长不超过容量
-  assert.ok(planA.totalMinutes <= 180 + 45);
+  // 承诺时长（totalMinutes）严格不超过容量
+  assert.ok(planA.totalMinutes <= 180, `承诺 ${planA.totalMinutes} 分钟不应超过容量 180`);
+  // 核心活动承诺时长 = totalMinutes
+  const coreMinutes = planA.activities
+    .filter((a) => a.isCore)
+    .reduce((s, a) => s + a.estimatedMinutes, 0);
+  assert.equal(planA.totalMinutes, coreMinutes);
+});
+
+test("planner.composeWeeklyPlan 容量约束：可选不计入承诺", () => {
+  // 小容量：180 分钟只能容纳 4 个 30/45 交替活动中的一部分
+  const plan = agents.planner.composeWeeklyPlan({
+    ownerId: "u1",
+    routeId: "ai-literacy",
+    weekKey: "2026-W33",
+    capacityMinutes: 90,
+    nodeStatusById: {},
+    prerequisiteSatisfied: () => true,
+    seed: 1,
+  });
+  // 承诺时长严格不超过容量
+  assert.ok(plan.totalMinutes <= 90, `承诺 ${plan.totalMinutes} 分钟不应超过容量 90`);
+  // 所有活动（含可选）的总时长可以超过容量，但承诺只算核心
+  const allMinutes = plan.activities.reduce((s, a) => s + a.estimatedMinutes, 0);
+  const coreMinutes = plan.activities
+    .filter((a) => a.isCore)
+    .reduce((s, a) => s + a.estimatedMinutes, 0);
+  assert.equal(plan.totalMinutes, coreMinutes);
+  assert.ok(allMinutes >= coreMinutes);
 });
 
 test("planner.composeWeeklyPlan 尊重节点状态：已验证节点不入选", () => {

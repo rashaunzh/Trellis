@@ -120,11 +120,25 @@ export class RulePlanner implements PlannerPort {
         return a.id.localeCompare(b.id);
       });
 
-    // 打包活动：30 分钟基准，核心 2-4 个，可选 0-2 个
+    // 打包活动：承诺（核心）总时长不超过容量，可选不计入承诺。
+    // 规则：按优先级依次选核心活动直到容量耗尽；剩余候选作为可选（0-2 个）。
     const activityMinutes = (index: number) => 30 + (index % 2) * 15; // 30/45/30/45
-    const coreCount = Math.min(4, Math.max(2, Math.floor(input.capacityMinutes / 90)));
-    const optionalCount = Math.min(2, Math.max(0, candidates.length - coreCount));
-    const selected = candidates.slice(0, coreCount + optionalCount);
+    const selected: typeof candidates = [];
+    let committedMinutes = 0;
+    let coreCount = 0;
+    const optionalCount = Math.min(2, candidates.length); // 可选最多 2 个
+    for (const node of candidates) {
+      const minutes = activityMinutes(selected.length + (seed % 3));
+      if (coreCount < 4 && committedMinutes + minutes <= input.capacityMinutes) {
+        selected.push(node);
+        committedMinutes += minutes;
+        coreCount += 1;
+      } else if (selected.length - coreCount < optionalCount) {
+        selected.push(node); // 可选，不计入承诺时长
+      } else {
+        break;
+      }
+    }
 
     const activities = selected.map((node, index) => {
       const isCore = index < coreCount;
@@ -144,8 +158,8 @@ export class RulePlanner implements PlannerPort {
       };
     });
 
-    const totalMinutes = activities.reduce((s, a) => s + a.estimatedMinutes, 0);
-    const rationale = `按 ${input.capacityMinutes} 分钟容量编排 ${coreCount} 个核心活动，周计划半稳定，普通完成不重排。`;
+    const totalMinutes = committedMinutes;
+    const rationale = `按 ${input.capacityMinutes} 分钟容量编排 ${coreCount} 个核心活动（承诺 ${committedMinutes} 分钟，不超过容量），可选活动不计入承诺；周计划半稳定，普通完成不重排。`;
 
     return {
       weekKey: input.weekKey,

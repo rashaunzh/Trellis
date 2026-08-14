@@ -38,7 +38,8 @@ export class RuleAdjustmentAdvisor implements AdjustmentAdvisorPort {
             description: `按评估反馈修订证据并重新提交。`,
           },
         ],
-        severity: "low",
+        // 证据退回是重要的可追踪调整事件（medium，而非 low）
+        severity: "medium",
       };
     }
 
