@@ -29,6 +29,13 @@
       "when": 1786615798062,
       "tag": "0003_lonely_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786678939478,
+      "tag": "0004_kind_boomerang",
+      "breakpoints": true
     }
   ]
 }
