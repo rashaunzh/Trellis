@@ -458,6 +458,28 @@
 .t2-done b { font-size: 13px; color: var(--t2-green); }
 .t2-status-line { color: var(--t2-muted); font-size: 11px; }
 
+/* 评估结果展示 */
+.t2-assessment {
+  padding: 16px;
+  border: 1px solid var(--t2-line);
+  border-radius: 10px;
+  background: var(--t2-panel);
+}
+
+.t2-assessment-list { margin: 8px 0 0; padding-left: 20px; }
+.t2-assessment-list li { color: #3f4b44; font-size: 12px; line-height: 1.6; }
+
+.t2-assessment-missing {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fdecea;
+}
+
+.t2-assessment-missing b { color: #8a1f1f; font-size: 11px; }
+.t2-assessment-missing ul { margin: 6px 0 0; padding-left: 18px; }
+.t2-assessment-missing li { color: #8a1f1f; font-size: 11px; line-height: 1.55; }
+
 /* ── 成长页：地图 ───────────────────────────────────── */
 .t2-map-stats { display: flex; gap: 20px; }
 .t2-map-stats span { color: var(--t2-muted); font-size: 11px; }

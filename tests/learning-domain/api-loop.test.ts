@@ -202,3 +202,45 @@ test("重复提交证据：同一活动第二次提交仍合法（新证据）",
     () => service.submitEvidence(OWNER, activity.id, { content: "第二次。" }),
   );
 });
+
+test("Phase 4 闭环：退回 → 修订重新提交 → 接受 → 节点验证", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  const nodeId = activity.nodeId;
+
+  // 1. 开始 → 提交不足证据 → 退回
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "太短。" });
+  let ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  const { workspace: ws1, assessment } = await service.reviewEvidence(OWNER, ev.id);
+  assert.equal(assessment.verdict, "needs_revision");
+  assert.equal(ws1.evidence.find((e) => e.id === ev.id)!.status, "needs_revision");
+  assert.equal(ws1.activities.find((a) => a.id === activity.id)!.status, "in_progress");
+  assert.notEqual(
+    ws1.nodeProgress.find((p) => p.nodeId === nodeId)!.status,
+    "validated",
+    "退回时节点不得验证",
+  );
+
+  // 2. 修订：重新提交足量证据（活动回到 in_progress 后允许再次提交）
+  await service.submitEvidence(OWNER, activity.id, {
+    content:
+      "模型从数据中学习模式而不是保存事实，生成是在上下文中预测后续内容。" +
+      "训练时调整参数，推理时根据概率输出。流畅自信与正确是不同的事，" +
+      "幻觉说明概率性输出的边界，泛化依赖训练数据分布。",
+  });
+  ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id && e.status === "submitted")!;
+  assert.ok(ev, "修订后应有新证据进入待评估");
+
+  // 3. 重新评估 → 接受 → 活动完成 → 节点验证
+  const { workspace: ws2, assessment: a2 } = await service.reviewEvidence(OWNER, ev.id);
+  assert.equal(a2.verdict, "accepted");
+  assert.equal(ws2.evidence.find((e) => e.id === ev.id)!.status, "accepted");
+  assert.equal(ws2.activities.find((a) => a.id === activity.id)!.status, "completed");
+  const np = ws2.nodeProgress.find((p) => p.nodeId === nodeId)!;
+  assert.equal(np.status, "validated", "证据接受后节点由证据驱动验证");
+  assert.ok(np.supportingEvidenceIds.includes(ev.id), "验证证据可追溯");
+});

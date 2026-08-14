@@ -42,9 +42,9 @@
 - [ ] Phase 4：活动闭环（检查点 4）
 - [ ] Phase 5：测试与验收（检查点 5）
 
-## 已知环境问题（Phase 1 遗留）
+## 已知环境问题（已解决）
 
-- `npm run build` 在 Git Bash 下报 `D:\d\02-Production\01-Trellis\dist\.openai\hosting.json` ENOENT——疑似 MSYS 路径转换问题（/d/02-Production → D:\d\...），与本次代码无关，Phase 5 前需要解决或确认既有构建方式。
+- ~~`npm run build` 在 Git Bash 下报 `D:\d\...` ENOENT~~：已通过 `scripts/sites-env.sh` 的 `pwd -W` 修复（提交 `5b5a5c9`），`npm run build` 与 `npm run test` 现在完整通过。
 
 ## 可复用的既有资产（来自 78ca0f1 及后续提交）
 
@@ -55,14 +55,8 @@
 
 ## 尚未完成 / 开放问题
 
-- Phase 3 完成（提交 `6976196`），等待 Checkpoint 3 检查。
-  - `app/_components/shell.tsx`：三 tab 导航（学习/成长/工作台），旧四页面导航已不再出现
-  - `app/learn/page.tsx`：onboarding → 路线提案 → 周计划（核心/可选活动、活动抽屉：开始/提交证据/评估、调整记录）
-  - `app/grow/page.tsx`：统一成长地图（三色节点、相邻分支、节点详情、证据、调整确认、跳学按钮）
-  - `app/workbench/page.tsx`：资源/工具卡片（是什么/对应节点/适用活动/为什么推荐）+ 来源筛选
-  - `lib/learning/frontend.ts`：Workspace 类型 + 只调新闭环 API 的 client
-  - `app/api/learning/nodes/[id]/skip`：跳学 route（服务层 skipNode 已有）
-  - 验证：40/40 领域测试、6/6 既有、lint 0、build 通过；浏览器快照确认三页渲染 + 学习页提案→确认流程
+- Phase 3 已通过 Checkpoint 3（用户放行），开始 Phase 4：活动闭环。
+  - 待办：验证活动抽屉 开始/提交/评估 真实闭环；节点变色由证据驱动（非按钮）；调整建议可在学习页与成长页被理解并确认。
 - 错误实现尚未撤销或重做；保留其中可复用的诊断、提案、内容包和持久化能力，前台需要前向替换。
 - 浏览器自动化 CLI 当前不可用，需用户实际查看桌面/移动端视觉与交互。
 - 综合任务正式提交、AI 六维评分、用户确认掌握和延迟复测自动调度不在本次 MVP 范围（按 V0.2 实施计划，本次只跑最小闭环）。
@@ -71,5 +65,6 @@
 
 ## 精确下一步
 
-1. 用户检查 Checkpoint 0（文档统一为三功能结构、agent 只留接口、无旧四页面术语、无 D 盘唯一源说法）。
-2. 通过后开始 Phase 1：`db/schema.ts` 新增 learning 域表 + `lib/learning/domain/` + `lib/learning/agents/` 四接口，完成后停下等检查。
+1. 开始 Phase 4：活动闭环。验证活动抽屉 开始→提交证据→评估 形成真实闭环；节点变色由证据 accepted 驱动；调整建议（含 needs_revision 退回、跳学验证、周计划微调）可在学习页与成长页被用户理解并确认。
+2. 完成 Phase 4 后停下等 Checkpoint 4 检查。
+3. Phase 5：接入 D1 store（重启恢复验收）、补测试与构建验收。

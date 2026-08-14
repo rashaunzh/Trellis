@@ -12,6 +12,8 @@ import {
   startActivity,
   submitEvidence,
   reviewEvidence,
+  confirmAdjustment,
+  type AssessmentResult,
   type Workspace,
   type WorkspaceActivity,
 } from "../../lib/learning/frontend";
@@ -28,6 +30,8 @@ export default function LearnPage() {
   // 活动抽屉
   const [activeActivity, setActiveActivity] = useState<WorkspaceActivity | null>(null);
   const [evidenceDraft, setEvidenceDraft] = useState("");
+  // 最近一次评估结果（展示 reasons/missing，让用户理解判断依据）
+  const [lastAssessment, setLastAssessment] = useState<AssessmentResult | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -251,7 +255,18 @@ export default function LearnPage() {
             <div key={a.id} className={`t2-adjust ${a.status === "proposed" ? "proposed" : ""}`}>
               <b>{a.adjustmentType}</b>
               <p>{a.summary}</p>
-              <em>{a.status === "proposed" ? "待确认" : a.status === "accepted" ? "已确认" : a.status}</em>
+              <div className="t2-adjust-meta">
+                <em>{a.status === "proposed" ? "待确认" : a.status === "accepted" ? "已确认" : a.status}</em>
+                {a.status === "proposed" && (
+                  <button
+                    className="t2-mini"
+                    disabled={busy}
+                    onClick={() => void run(() => confirmAdjustment(a.id), "调整已确认")}
+                  >
+                    确认
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           {ws.adjustments.length === 0 && <p className="t2-empty">暂无调整记录。</p>}
@@ -319,6 +334,7 @@ export default function LearnPage() {
                     disabled={busy || !evidenceDraft.trim()}
                     onClick={() => void run(
                       () => submitEvidence(activeActivity.id, { content: evidenceDraft }).then((next) => {
+                        setLastAssessment(null);
                         setActiveActivity(next.activities.find((a) => a.id === activeActivity.id) ?? null);
                         return next;
                       }),
@@ -341,6 +357,7 @@ export default function LearnPage() {
                       if (!evidence) return;
                       void run(async () => {
                         const result = await reviewEvidence(evidence.id);
+                        setLastAssessment(result.assessment);
                         setActiveActivity(result.workspace.activities.find((a) => a.id === activeActivity.id) ?? null);
                         return result.workspace;
                       });
@@ -349,6 +366,32 @@ export default function LearnPage() {
                     评估证据
                   </button>
                 </div>
+              )}
+
+              {/* 评估结果：让用户理解判断依据 */}
+              {lastAssessment && (
+                <section className="t2-assessment">
+                  <span className="t2-drawer-label">
+                    评估结果：{lastAssessment.verdict === "accepted" ? "已接受" : "需修订"}
+                  </span>
+                  {lastAssessment.reasons.length > 0 && (
+                    <ul className="t2-assessment-list">
+                      {lastAssessment.reasons.map((r, i) => <li key={i}>{r}</li>)}
+                    </ul>
+                  )}
+                  {lastAssessment.missing.length > 0 && (
+                    <div className="t2-assessment-missing">
+                      <b>未满足：</b>
+                      <ul>{lastAssessment.missing.map((m, i) => <li key={i}>{m}</li>)}</ul>
+                    </div>
+                  )}
+                  {lastAssessment.verdict === "needs_revision" && (
+                    <p className="t2-hint">
+                      建议熟练等级 {lastAssessment.suggestedLevel}。请按反馈修订证据后重新提交，
+                      或回到活动重新学习。
+                    </p>
+                  )}
+                </section>
               )}
 
               {(activeActivity.status === "reviewed" || activeActivity.status === "completed") && (
