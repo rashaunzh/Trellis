@@ -6,7 +6,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const ownerId = ownerOf(request);
     const { id } = await context.params;
     const payload = (await request.json()) as Record<string, unknown>;
-    const workspace = await getLearningService().submitEvidence(ownerId, id, {
+    const workspace = await (await getLearningService()).submitEvidence(ownerId, id, {
       content: String(payload.content ?? ""),
       externalUrl: payload.externalUrl ? String(payload.externalUrl) : undefined,
       evidenceType: (payload.evidenceType as never) ?? undefined,

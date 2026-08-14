@@ -5,7 +5,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const ownerId = ownerOf(request);
     const { id } = await context.params;
-    const result = await getLearningService().reviewEvidence(ownerId, id);
+    const result = await (await getLearningService()).reviewEvidence(ownerId, id);
     return Response.json(result);
   } catch (error) {
     return jsonError(error);

@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       720,
       Math.max(30, Math.round((Number(payload.weeklyMinutes) || 180) / 15) * 15),
     );
-    const workspace = await getLearningService().runDiagnostic({
+    const workspace = await (await getLearningService()).runDiagnostic({
       ownerId,
       goal: String(payload.goal).trim().slice(0, 1000),
       weeklyMinutes,

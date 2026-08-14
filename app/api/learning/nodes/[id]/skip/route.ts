@@ -5,7 +5,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   try {
     const ownerId = ownerOf(request);
     const { id } = await context.params;
-    const workspace = await getLearningService().skipNode(ownerId, id);
+    const workspace = await (await getLearningService()).skipNode(ownerId, id);
     return Response.json({ workspace });
   } catch (error) {
     return jsonError(error);

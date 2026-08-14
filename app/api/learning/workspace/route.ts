@@ -4,7 +4,7 @@ import { getLearningService, ownerOf, jsonError } from "../_shared";
 export async function GET(request: Request) {
   try {
     const ownerId = ownerOf(request);
-    const workspace = await getLearningService().getWorkspace(ownerId);
+    const workspace = await (await getLearningService()).getWorkspace(ownerId);
     return Response.json({ workspace });
   } catch (error) {
     return jsonError(error);

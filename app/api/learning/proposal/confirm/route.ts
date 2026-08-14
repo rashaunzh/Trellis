@@ -4,7 +4,7 @@ import { getLearningService, ownerOf, jsonError } from "../../_shared";
 export async function POST(request: Request) {
   try {
     const ownerId = ownerOf(request);
-    const workspace = await getLearningService().confirmProposal(ownerId);
+    const workspace = await (await getLearningService()).confirmProposal(ownerId);
     return Response.json({ workspace });
   } catch (error) {
     return jsonError(error);
