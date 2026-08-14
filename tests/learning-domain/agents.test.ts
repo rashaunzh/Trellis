@@ -131,8 +131,8 @@ test("activityComposer 跳学验证活动有独立标记与提示", () => {
   assert.ok(draft.nextAdvice.includes("已验证"));
 });
 
-test("evidenceEvaluator 规则版：足量且覆盖目标的证据 accepted", () => {
-  const assessment = agents.evidenceEvaluator.evaluateEvidence({
+test("evidenceEvaluator 规则版：足量且覆盖目标的证据 accepted", async () => {
+  const assessment = await agents.evidenceEvaluator.evaluateEvidence({
     evidenceId: "ev-1",
     nodeId: "ai-literacy.mechanism",
     nodeTitle: "机制与边界",
@@ -152,8 +152,8 @@ test("evidenceEvaluator 规则版：足量且覆盖目标的证据 accepted", ()
   assert.equal(typeof assessment.confidence, "number");
 });
 
-test("evidenceEvaluator 规则版：篇幅不足 needs_revision", () => {
-  const assessment = agents.evidenceEvaluator.evaluateEvidence({
+test("evidenceEvaluator 规则版：篇幅不足 needs_revision", async () => {
+  const assessment = await agents.evidenceEvaluator.evaluateEvidence({
     evidenceId: "ev-2",
     nodeId: "ai-literacy.mechanism",
     nodeTitle: "机制与边界",

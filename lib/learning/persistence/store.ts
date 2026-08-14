@@ -19,6 +19,16 @@ export interface LearnerProfile {
   status: "diagnosed" | "proposed" | "confirmed";
 }
 
+// 用户自配的 LLM API 配置（key 仅存服务端表）
+export interface ApiConfig {
+  id: string;
+  ownerId: string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  enabled: boolean;
+}
+
 export interface LearningStore {
   // 学习者画像
   getProfile(ownerId: string): Promise<LearnerProfile | null>;
@@ -43,4 +53,9 @@ export interface LearningStore {
   listAdjustments(ownerId: string): Promise<AdjustmentRecord[]>;
   getAdjustment(adjustmentId: string): Promise<AdjustmentRecord | null>;
   saveAdjustment(adjustment: AdjustmentRecord): Promise<void>;
+  // LLM API 配置
+  getApiConfig(ownerId: string): Promise<ApiConfig | null>;
+  saveApiConfig(config: ApiConfig): Promise<void>;
+  // 重置：清空该用户全部学习状态（重新诊断用），内容层不动
+  resetLearner(ownerId: string): Promise<void>;
 }

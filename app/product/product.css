@@ -206,6 +206,30 @@
   gap: 14px;
 }
 
+/* 静态展示态：无输入控件，纯标签+值 */
+.tp-controls-static {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.tp-controls-static span {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(23, 33, 28, .14);
+  border-radius: 12px;
+  background: #fff;
+  color: #536058;
+  font-size: 13px;
+}
+
+.tp-controls-static b {
+  color: #17211c;
+  font-size: 14px;
+}
+
 .tp-controls label {
   display: grid;
   gap: 8px;
@@ -254,6 +278,36 @@
   display: grid;
   gap: 10px;
   margin-top: 18px;
+}
+
+/* 静态展示态：div 代替 button，无点击 */
+.tp-stage-static > div {
+  text-align: left;
+  padding: 15px;
+  border: 1px solid rgba(23, 33, 28, .12);
+  border-radius: 16px;
+  background: #f8faf5;
+  color: #17211c;
+  font-weight: 800;
+}
+
+.tp-stage-static > div span {
+  display: block;
+  margin-bottom: 5px;
+  color: #1d6653;
+  font-size: 11px;
+}
+
+.tp-stage-static > div.active {
+  background: #dff0a5;
+  border-color: #bdd36b;
+}
+
+.tp-autoplay-hint {
+  display: block;
+  margin-top: 12px;
+  color: #8a9478;
+  font-size: 11px;
 }
 
 .tp-stage-list button {

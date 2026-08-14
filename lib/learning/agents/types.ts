@@ -123,7 +123,10 @@ export interface EvidenceAssessment {
 }
 
 export interface EvidenceEvaluatorPort {
-  evaluateEvidence(input: EvaluateEvidenceInput): EvidenceAssessment;
+  evaluateEvidence(
+    input: EvaluateEvidenceInput,
+    llm?: { baseUrl: string; apiKey: string; model: string },
+  ): Promise<EvidenceAssessment>;
 }
 
 // ── adjustmentAdvisor：提出路径调整建议 ────────────────

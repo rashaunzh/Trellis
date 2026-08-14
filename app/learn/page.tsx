@@ -223,7 +223,22 @@ export default function LearnPage() {
           <p className="t2-kicker">学习 · 第 {ws.weeklyPlan?.weekKey.replace("2026-W", "") ?? "?"} 周</p>
           <h1>{ws.profile.goal}</h1>
         </div>
-        <span className="t2-muted">核心承诺 {plannedMinutes} / {capacityMinutes} 分钟</span>
+        <div className="t2-topbar-actions">
+          <span className="t2-muted">核心承诺 {plannedMinutes} / {capacityMinutes} 分钟</span>
+          <button
+            className="t2-secondary t2-reset-btn"
+            disabled={busy}
+            onClick={() => {
+              if (!window.confirm("重新设置将清空当前学习状态并回到初始诊断，确定继续？")) return;
+              void run(async () => {
+                const { resetLearner } = await import("../../lib/learning/frontend");
+                return resetLearner();
+              }, "已重置，请重新诊断");
+            }}
+          >
+            重新设置
+          </button>
+        </div>
       </div>
 
       {message && <p className="t2-message">{message}</p>}
@@ -249,10 +264,10 @@ export default function LearnPage() {
       <section className="t2-section">
         <header>
           <h3>本周看板</h3>
-          <span className="t2-muted">核心活动按顺序推进；可选活动放在缓冲区，不强行塞满。</span>
+          <span className="t2-muted">实心 = 核心承诺（按顺序推进）；描边 = 可选（缓冲，不计入承诺）。</span>
         </header>
         <div className="t2-week-board">
-          {core.map((activity, index) => (
+          {ws.activities.map((activity, index) => (
             <ActivityCard
               key={activity.id}
               activity={activity}
@@ -261,46 +276,9 @@ export default function LearnPage() {
               onOpen={() => openActivity(activity)}
             />
           ))}
-          {core.length === 0 && <p className="t2-empty">本周暂无核心活动，先去成长页看看地图。</p>}
+          {ws.activities.length === 0 && <p className="t2-empty">本周暂无活动，先去成长页看看地图。</p>}
         </div>
       </section>
-
-      <section className="t2-section">
-        <header>
-          <h3>核心活动详情</h3>
-          <span className="t2-muted">每个活动都关联节点、预计时间、学习动作与产出证据</span>
-        </header>
-        <div className="t2-activity-list">
-          {core.map((activity) => (
-            <ActivityCard
-              key={activity.id}
-              activity={activity}
-              nodeTitle={activity.title}
-              onOpen={() => openActivity(activity)}
-            />
-          ))}
-          {core.length === 0 && <p className="t2-empty">本周暂无核心活动，先去成长页看看地图。</p>}
-        </div>
-      </section>
-
-      {optional.length > 0 && (
-        <section className="t2-section">
-          <header>
-            <h3>可选活动</h3>
-            <span className="t2-muted">不计入本周承诺，学有余力时推进</span>
-          </header>
-          <div className="t2-activity-list">
-            {optional.map((activity) => (
-              <ActivityCard
-                key={activity.id}
-                activity={activity}
-                nodeTitle={activity.title}
-                onOpen={() => openActivity(activity)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
 
       <section className="t2-section">
         <header>
@@ -539,11 +517,11 @@ function ActivityCard({
 }) {
   const evidence = null; // 卡片上不展示证据详情，抽屉内展示
   return (
-    <article className={`t2-activity-card ${activity.status === "completed" ? "done" : ""}`}>
+    <article className={`t2-activity-card ${activity.isCore ? "core" : "optional"} ${activity.status === "completed" ? "done" : ""}`}>
       <div className="t2-activity-main" onClick={onOpen}>
         <div className="t2-activity-head">
           <span>{order ? `#${order} · ` : ""}{ACTIVITY_TYPE_TEXT[activity.activityType]}{activity.isSkipValidation ? " · 跳学验证" : ""}</span>
-          <em>{activity.estimatedMinutes} 分钟</em>
+          <em>{activity.estimatedMinutes} 分钟{!activity.isCore ? " · 可选" : ""}</em>
         </div>
         <h4>{nodeTitle}</h4>
         <p>{activity.goal}</p>

@@ -12,7 +12,7 @@ import type {
   WeeklyPlan,
 } from "../domain/types.ts";
 import { learningContentPack } from "../domain/content.ts";
-import type { LearningStore, LearnerProfile } from "./store.ts";
+import type { ApiConfig, LearningStore, LearnerProfile } from "./store.ts";
 
 // D1 实例类型：D1Database 全局类型依赖未安装的 @miniflare/d1，
 // 这里用 any 桥接（仓库 pre-existing 问题，worker/index.ts 同样受影响）。
@@ -161,6 +161,50 @@ export class D1LearningStore implements LearningStore {
         profile.activeRouteId,
         profile.weeklyMinutes,
         profile.status,
+        now,
+      )
+      .run();
+  }
+
+  // ── LLM API 配置 ────────────────────────────────────
+  async getApiConfig(ownerId: string): Promise<ApiConfig | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_api_config WHERE owner_id = ? LIMIT 1")
+      .bind(ownerId)
+      .first();
+    return row
+      ? {
+          id: row.id,
+          ownerId: row.owner_id,
+          baseUrl: row.base_url,
+          apiKey: row.api_key,
+          model: row.model,
+          enabled: Boolean(row.enabled),
+        }
+      : null;
+  }
+
+  async saveApiConfig(config: ApiConfig): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_api_config
+           (id, owner_id, base_url, api_key, model, enabled, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           base_url = excluded.base_url,
+           api_key = excluded.api_key,
+           model = excluded.model,
+           enabled = excluded.enabled,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        config.id,
+        config.ownerId,
+        config.baseUrl,
+        config.apiKey,
+        config.model,
+        config.enabled ? 1 : 0,
         now,
       )
       .run();
@@ -410,6 +454,19 @@ export class D1LearningStore implements LearningStore {
         now,
       )
       .run();
+  }
+
+  // 重置：清空该用户全部学习状态（重新诊断用），内容层不动；
+  // 删除顺序先子后父（证据/调整引用活动，活动引用周计划/节点，周计划引用画像）
+  async resetLearner(ownerId: string): Promise<void> {
+    await this.db.batch([
+      this.db.prepare("DELETE FROM learning_evidence WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_adjustments WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_activities WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_node_progress WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_weekly_plans WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_profiles WHERE owner_id = ?").bind(ownerId),
+    ]);
   }
 }
 

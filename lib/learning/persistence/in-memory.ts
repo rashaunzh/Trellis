@@ -8,7 +8,7 @@ import type {
   NodeProgress,
   WeeklyPlan,
 } from "../domain/types.ts";
-import type { LearningStore, LearnerProfile } from "./store.ts";
+import type { LearningStore, LearnerProfile, ApiConfig } from "./store.ts";
 
 export class InMemoryLearningStore implements LearningStore {
   private profiles = new Map<string, LearnerProfile>();
@@ -17,6 +17,7 @@ export class InMemoryLearningStore implements LearningStore {
   private evidence = new Map<string, Evidence>();
   private nodeProgress = new Map<string, NodeProgress>();
   private adjustments = new Map<string, AdjustmentRecord>();
+  private apiConfigs = new Map<string, ApiConfig>();
 
   async getProfile(ownerId: string): Promise<LearnerProfile | null> {
     for (const p of Array.from(this.profiles.values())) {
@@ -99,5 +100,24 @@ export class InMemoryLearningStore implements LearningStore {
 
   async saveAdjustment(adjustment: AdjustmentRecord): Promise<void> {
     this.adjustments.set(adjustment.id, { ...adjustment });
+  }
+
+  async resetLearner(ownerId: string): Promise<void> {
+    for (const map of [this.profiles, this.weeklyPlans, this.activities, this.nodeProgress, this.evidence, this.adjustments]) {
+      for (const [key, value] of map) {
+        if (value.ownerId === ownerId) map.delete(key);
+      }
+    }
+  }
+
+  async getApiConfig(ownerId: string): Promise<ApiConfig | null> {
+    for (const config of this.apiConfigs.values()) {
+      if (config.ownerId === ownerId) return { ...config };
+    }
+    return null;
+  }
+
+  async saveApiConfig(config: ApiConfig): Promise<void> {
+    this.apiConfigs.set(config.id, { ...config });
   }
 }

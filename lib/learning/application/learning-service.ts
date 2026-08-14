@@ -69,6 +69,12 @@ export interface Workspace {
     description: string;
   } | null;
   adjacentBranches: Array<{ id: string; name: string; description: string }>;
+  // 当前路线的边（前置关系），成长页树状图使用
+  edges: Array<{
+    sourceNodeId: string;
+    targetNodeId: string;
+    relationType: "prerequisite" | "supports" | "related";
+  }>;
   weeklyPlan: WeeklyPlan | null;
   activities: LearningActivity[];
   nodeProgress: NodeProgress[];
@@ -115,6 +121,7 @@ export class LearningApplicationService {
         profile: null,
         route: null,
         adjacentBranches: [],
+        edges: [],
         weeklyPlan: null,
         activities: [],
         nodeProgress: [],
@@ -179,10 +186,23 @@ export class LearningApplicationService {
         };
       });
 
+    // 当前路线的边（前置/支持/相关），成长页树状图使用
+    const routeNodeIds = new Set(
+      learningContentPack.nodes.filter((n) => n.routeId === route?.id).map((n) => n.id),
+    );
+    const edges = learningContentPack.edges
+      .filter((e) => routeNodeIds.has(e.sourceNodeId) && routeNodeIds.has(e.targetNodeId))
+      .map((e) => ({
+        sourceNodeId: e.sourceNodeId,
+        targetNodeId: e.targetNodeId,
+        relationType: e.relationType,
+      }));
+
     return {
       profile,
       route,
       adjacentBranches,
+      edges,
       weeklyPlan,
       activities,
       nodeProgress,
@@ -380,8 +400,12 @@ export class LearningApplicationService {
     const node = learningContentPack.nodes.find((n) => n.id === evidence.nodeId);
     if (!node) throw new LearningError("节点不存在", 404);
 
-    // 规则/LLM 评估
-    const assessment = this.agents.evidenceEvaluator.evaluateEvidence({
+    // 规则/LLM 评估（LLM 用用户自配的 API 配置，key 只在服务端）
+    const apiConfig = await this.store.getApiConfig(ownerId);
+    const llm = apiConfig?.enabled && apiConfig.apiKey
+      ? { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model }
+      : undefined;
+    const assessment = await this.agents.evidenceEvaluator.evaluateEvidence({
       evidenceId,
       nodeId: evidence.nodeId,
       nodeTitle: node.title,
@@ -390,7 +414,7 @@ export class LearningApplicationService {
       content: evidence.content,
       criteria: activity.evaluationCriteria,
       isSkipValidation: activity.isSkipValidation,
-    });
+    }, llm);
 
     // 证据状态迁移
     if (assessment.verdict === "accepted") {
@@ -471,6 +495,57 @@ export class LearningApplicationService {
     adjustment.status = "accepted";
     await this.store.saveAdjustment(adjustment);
     return this.getWorkspace(ownerId);
+  }
+
+  // ── POST /api/learning/reset ─────────────────────────
+  // 重新设置：清空该用户全部学习状态，回到未诊断起点（内容层不动）。
+  async resetLearner(ownerId: string): Promise<Workspace> {
+    await this.store.resetLearner(ownerId);
+    return this.getWorkspace(ownerId);
+  }
+
+  // ── LLM API 配置 ────────────────────────────────────
+  // 保存用户自配的 API（key 存服务端表）；读取时脱敏，绝不下发前端。
+  async saveApiConfig(
+    ownerId: string,
+    input: { baseUrl: string; apiKey: string; model: string; enabled: boolean },
+  ): Promise<{ configured: boolean; baseUrl: string; model: string; enabled: boolean; keyMasked: boolean }> {
+    const existing = await this.store.getApiConfig(ownerId);
+    const config = {
+      id: existing?.id ?? stableId("apiconfig", ownerId),
+      ownerId,
+      baseUrl: input.baseUrl.trim(),
+      // key 为空时保留旧值（允许只改 baseUrl/model 不改 key）
+      apiKey: input.apiKey.trim() || existing?.apiKey || "",
+      model: input.model.trim() || "deepseek-chat",
+      enabled: input.enabled,
+    };
+    await this.store.saveApiConfig(config);
+    return {
+      configured: Boolean(config.apiKey),
+      baseUrl: config.baseUrl,
+      model: config.model,
+      enabled: config.enabled,
+      keyMasked: Boolean(config.apiKey),
+    };
+  }
+
+  // 读取配置状态（key 脱敏）：前端只看到是否已配置 + 模型 + 地址
+  async getApiConfigStatus(ownerId: string): Promise<{
+    configured: boolean;
+    enabled: boolean;
+    baseUrl: string;
+    model: string;
+    keyMasked: boolean;
+  }> {
+    const config = await this.store.getApiConfig(ownerId);
+    return {
+      configured: Boolean(config?.apiKey),
+      enabled: config?.enabled ?? false,
+      baseUrl: config?.baseUrl ?? "",
+      model: config?.model ?? "",
+      keyMasked: Boolean(config?.apiKey),
+    };
   }
 
   // ── POST /api/learning/adjustments/propose ─────────

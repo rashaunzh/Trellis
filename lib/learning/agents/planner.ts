@@ -120,31 +120,28 @@ export class RulePlanner implements PlannerPort {
         return a.id.localeCompare(b.id);
       });
 
-    // 打包活动：围绕当前节点生成“活动链”，而不是一个节点只生成一个任务。
-    // 规则：当前可学节点会被拆成建立模型 / 跟随示范 / 独立练习 / 复盘验证等活动，
-    // 尽量贴近每周容量；可选活动用于相邻节点或加深练习，不计入本周承诺。
+    // 打包活动：每个节点最多取活动链前 3 个（建立模型→跟随示范→独立练习），
+    // 然后推进到下一节点，避免一个节点被拆成 8 段、类型重复。
+    // 承诺（核心）按容量编排；可选活动作为缓冲，不计入承诺。
     const activityChain: Array<{ activityType: ActivityType; minutes: number; label: string; why: string }> = [
       { activityType: "build_model", minutes: 45, label: "建立模型", why: "先把概念、机制和边界说清楚，避免直接进入碎片练习。" },
       { activityType: "follow_demo", minutes: 60, label: "跟随示范", why: "通过完整示例理解这个节点在真实任务中怎么用。" },
       { activityType: "independent_practice", minutes: 75, label: "独立练习", why: "用一个小产出验证是否能离开提示独立应用。" },
-      { activityType: "build_model", minutes: 45, label: "复盘校准", why: "把练习暴露的问题回收到知识结构里，形成可解释判断。" },
-      { activityType: "independent_practice", minutes: 60, label: "验证产出", why: "提交更接近真实情境的证据，为节点状态变化提供依据。" },
-      { activityType: "follow_demo", minutes: 75, label: "迁移案例", why: "用变式案例检验能否跨情境判断，避免只会照抄一个例子。" },
-      { activityType: "independent_practice", minutes: 60, label: "加深练习", why: "补一轮低压力输出，让薄弱点在本周内被看见。" },
-      { activityType: "build_model", minutes: 60, label: "周内综合", why: "把本周产出汇成一张小地图，更新自己对边界和下一步的判断。" },
     ];
+    const CORE_PER_NODE = activityChain.length;
     const selected: Array<typeof candidates[number] & { activityType: ActivityType; minutes: number; label: string; why: string }> = [];
     let committedMinutes = 0;
     const targetCoreCount = Math.min(8, Math.max(2, Math.floor(input.capacityMinutes / 60)));
 
+    outer:
     for (const node of candidates) {
-      for (const template of activityChain) {
-        if (selected.length >= targetCoreCount) break;
-        if (committedMinutes + template.minutes > input.capacityMinutes) break;
+      for (let i = 0; i < CORE_PER_NODE && i < activityChain.length; i++) {
+        const template = activityChain[i];
+        if (selected.length >= targetCoreCount) break outer;
+        if (committedMinutes + template.minutes > input.capacityMinutes - 30) break outer;
         selected.push({ ...node, ...template });
         committedMinutes += template.minutes;
       }
-      if (selected.length >= targetCoreCount || committedMinutes >= input.capacityMinutes - 30) break;
     }
 
     const optionalSource = candidates.find((node) => !selected.some((item) => item.id === node.id)) ?? candidates[0];

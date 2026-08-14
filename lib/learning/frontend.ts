@@ -111,12 +111,20 @@ export interface Workspace {
   profile: WorkspaceProfile | null;
   route: WorkspaceRoute | null;
   adjacentBranches: AdjacentBranch[];
+  edges: WorkspaceEdge[];
   weeklyPlan: WorkspacePlan | null;
   activities: WorkspaceActivity[];
   nodeProgress: WorkspaceNodeProgress[];
   evidence: WorkspaceEvidence[];
   adjustments: WorkspaceAdjustment[];
   workbench: { resources: WorkbenchResource[]; tools: WorkbenchTool[] };
+}
+
+// 当前路线的边（前置关系），成长页树状图使用
+export interface WorkspaceEdge {
+  sourceNodeId: string;
+  targetNodeId: string;
+  relationType: "prerequisite" | "supports" | "related";
 }
 
 export interface AssessmentResult {
@@ -220,6 +228,45 @@ export async function skipNode(nodeId: string): Promise<Workspace> {
     await fetch(`/api/learning/nodes/${nodeId}/skip`, { method: "POST" }),
   );
   return data.workspace;
+}
+
+export async function resetLearner(): Promise<Workspace> {
+  const data = await readJson<{ workspace: Workspace }>(
+    await fetch("/api/learning/reset", { method: "POST" }),
+  );
+  return data.workspace;
+}
+
+// ── LLM API 配置 ────────────────────────────────────
+export interface ApiConfigStatus {
+  configured: boolean;
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  keyMasked: boolean;
+}
+
+export async function fetchApiConfig(): Promise<ApiConfigStatus> {
+  const data = await readJson<{ config: ApiConfigStatus }>(
+    await fetch("/api/learning/api-config"),
+  );
+  return data.config;
+}
+
+export async function saveApiConfig(input: {
+  baseUrl: string;
+  apiKey?: string;
+  model?: string;
+  enabled: boolean;
+}): Promise<ApiConfigStatus> {
+  const data = await readJson<{ config: ApiConfigStatus }>(
+    await fetch("/api/learning/api-config", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    }),
+  );
+  return data.config;
 }
 
 // ── 状态文案映射 ──────────────────────────────────────

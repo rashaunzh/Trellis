@@ -378,6 +378,21 @@
   overflow: hidden;
 }
 
+/* 核心承诺：实心绿边；可选：描边灰 */
+.t2-activity-card.core {
+  border-color: var(--t2-green);
+  box-shadow: inset 0 0 0 1px var(--t2-green);
+}
+
+.t2-activity-card.optional {
+  border-style: dashed;
+  border-color: var(--t2-line);
+}
+
+.t2-activity-card.optional .t2-activity-head span {
+  color: var(--t2-muted);
+}
+
 .t2-activity-card.done { opacity: .72; }
 
 .t2-activity-main {
@@ -624,6 +639,65 @@
   gap: 10px;
 }
 
+/* 树状脉络图：按前置关系分层，层间连线 */
+.t2-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 0;
+}
+
+/* 树枝状脉络图（横向树 + SVG 贝塞尔连线） */
+.t2-treemap {
+  position: relative;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0 4px;
+}
+
+.t2-treemap-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.t2-treemap-edge {
+  stroke: var(--t2-line);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.t2-treemap-node {
+  position: absolute;
+}
+
+.t2-treemap-node .t2-node-card {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.t2-tree-level {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 8px 0;
+}
+
+.t2-tree-branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.t2-tree-connector {
+  width: 2px;
+  height: 22px;
+  margin-top: 2px;
+  background: var(--t2-line);
+}
+
 .t2-node-card {
   display: flex;
   align-items: center;
@@ -776,6 +850,51 @@
 .t2-ai-panel b { font-size: 13px; }
 .t2-ai-panel p { margin: 6px 0 0; color: var(--t2-muted); font-size: 11px; line-height: 1.6; }
 
+.t2-ai-form {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--t2-line);
+  border-radius: 12px;
+  background: var(--t2-panel);
+}
+
+.t2-ai-form label {
+  display: grid;
+  gap: 7px;
+  color: #3f4b44;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.t2-ai-form input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--t2-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--t2-ink);
+  outline: none;
+}
+
+.t2-ai-form .t2-ai-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  padding-bottom: 11px;
+  font-weight: 700;
+}
+
+.t2-ai-toggle input { width: auto; }
+
+@media (max-width: 900px) {
+  .t2-ai-form { grid-template-columns: 1fr 1fr; }
+}
+
 .t2-filter { display: flex; gap: 6px; flex-wrap: wrap; }
 .t2-filter button {
   padding: 7px 10px;
@@ -789,6 +908,51 @@
 .t2-filter button.active { border-color: var(--t2-ink); background: var(--t2-ink); color: #fff; }
 
 .t2-resource-list { display: grid; gap: 10px; }
+
+/* 资源按路线分组看板 */
+.t2-route-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.t2-route-column {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--t2-line);
+  border-radius: 13px;
+  background: var(--t2-soft);
+}
+
+.t2-route-column > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 6px;
+}
+
+.t2-route-column > header b { font-size: 14px; }
+.t2-route-column > header small { color: var(--t2-muted); font-size: 10px; }
+
+.t2-route-resources {
+  display: grid;
+  gap: 10px;
+}
+
+.t2-route-resources .t2-resource-card {
+  background: var(--t2-panel);
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.t2-route-resources .t2-resource-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--t2-line);
+  padding-top: 10px;
+}
 
 .t2-resource-card {
   display: flex;

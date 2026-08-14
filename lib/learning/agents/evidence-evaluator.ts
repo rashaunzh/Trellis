@@ -29,7 +29,7 @@ const MIN_CONTENT_LENGTH = 80; // 证据本体最小长度（字符）
 const MIN_COVERAGE_RATIO = 0.5; // 覆盖信号词比例
 
 export class RuleEvidenceEvaluator implements EvidenceEvaluatorPort {
-  evaluateEvidence(input: EvaluateEvidenceInput): EvidenceAssessment {
+  async evaluateEvidence(input: EvaluateEvidenceInput): Promise<EvidenceAssessment> {
     const content = input.content.trim();
     const signals = NODE_SIGNAL_WORDS[input.nodeId] ?? [];
     const covered = signals.filter((word) => content.toLowerCase().includes(word.toLowerCase()));

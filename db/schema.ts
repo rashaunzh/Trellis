@@ -229,6 +229,19 @@ export const learningToolMappings = sqliteTable("learning_tool_mappings", {
 
 // ── 状态层：用户运行状态（可写）────────────────────────────────
 
+// LLM API 配置（用户自配，用于 AI 接入；key 仅存服务端表，不经过前端存储）
+export const learningApiConfig = sqliteTable("learning_api_config", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  baseUrl: text("base_url").notNull().default(""),
+  apiKey: text("api_key").notNull().default(""),
+  model: text("model").notNull().default("deepseek-chat"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("learning_api_config_owner_idx").on(table.ownerId),
+]);
+
 export const learningProfiles = sqliteTable("learning_profiles", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull(),

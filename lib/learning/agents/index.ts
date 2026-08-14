@@ -5,7 +5,7 @@
 import type { AgentRegistry, AgentContext } from "./types.ts";
 import RulePlanner from "./planner.ts";
 import RuleActivityComposer from "./activity-composer.ts";
-import RuleEvidenceEvaluator from "./evidence-evaluator.ts";
+import LLMEvidenceEvaluator from "./llm-evidence-evaluator.ts";
 import RuleAdjustmentAdvisor from "./adjustment-advisor.ts";
 
 export * from "./types.ts";
@@ -14,7 +14,9 @@ export function createRuleAgents(): AgentRegistry {
   return {
     planner: new RulePlanner(),
     activityComposer: new RuleActivityComposer(),
-    evidenceEvaluator: new RuleEvidenceEvaluator(),
+    // evidenceEvaluator：LLM 增强版（配置了 DEEPSEEK_* 环境变量时调用模型，
+    // 否则回退规则版）。输出结构一致，产品主流程无感知。
+    evidenceEvaluator: new LLMEvidenceEvaluator(),
     adjustmentAdvisor: new RuleAdjustmentAdvisor(),
   };
 }

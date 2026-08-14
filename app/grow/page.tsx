@@ -98,28 +98,23 @@ export default function GrowPage() {
         </div>
       )}
 
-      {/* 三色节点地图 */}
+      {/* 三色节点脉络图（树枝状分叉） */}
       <section className="t2-section">
         <header>
-          <h3>当前路线</h3>
+          <h3>当前路线脉络</h3>
           <div className="t2-legend">
             <i className="st-unstarted" />未点亮
             <i className="st-growing" />成长中
             <i className="st-validated" />已验证
           </div>
         </header>
-        <div className="t2-node-map">
-          {ws.nodeProgress.map((progress) => (
-            <NodeCard
-              key={progress.nodeId}
-              progress={progress}
-              active={selectedNode === progress.nodeId}
-              onSelect={() => setSelectedNode(progress.nodeId === selectedNode ? null : progress.nodeId)}
-              onSkip={() => void run(() => skipNode(progress.nodeId), "已跳过，生成验证活动")}
-              busy={busy}
-            />
-          ))}
-        </div>
+        <TreeMap
+          ws={ws}
+          selectedNode={selectedNode}
+          onSelect={(nodeId) => setSelectedNode(nodeId === selectedNode ? null : nodeId)}
+          onSkip={(nodeId) => void run(() => skipNode(nodeId), "已跳过，生成验证活动")}
+          busy={busy}
+        />
       </section>
 
       {/* 节点详情 */}
@@ -260,4 +255,126 @@ function NodeCard({
       )}
     </article>
   );
+}
+
+// ── 树枝状脉络图 ────────────────────────────────────
+// 横向树：root 在左，按前置关系向右分叉。层 = 前置深度（同层节点纵向排布），
+// 层间用 SVG 贝塞尔曲线连接（仿树枝分叉），节点状态用三色圆点。
+
+const NODE_W = 200;   // 节点卡宽度（px）
+const NODE_H = 64;    // 节点卡高度（px）
+const LEVEL_GAP = 150; // 层间距（px）
+const NODE_GAP = 28;   // 层内节点间距（px）
+
+function TreeMap({
+  ws,
+  selectedNode,
+  onSelect,
+  onSkip,
+  busy,
+}: {
+  ws: Workspace;
+  selectedNode: string | null;
+  onSelect: (nodeId: string) => void;
+  onSkip: (nodeId: string) => void;
+  busy: boolean;
+}) {
+  const levels = buildTree(ws);
+  if (levels.length === 0) return <p className="t2-empty">暂无节点。</p>;
+
+  // 计算每个节点的 (col, row)
+  const pos = new Map<string, { col: number; row: number }>();
+  levels.forEach((level, col) => {
+    level.forEach((nodeId, row) => pos.set(nodeId, { col, row }));
+  });
+
+  // 画布尺寸
+  const cols = levels.length;
+  const maxRows = Math.max(...levels.map((l) => l.length));
+  const width = cols * NODE_W + (cols - 1) * LEVEL_GAP + 40;
+  const height = maxRows * NODE_H + (maxRows - 1) * NODE_GAP + 40;
+
+  // 节点中心坐标
+  const center = (nodeId: string) => {
+    const { col, row } = pos.get(nodeId)!;
+    const colWidth = NODE_W + LEVEL_GAP;
+    const x = 20 + col * colWidth + NODE_W / 2;
+    const rowsInCol = levels[col].length;
+    const y = 20 + (row + 0.5) * (NODE_H + NODE_GAP) - NODE_GAP / 2 + (height - rowsInCol * (NODE_H + NODE_GAP)) / 2;
+    return { x, y };
+  };
+
+  // 树枝曲线：父节点右缘 → 子节点左缘（贝塞尔，横向分叉）
+  const branchPath = (from: string, to: string) => {
+    const a = center(from);
+    const b = center(to);
+    const dx = (b.x - a.x) / 2;
+    return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+  };
+
+  const prereqEdges = ws.edges.filter((e) => e.relationType === "prerequisite" && pos.has(e.sourceNodeId) && pos.has(e.targetNodeId));
+
+  return (
+    <div className="t2-treemap" style={{ width, height }}>
+      <svg className="t2-treemap-svg" width={width} height={height}>
+        {prereqEdges.map((e) => (
+          <path
+            key={`${e.sourceNodeId}->${e.targetNodeId}`}
+            d={branchPath(e.sourceNodeId, e.targetNodeId)}
+            className="t2-treemap-edge"
+            fill="none"
+          />
+        ))}
+      </svg>
+      {ws.nodeProgress.map((progress) => {
+        const { x, y } = center(progress.nodeId);
+        return (
+          <div
+            key={progress.nodeId}
+            className="t2-treemap-node"
+            style={{ left: x - NODE_W / 2, top: y - NODE_H / 2, width: NODE_W }}
+          >
+            <NodeCard
+              progress={progress}
+              active={selectedNode === progress.nodeId}
+              onSelect={() => onSelect(progress.nodeId)}
+              onSkip={() => onSkip(progress.nodeId)}
+              busy={busy}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// 树状脉络：按前置关系分层。roots = 无 prerequisite 依赖的节点；
+// 后续层 = 其前置都已出现在前面层的节点。层内按原始顺序稳定。
+function buildTree(ws: Workspace): string[][] {
+  const nodeIds = ws.nodeProgress.map((p) => p.nodeId);
+  const prereqByTarget = new Map<string, string[]>();
+  for (const edge of ws.edges) {
+    if (edge.relationType !== "prerequisite") continue;
+    const list = prereqByTarget.get(edge.targetNodeId) ?? [];
+    list.push(edge.sourceNodeId);
+    prereqByTarget.set(edge.targetNodeId, list);
+  }
+
+  const levels: string[][] = [];
+  const placed = new Set<string>();
+  let remaining = [...nodeIds];
+  while (remaining.length > 0) {
+    const level = remaining.filter((id) =>
+      (prereqByTarget.get(id) ?? []).every((p) => placed.has(p)),
+    );
+    if (level.length === 0) {
+      // 环或孤立节点：剩余全部作为最后一层，避免死循环
+      levels.push(remaining);
+      break;
+    }
+    levels.push(level);
+    for (const id of level) placed.add(id);
+    remaining = remaining.filter((id) => !placed.has(id));
+  }
+  return levels;
 }
