@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useMemo, useState } from "react";
 import { STAGES, ROUTE_NODES, STATUS_TEXT } from "./ProductStory.data";
 
