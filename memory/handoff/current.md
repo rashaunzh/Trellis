@@ -30,11 +30,21 @@
   - `docs/architecture/TRELLIS_V0.2_ARCHITECTURE.md`（架构基线）
   - `docs/engineering/TRELLIS_V0.2_IMPLEMENTATION_PLAN.md`（实施计划与检查点）
   - 旧提案已归档至 `docs/archive/v0.2-drafts/`（2026-08-13 远端清理提交已建，本次统一指向该目录）
-- [ ] Phase 1：领域模型与数据结构（检查点 1）
+- [x] Phase 1 完成（提交 `9b28434`，等待 Checkpoint 1 检查）：
+  - `db/schema.ts`：13 张 learning 域表（内容层 routes/nodes/edges/branches/resources/tools + 状态层 weekly_plans/activities/evidence/node_progress/adjustments），状态独立列不塞大 JSON，ownerId 边界
+  - `drizzle/0004_kind_boomerang.sql`：迁移已生成
+  - `lib/learning/domain/`：types（枚举+领域类型）、state-machine（活动/证据/节点三套状态机 + 跳学规则）、content（三条路线内容包 + 校验 + 相邻分支/前置查询）
+  - `lib/learning/agents/`：四接口（planner/activityComposer/evidenceEvaluator/adjustmentAdvisor）契约 + 规则实现（确定性周计划、结构化输出）
+  - `tests/learning-domain/`：30 个测试全过（内容模型 8 + 状态机 12 + agent 10），`npm run test:domain` 可跑
+  - `tsconfig.json`：allowImportingTsExtensions（Node 原生跑 TS 测试）
 - [ ] Phase 2：后端 API 与读取模型（检查点 2）
 - [ ] Phase 3：前端三大功能（检查点 3）
 - [ ] Phase 4：活动闭环（检查点 4）
 - [ ] Phase 5：测试与验收（检查点 5）
+
+## 已知环境问题（Phase 1 遗留）
+
+- `npm run build` 在 Git Bash 下报 `D:\d\02-Production\01-Trellis\dist\.openai\hosting.json` ENOENT——疑似 MSYS 路径转换问题（/d/02-Production → D:\d\...），与本次代码无关，Phase 5 前需要解决或确认既有构建方式。
 
 ## 可复用的既有资产（来自 78ca0f1 及后续提交）
 
