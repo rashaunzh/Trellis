@@ -55,7 +55,12 @@
 
 ## 尚未完成 / 开放问题
 
-- Phase 2 等待开始：后端 API 与读取模型（检查点 2）。
+- Phase 2 完成（提交 `5e3b342`），等待 Checkpoint 2 检查。
+  - `lib/learning/persistence/`：LearningStore 接口 + InMemory/D1 实现（含 profile）
+  - `lib/learning/application/learning-service.ts`：闭环用例编排（诊断→确认→活动→证据→评估→节点→调整）
+  - `app/api/learning/`：workspace/diagnostic/proposal/confirm/activities/[id]/start|evidence/evidence/[id]/review/adjustments/[id]/confirm 七个路由（内存仓储，Phase 5 前切 D1）
+  - `db/schema.ts`：learning_profiles 表 + drizzle/0005 迁移
+  - 测试 40/40（含 10 个闭环场景）、lint 干净、build 通过
 - 错误实现尚未撤销或重做；保留其中可复用的诊断、提案、内容包和持久化能力，前台需要前向替换。
 - 浏览器自动化 CLI 当前不可用，需用户实际查看桌面/移动端视觉与交互。
 - 综合任务正式提交、AI 六维评分、用户确认掌握和延迟复测自动调度不在本次 MVP 范围（按 V0.2 实施计划，本次只跑最小闭环）。
