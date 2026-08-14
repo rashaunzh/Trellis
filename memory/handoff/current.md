@@ -38,7 +38,7 @@
   - `tests/learning-domain/`：30 个测试全过（内容模型 8 + 状态机 12 + agent 10），`npm run test:domain` 可跑
   - `tsconfig.json`：allowImportingTsExtensions（Node 原生跑 TS 测试）
 - [x] Phase 2 完成：后端 API 与读取模型（检查点 2，提交 `5e3b342`）。
-- [ ] Phase 3：前端三大功能（检查点 3）
+- [x] Phase 3 完成：前端三大功能（检查点 3，提交 `6976196`）。
 - [ ] Phase 4：活动闭环（检查点 4）
 - [ ] Phase 5：测试与验收（检查点 5）
 
@@ -55,12 +55,14 @@
 
 ## 尚未完成 / 开放问题
 
-- Phase 2 完成（提交 `5e3b342`），等待 Checkpoint 2 检查。
-  - `lib/learning/persistence/`：LearningStore 接口 + InMemory/D1 实现（含 profile）
-  - `lib/learning/application/learning-service.ts`：闭环用例编排（诊断→确认→活动→证据→评估→节点→调整）
-  - `app/api/learning/`：workspace/diagnostic/proposal/confirm/activities/[id]/start|evidence/evidence/[id]/review/adjustments/[id]/confirm 七个路由（内存仓储，Phase 5 前切 D1）
-  - `db/schema.ts`：learning_profiles 表 + drizzle/0005 迁移
-  - 测试 40/40（含 10 个闭环场景）、lint 干净、build 通过
+- Phase 3 完成（提交 `6976196`），等待 Checkpoint 3 检查。
+  - `app/_components/shell.tsx`：三 tab 导航（学习/成长/工作台），旧四页面导航已不再出现
+  - `app/learn/page.tsx`：onboarding → 路线提案 → 周计划（核心/可选活动、活动抽屉：开始/提交证据/评估、调整记录）
+  - `app/grow/page.tsx`：统一成长地图（三色节点、相邻分支、节点详情、证据、调整确认、跳学按钮）
+  - `app/workbench/page.tsx`：资源/工具卡片（是什么/对应节点/适用活动/为什么推荐）+ 来源筛选
+  - `lib/learning/frontend.ts`：Workspace 类型 + 只调新闭环 API 的 client
+  - `app/api/learning/nodes/[id]/skip`：跳学 route（服务层 skipNode 已有）
+  - 验证：40/40 领域测试、6/6 既有、lint 0、build 通过；浏览器快照确认三页渲染 + 学习页提案→确认流程
 - 错误实现尚未撤销或重做；保留其中可复用的诊断、提案、内容包和持久化能力，前台需要前向替换。
 - 浏览器自动化 CLI 当前不可用，需用户实际查看桌面/移动端视觉与交互。
 - 综合任务正式提交、AI 六维评分、用户确认掌握和延迟复测自动调度不在本次 MVP 范围（按 V0.2 实施计划，本次只跑最小闭环）。
