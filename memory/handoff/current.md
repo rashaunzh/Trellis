@@ -4,7 +4,7 @@
 
 ## 当前目标
 
-在 GitHub 仓库 `rashaunzh/AI-Learning-OS` 的当前分支 `docs/trellis-v02-adaptive-learning-prd` 上推进 Trellis V0.2 MVP。当前阶段已经完成 Checkpoint 5，进入 MVP 交付说明、产品复盘和下一阶段计划整理。
+在 GitHub 仓库 `rashaunzh/AI-Learning-OS` 的当前分支 `docs/trellis-v02-adaptive-learning-prd` 上推进 Trellis V0.2 MVP。当前阶段已经完成 Checkpoint 5，并补齐产品交付物：PRD、产品介绍、MVP 交付说明和可交互产品网页。
 
 本轮浏览器自动化验收由另一条任务负责；当前接力不把浏览器验收写成已完成。
 
@@ -35,6 +35,8 @@
 - [x] Phase 4：活动抽屉闭环、证据退回/修订/接受、节点证据驱动变色、调整建议确认。
 - [x] Phase 5：D1 持久化、重启恢复、全量测试与构建验证。
 - [x] 交付整理：新增 `docs/product/TRELLIS_V0.2_MVP_DELIVERY.md`，明确最终验收口径、MVP 交付说明、产品复盘和下一阶段计划。
+- [x] 产品介绍：新增 `docs/product/TRELLIS_PRODUCT_INTRODUCTION.md`，面向协作者、潜在用户和产品评审者。
+- [x] 可交互产品网页：新增 `/product`，包含价值主张、三功能结构、互动周计划演示、核心闭环切换、证据驱动节点变色演示，并可跳转 `/learn`、`/grow`、`/workbench`。
 
 ## 最近验证证据
 
@@ -51,7 +53,9 @@
 ## 重要文档入口
 
 - `docs/product/TRELLIS_V0.2_PRD.md`：当前产品基线。
+- `docs/product/TRELLIS_PRODUCT_INTRODUCTION.md`：产品介绍。
 - `docs/product/TRELLIS_V0.2_MVP_DELIVERY.md`：Checkpoint 5 后的交付、验收、复盘和下一阶段计划。
+- `/product`：可交互产品介绍网页。
 - `docs/architecture/TRELLIS_V0.2_ARCHITECTURE.md`：学习编排内核架构。
 - `docs/engineering/TRELLIS_V0.2_IMPLEMENTATION_PLAN.md`：Phase 0–5 实施计划。
 - `memory/decisions/2026-08-12-v0.2-adaptive-learning.md`：V0.2 自适应学习方向。
@@ -60,6 +64,7 @@
 ## 尚未完成 / 开放问题
 
 - 浏览器自动化验收尚未由本任务完成，需等待另一条任务提供证据。
+- Sites 保存/部署需要基于已推送 commit；如本轮已提交推送新页面，后续可保存站点版本并部署生产 URL。
 - 综合情境任务正式提交、AI 多维评分、用户确认掌握、延迟复测自动调度仍是下一阶段 P0。
 - AI 通识 V1 的完整来源目录、节点量规、可信度审计仍需补齐。
 - 工作台资源映射已具备骨架，但外部材料自动同步和摘要卡片仍需深化。
@@ -68,10 +73,11 @@
 
 ## 精确下一步
 
-1. 等待另一条任务补齐浏览器自动化验收结果。
-2. 若用户放行，进入下一阶段 P0：
+1. 如需线上访问，基于最新已推送 commit 保存 Sites 版本并部署生产 URL。
+2. 等待另一条任务补齐浏览器自动化验收结果。
+3. 若用户放行，进入下一阶段 P0：
    - 综合情境任务正式提交流；
    - AI 多维评分与用户确认掌握；
    - 延迟复测候选与复核状态；
    - AI 通识 V1 内容包来源与量规审计。
-3. 若继续工程推进，先读 `docs/product/TRELLIS_V0.2_MVP_DELIVERY.md`，按其中 P0/P1/P2 执行，不重新讨论已确认的三功能结构。
+4. 若继续工程推进，先读 `docs/product/TRELLIS_V0.2_MVP_DELIVERY.md`，按其中 P0/P1/P2 执行，不重新讨论已确认的三功能结构。
