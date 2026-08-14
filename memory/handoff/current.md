@@ -37,7 +37,7 @@
   - `lib/learning/agents/`：四接口（planner/activityComposer/evidenceEvaluator/adjustmentAdvisor）契约 + 规则实现（确定性周计划、结构化输出）
   - `tests/learning-domain/`：30 个测试全过（内容模型 8 + 状态机 12 + agent 10），`npm run test:domain` 可跑
   - `tsconfig.json`：allowImportingTsExtensions（Node 原生跑 TS 测试）
-- [ ] Phase 2：后端 API 与读取模型（检查点 2）
+- [x] Phase 2 完成：后端 API 与读取模型（检查点 2，提交 `5e3b342`）。
 - [ ] Phase 3：前端三大功能（检查点 3）
 - [ ] Phase 4：活动闭环（检查点 4）
 - [ ] Phase 5：测试与验收（检查点 5）
