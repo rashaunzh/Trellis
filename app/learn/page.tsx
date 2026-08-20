@@ -13,6 +13,8 @@ import {
   submitEvidence,
   reviewEvidence,
   confirmAdjustment,
+  resetLearner,
+  replanCurrentWeek,
   nodeTitle,
   type AssessmentResult,
   type Workspace,
@@ -226,14 +228,21 @@ export default function LearnPage() {
         <div className="t2-topbar-actions">
           <span className="t2-muted">核心承诺 {plannedMinutes} / {capacityMinutes} 分钟</span>
           <button
+            className="t2-secondary"
+            disabled={busy}
+            onClick={() => {
+              if (!window.confirm("重排本周会保留已产生的证据和节点进度，只替换未产生证据的开放活动。继续吗？")) return;
+              void run(() => replanCurrentWeek({ weeklyMinutes: capacityMinutes }), "本周计划已重排，证据和成长状态已保留");
+            }}
+          >
+            重排本周
+          </button>
+          <button
             className="t2-secondary t2-reset-btn"
             disabled={busy}
             onClick={() => {
               if (!window.confirm("重新设置将清空当前学习状态并回到初始诊断，确定继续？")) return;
-              void run(async () => {
-                const { resetLearner } = await import("../../lib/learning/frontend");
-                return resetLearner();
-              }, "已重置，请重新诊断");
+              void run(() => resetLearner(), "已重置，请重新诊断");
             }}
           >
             重新设置

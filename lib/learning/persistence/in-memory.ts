@@ -57,6 +57,25 @@ export class InMemoryLearningStore implements LearningStore {
     this.activities.set(activity.id, { ...activity });
   }
 
+  async clearOpenActivitiesForPlan(ownerId: string, planId: string): Promise<void> {
+    const evidenceActivityIds = new Set(
+      Array.from(this.evidence.values())
+        .filter((e) => e.ownerId === ownerId)
+        .map((e) => e.activityId),
+    );
+    for (const [key, activity] of this.activities) {
+      const isOpen = activity.status === "planned" || activity.status === "in_progress";
+      if (
+        activity.ownerId === ownerId
+        && activity.weeklyPlanId === planId
+        && isOpen
+        && !evidenceActivityIds.has(activity.id)
+      ) {
+        this.activities.delete(key);
+      }
+    }
+  }
+
   async listEvidenceByActivity(activityId: string): Promise<Evidence[]> {
     return Array.from(this.evidence.values()).filter((e) => e.activityId === activityId);
   }

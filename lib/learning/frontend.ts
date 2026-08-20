@@ -237,6 +237,17 @@ export async function resetLearner(): Promise<Workspace> {
   return data.workspace;
 }
 
+export async function replanCurrentWeek(input: { weeklyMinutes?: number } = {}): Promise<Workspace> {
+  const data = await readJson<{ workspace: Workspace }>(
+    await fetch("/api/learning/replan", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    }),
+  );
+  return data.workspace;
+}
+
 // ── LLM API 配置 ────────────────────────────────────
 export interface ApiConfigStatus {
   configured: boolean;

@@ -244,3 +244,46 @@ test("Phase 4 闭环：退回 → 修订重新提交 → 接受 → 节点验证
   assert.equal(np.status, "validated", "证据接受后节点由证据驱动验证");
   assert.ok(np.supportingEvidenceIds.includes(ev.id), "验证证据可追溯");
 });
+
+test("重排本周：保留已产生证据和节点状态，只替换开放活动", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 360 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  const originalActivityIds = ws0.activities.map((a) => a.id);
+
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, {
+    content:
+      "模型从数据中学习模式而不是保存事实，生成是在上下文中预测后续内容。" +
+      "训练时调整参数，推理时根据概率输出。流畅自信与正确是不同的事，" +
+      "幻觉说明概率性输出的边界，泛化依赖训练数据分布。",
+  });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+
+  const ws1 = await service.replanCurrentWeek(OWNER, { weeklyMinutes: 480 });
+  assert.equal(ws1.weeklyPlan!.capacityMinutes, 480);
+  assert.ok(
+    ws1.evidence.some((e) => e.id === evidence.id && e.status === "accepted"),
+    "已接受证据应保留",
+  );
+  assert.equal(
+    ws1.nodeProgress.find((p) => p.nodeId === activity.nodeId)!.status,
+    "validated",
+    "节点验证状态应保留",
+  );
+  assert.ok(
+    ws1.activities.some((a) => a.id === activity.id),
+    "已产生证据的活动应保留以保持追溯",
+  );
+  assert.ok(
+    ws1.activities.some((a) => !originalActivityIds.includes(a.id)),
+    "应生成新的本周活动",
+  );
+  assert.ok(
+    ws1.adjustments.some((a) => a.adjustmentType === "activity_replan" && a.status === "accepted"),
+    "重排应留下已确认调整记录",
+  );
+});

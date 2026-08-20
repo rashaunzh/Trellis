@@ -297,44 +297,69 @@ export class LearningApplicationService {
     };
     await this.store.saveWeeklyPlan(weeklyPlan);
 
-    // 为每个计划活动生成具体活动
-    let sequence = 0;
-    for (const item of planDraft.activities) {
-      const node = learningContentPack.nodes.find((n) => n.id === item.nodeId)!;
-      const resourceIds = learningContentPack.resourceMappings
-        .filter((m) => m.nodeId === item.nodeId)
-        .map((m) => m.resourceId);
-      const draft: ActivityDraft = this.agents.activityComposer.composeActivity({
-        nodeId: item.nodeId,
-        nodeTitle: item.title,
-        nodeDescription: node.description,
-        activityType: item.activityType,
-        isSkipValidation: false,
-        resourceIds,
-        estimatedMinutes: item.estimatedMinutes,
-      });
-      const activity: LearningActivity = {
-        id: stableId("activity", `${weeklyPlan.id}:${sequence}:${item.nodeId}:${item.activityType}:${item.title}`),
-        ownerId,
-        weeklyPlanId: weeklyPlan.id,
-        nodeId: item.nodeId,
-        title: draft.title,
-        activityType: draft.activityType,
-        goal: draft.goal,
-        estimatedMinutes: draft.estimatedMinutes,
-        isCore: item.isCore,
-        status: "planned",
-        isSkipValidation: false,
-        inputRefs: draft.inputRefs,
-        steps: draft.steps.join("\n"),
-        expectedEvidence: draft.expectedEvidence,
-        evaluationCriteria: draft.evaluationCriteria,
-        nextAdvice: draft.nextAdvice,
-        sequence,
-      };
-      await this.store.saveActivity(activity);
-      sequence += 1;
+    await this.createActivitiesFromPlanDraft(ownerId, weeklyPlan, planDraft.activities, 0);
+
+    return this.getWorkspace(ownerId);
+  }
+
+  // ── POST /api/learning/replan ──────────────────────
+  // 温和重排：保留节点进度、证据和已产生证据的活动，只清理本周未产生证据的开放活动。
+  async replanCurrentWeek(ownerId: string, input: { weeklyMinutes?: number } = {}): Promise<Workspace> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    if (profile.status !== "confirmed") throw new LearningError("路线尚未确认，不能重排本周", 400);
+
+    const nextWeeklyMinutes = input.weeklyMinutes
+      ? Math.min(1200, Math.max(30, Math.round(input.weeklyMinutes / 15) * 15))
+      : profile.weeklyMinutes;
+    profile.weeklyMinutes = nextWeeklyMinutes;
+    await this.store.saveProfile(profile);
+
+    const weekKey = currentWeekKey();
+    const nodeStatusById: Record<string, NodeStatus> = {};
+    for (const p of await this.store.listNodeProgress(ownerId)) {
+      nodeStatusById[p.nodeId] = p.status;
     }
+    const planDraft = this.agents.planner.composeWeeklyPlan({
+      ownerId,
+      routeId: profile.activeRouteId,
+      weekKey,
+      capacityMinutes: nextWeeklyMinutes,
+      nodeStatusById,
+      prerequisiteSatisfied: (nodeId) =>
+        prerequisitesSatisfied(nodeId, nodeStatusById, learningContentPack),
+      seed: Date.now(),
+    });
+
+    const weeklyPlan: WeeklyPlan = {
+      id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${weekKey}`),
+      ownerId,
+      routeId: profile.activeRouteId,
+      weekKey,
+      capacityMinutes: nextWeeklyMinutes,
+      status: "confirmed",
+      rationale: `${planDraft.rationale} 本周已按用户请求重新编排；已提交证据与已完成记录保留。`,
+    };
+    await this.store.saveWeeklyPlan(weeklyPlan);
+
+    await this.store.clearOpenActivitiesForPlan(ownerId, weeklyPlan.id);
+    const existing = await this.store.listActivitiesByPlan(weeklyPlan.id);
+    const nextSequence = existing.length
+      ? Math.max(...existing.map((activity) => activity.sequence)) + 1
+      : 0;
+    await this.createActivitiesFromPlanDraft(ownerId, weeklyPlan, planDraft.activities, nextSequence);
+
+    const adjustment: AdjustmentRecord = {
+      id: stableId("adjustment", `${ownerId}:${weeklyPlan.id}:replan:${Date.now()}`),
+      ownerId,
+      routeId: profile.activeRouteId,
+      weeklyPlanId: weeklyPlan.id,
+      adjustmentType: "activity_replan",
+      reason: "用户主动重排本周计划",
+      status: "accepted",
+      summary: `本周计划已重排为 ${planDraft.coreActivityCount} 个核心活动、${planDraft.optionalActivityCount} 个可选活动；保留已产生证据的学习记录。`,
+    };
+    await this.store.saveAdjustment(adjustment);
 
     return this.getWorkspace(ownerId);
   }
@@ -640,6 +665,58 @@ export class LearningApplicationService {
   }
 
   // ── 内部辅助 ────────────────────────────────────────
+  private async createActivitiesFromPlanDraft(
+    ownerId: string,
+    weeklyPlan: WeeklyPlan,
+    items: Array<{
+      nodeId: string;
+      activityType: LearningActivity["activityType"];
+      title: string;
+      estimatedMinutes: number;
+      isCore: boolean;
+      whyNow: string;
+    }>,
+    startSequence: number,
+  ): Promise<void> {
+    let sequence = startSequence;
+    for (const item of items) {
+      const node = learningContentPack.nodes.find((n) => n.id === item.nodeId)!;
+      const resourceIds = learningContentPack.resourceMappings
+        .filter((m) => m.nodeId === item.nodeId)
+        .map((m) => m.resourceId);
+      const draft: ActivityDraft = this.agents.activityComposer.composeActivity({
+        nodeId: item.nodeId,
+        nodeTitle: item.title,
+        nodeDescription: node.description,
+        activityType: item.activityType,
+        isSkipValidation: false,
+        resourceIds,
+        estimatedMinutes: item.estimatedMinutes,
+      });
+      const activity: LearningActivity = {
+        id: stableId("activity", `${weeklyPlan.id}:${sequence}:${item.nodeId}:${item.activityType}:${item.title}`),
+        ownerId,
+        weeklyPlanId: weeklyPlan.id,
+        nodeId: item.nodeId,
+        title: draft.title,
+        activityType: draft.activityType,
+        goal: `${draft.goal} 原因：${item.whyNow}`,
+        estimatedMinutes: draft.estimatedMinutes,
+        isCore: item.isCore,
+        status: "planned",
+        isSkipValidation: false,
+        inputRefs: draft.inputRefs,
+        steps: draft.steps.join("\n"),
+        expectedEvidence: draft.expectedEvidence,
+        evaluationCriteria: draft.evaluationCriteria,
+        nextAdvice: draft.nextAdvice,
+        sequence,
+      };
+      await this.store.saveActivity(activity);
+      sequence += 1;
+    }
+  }
+
   private async getOwnedActivity(ownerId: string, activityId: string): Promise<LearningActivity> {
     const activity = await this.store.getActivity(activityId);
     if (!activity || activity.ownerId !== ownerId) {

@@ -312,6 +312,21 @@ export class D1LearningStore implements LearningStore {
       .run();
   }
 
+  async clearOpenActivitiesForPlan(ownerId: string, planId: string): Promise<void> {
+    await this.db
+      .prepare(
+        `DELETE FROM learning_activities
+         WHERE owner_id = ?
+           AND weekly_plan_id = ?
+           AND status IN ('planned', 'in_progress')
+           AND id NOT IN (
+             SELECT activity_id FROM learning_evidence WHERE owner_id = ?
+           )`,
+      )
+      .bind(ownerId, planId, ownerId)
+      .run();
+  }
+
   // ── 证据 ──────────────────────────────────────────
   async listEvidenceByActivity(activityId: string): Promise<Evidence[]> {
     const rows = await this.db

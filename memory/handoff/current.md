@@ -1,6 +1,6 @@
 # 当前接力
 
-更新时间：2026-08-14
+更新时间：2026-08-20
 
 ## 当前目标
 
@@ -40,6 +40,8 @@
 - [x] 产品页 UI 调整：缩小 `/product` 首屏标题和品牌区，修复导航 logo 文本溢出。
 - [x] 本地交互页修复：对当前 Miniflare D1 应用 `drizzle/0004` 与 `drizzle/0005`，解决 `/learn` 报 `D1_ERROR: no such table: learning_routes`；开发文档已补本地 D1 初始化命令。
 - [x] 产品体验修复（本轮）：每周时间上限 6h→20h；规划器一个节点拆多个活动（按容量，上限 8 核心）；学习页周看板 + 容量统计 + 活动抽屉交互（步骤勾选/笔记/自检/证据类型/外部链接）；成长页中文节点名、相邻分支、主动调整表单；新增 `POST /api/learning/adjustments/propose`；工作台收集箱 + 资源加入 + 工具本周使用 + AI 接入说明。
+- [x] 旧状态体验补洞（2026-08-20）：新增温和重排本周 `POST /api/learning/replan` 与学习页“重排本周”按钮；保留已产生证据、已完成活动和节点进度，只替换本周未产生证据的开放活动；“重新设置”继续作为硬清空入口。
+- [x] AI 接入从说明推进到最小配置：工作台支持 OpenAI 兼容 `base_url`、API Key、model 与启用开关；API Key 只保存在服务端配置表，前端仅显示脱敏状态；未配置时回退规则版评估。
 
 ## 最近验证证据
 
@@ -50,6 +52,14 @@
 - eslint（app + lib，排除 dist/.next）：0 problems。
 - 浏览器 UI 验证（Playwright，真实 Chromium，8h 容量新用户）：16/16 通过——时间选项含 20h、周看板 18 个活动、抽屉 5 项交互、成长页中文/相邻分支/调整表单、工作台收集箱/资源/工具、AI 接入说明。
 - `POST /api/learning/adjustments/propose` → proposed → confirm → accepted 全链路验证通过。
+
+本机（trellis-cleanup）复跑（2026-08-20 重排本周轮）：
+
+- `npm run test:domain`：42/42 通过，新增“重排本周保留证据和节点状态”测试。
+- eslint（新增/改动 app + lib + test 文件）：0 problems。
+- `.\node_modules\.bin\vinext.cmd build`：通过，路由表含 `/api/learning/replan`、`/api/learning/reset`、`/api/learning/api-config`。
+- `node --test tests\*.test.mjs`：6/6 通过。
+- `npm run test` 在当前 Windows/WSL 环境下因 bash 脚本进入 WSL 后找不到 `node` 失败；已用 Windows 原生命令完成等价验证（build + 6 个既有测试）。
 
 更早的验证（交付整理轮，用户 2026-08-14 提供）：
 
@@ -70,7 +80,7 @@
 ## 尚未完成 / 开放问题
 
 - 浏览器自动化验收已由本任务完成（Playwright 16/16），证据见"最近验证证据"。
-- 旧 D1 状态不会自动重排：已确认的旧周计划保持原样。用户如需看到新编排效果，需重新诊断或后续补"重排本周"入口（本轮未加，建议下一步优先）。
+- 旧 D1 状态已有温和处理入口：学习页“重排本周”会保留证据和节点进度，并替换未产生证据的开放活动；“重新设置”才会清空学习状态并回到诊断。
 - Sites 保存/部署需要基于已推送 commit；如本轮已提交推送新页面，后续可保存站点版本并部署生产 URL。
 - 本地 D1 数据只存在于当前机器 `.wrangler/state`；新机器首次打开交互页前如遇缺表，按 `docs/development/LOCAL_DEVELOPMENT.md` 的“本地 D1 初始化”执行迁移。
 - 综合情境任务正式提交、AI 多维评分、用户确认掌握、延迟复测自动调度仍是下一阶段 P0。
@@ -81,8 +91,8 @@
 
 ## 精确下一步
 
-1. 提交推送本轮体验修复（核心文件 + 测试更新 + memory），不要 `git add .`。
-2. 若用户放行，最优先补"重排本周 / 重新诊断"入口——否则旧状态测试时无法看到新编排效果。
+1. 提交推送 2026-08-20 重排本周补洞（核心文件 + 测试 + memory），不要 `git add .`。
+2. 若用户放行，保存 Sites 版本并部署可访问 URL；部署前确认远程 D1 迁移与 `DATABASE_ID`/环境变量。
 3. 进入下一阶段 P0：
    - 综合情境任务正式提交流；
    - AI 多维评分与用户确认掌握；

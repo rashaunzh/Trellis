@@ -40,6 +40,7 @@ export interface LearningStore {
   listActivitiesByPlan(planId: string): Promise<LearningActivity[]>;
   getActivity(activityId: string): Promise<LearningActivity | null>;
   saveActivity(activity: LearningActivity): Promise<void>;
+  clearOpenActivitiesForPlan(ownerId: string, planId: string): Promise<void>;
   // 证据
   listEvidenceByActivity(activityId: string): Promise<Evidence[]>;
   listEvidenceByNode(nodeId: string): Promise<Evidence[]>;
