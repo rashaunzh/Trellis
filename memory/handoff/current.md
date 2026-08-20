@@ -42,6 +42,9 @@
 - [x] 产品体验修复（本轮）：每周时间上限 6h→20h；规划器一个节点拆多个活动（按容量，上限 8 核心）；学习页周看板 + 容量统计 + 活动抽屉交互（步骤勾选/笔记/自检/证据类型/外部链接）；成长页中文节点名、相邻分支、主动调整表单；新增 `POST /api/learning/adjustments/propose`；工作台收集箱 + 资源加入 + 工具本周使用 + AI 接入说明。
 - [x] 旧状态体验补洞（2026-08-20）：新增温和重排本周 `POST /api/learning/replan` 与学习页“重排本周”按钮；保留已产生证据、已完成活动和节点进度，只替换本周未产生证据的开放活动；“重新设置”继续作为硬清空入口。
 - [x] AI 接入从说明推进到最小配置：工作台支持 OpenAI 兼容 `base_url`、API Key、model 与启用开关；API Key 只保存在服务端配置表，前端仅显示脱敏状态；未配置时回退规则版评估。
+- [x] 重排本周浏览器验收（2026-08-20）：新增 `scripts/acceptance-replan.py`，32/32 通过；证据/节点/支持证据列表保留、未产生证据活动被替换、新活动出现、状态未清空，可作为演示版本。
+- [x] 部署前检查（2026-08-20）：`.openai/hosting.json` 有 project_id 可复用；远程 D1 `trellis-v02-d1` 已建但迁移从未应用（num_tables=0）；`dist/server/wrangler.json` 是 placeholder 需 `DATABASE_ID` 重新 build；无敏感信息入库。
+- [x] P0 工程任务计划（2026-08-20）：产出 `docs/engineering/TRELLIS_V0.2_P0_PLAN.md`——综合情境任务（复用 activity + synthesis_task subtype）、掌握确认（pending_confirmation + 复用 adjustments）、延迟复测（复测元数据列 + retest 活动），含数据模型/API/前端/测试/实施顺序/Checkpoint。
 
 ## 最近验证证据
 
@@ -61,6 +64,15 @@
 - `node --test tests\*.test.mjs`：6/6 通过。
 - `npm run test` 在当前 Windows/WSL 环境下因 bash 脚本进入 WSL 后找不到 `node` 失败；已用 Windows 原生命令完成等价验证（build + 6 个既有测试）。
 
+本机（trellis-cleanup）浏览器验收（2026-08-20 重排验收轮，`scripts/acceptance-replan.py`，Playwright）：
+
+- 32/32 通过：入口可见 → 重新设置回诊断 → 8h/全局认知诊断 → 首周计划（核心 3+可选 2，180/480 分钟）→ 抽屉 5 项交互 → 活动闭环评估通过 → 成长页 validated/中文/相邻分支/支持证据 → 重排本周 → 证据 1=1 保留、validated 节点保留、新活动 +8（5→9）、待替换 4 个全移除、状态未清空、无 JS 错误。
+- 结论：可作为演示版本，无必须修复项。
+
+部署前检查（2026-08-20）：
+
+- 远程 `trellis-v02-d1`（uuid `5490481c-c5a9-4423-8906-6a0d0e6e278f`）num_tables=0，需应用 0004/0005/0006 迁移；部署 build 需 `DATABASE_ID=<uuid>`；wrangler OAuth 登录有效（rashaunzh@gmail.com）。
+
 更早的验证（交付整理轮，用户 2026-08-14 提供）：
 
 - `npm run test`：6/6、`npm run test:domain`：41/41、`npm run lint`：0 problems、`git status`：干净，HEAD `2285092`。
@@ -79,22 +91,24 @@
 
 ## 尚未完成 / 开放问题
 
-- 浏览器自动化验收已由本任务完成（Playwright 16/16），证据见"最近验证证据"。
+- 浏览器自动化验收已由本任务完成（Playwright 16/16 + 重排验收 32/32），证据见“最近验证证据”。
 - 旧 D1 状态已有温和处理入口：学习页“重排本周”会保留证据和节点进度，并替换未产生证据的开放活动；“重新设置”才会清空学习状态并回到诊断。
-- Sites 保存/部署需要基于已推送 commit；如本轮已提交推送新页面，后续可保存站点版本并部署生产 URL。
+- **远程 D1 `trellis-v02-d1` 迁移从未应用（num_tables=0）**：部署前需 `wrangler d1 execute trellis-v02-d1 --remote --file drizzle/0004_*.sql`（0005/0006 同）并验证 14 张 learning_ 表；部署 build 需 `DATABASE_ID=5490481c-c5a9-4423-8906-6a0d0e6e278f`（当前 dist 是 placeholder）。
+- Sites 保存/部署需要基于已推送 commit；`.openai/hosting.json` 已有 project_id（appgprj_6a72003abefc8191a4bd0c79702ee892）可复用，不新建 site。
 - 本地 D1 数据只存在于当前机器 `.wrangler/state`；新机器首次打开交互页前如遇缺表，按 `docs/development/LOCAL_DEVELOPMENT.md` 的“本地 D1 初始化”执行迁移。
-- 综合情境任务正式提交、AI 多维评分、用户确认掌握、延迟复测自动调度仍是下一阶段 P0。
+- P0 已出工程计划（`docs/engineering/TRELLIS_V0.2_P0_PLAN.md`）未实现：综合情境任务（synthesis_task subtype）、掌握确认（pending_confirmation）、延迟复测（retest 活动 + 复测元数据列）。
 - AI 通识 V1 的完整来源目录、节点量规、可信度审计仍需补齐。
 - 工作台资源映射已具备骨架，但外部材料自动同步和摘要卡片仍需深化。
 - 旧 V0.1 实现仍保留为兼容层，未来需要明确清理或迁移策略。
-- 生产部署、远程 D1 迁移、备份和环境变量管理另行确认。
+- 生产部署、远程 D1 迁移、备份和环境变量管理另行确认（本轮只做了部署前检查，未执行部署）。
 
 ## 精确下一步
 
-1. 提交推送 2026-08-20 重排本周补洞（核心文件 + 测试 + memory），不要 `git add .`。
-2. 若用户放行，保存 Sites 版本并部署可访问 URL；部署前确认远程 D1 迁移与 `DATABASE_ID`/环境变量。
-3. 进入下一阶段 P0：
-   - 综合情境任务正式提交流；
-   - AI 多维评分与用户确认掌握；
-   - 延迟复测候选与复核状态；
-   - AI 通识 V1 内容包来源与量规审计。
+1. 提交推送本轮成果（`scripts/acceptance-replan.py` + `docs/engineering/TRELLIS_V0.2_P0_PLAN.md` + memory 三件），不要 `git add .`。
+2. 用户验收重排本周（本地 `http://localhost:3400/learn`，截图在 `.wrangler/acceptance-shots-replan/`）；验收通过即可作为演示版本。
+3. 若用户放行部署：应用远程迁移 0004/0005/0006 → `DATABASE_ID=<uuid> vinext build` → `wrangler deploy`（复用 hosting.json project_id，不新建 site）。
+4. 进入 P0 实施，按计划 CP-A 起步（数据模型 + 0007 迁移），每 Checkpoint 停下让用户检查：
+   - CP-A：数据模型与迁移；
+   - CP-B：综合情境任务流；
+   - CP-C：掌握确认（确认/纠正两分支）；
+   - CP-D：延迟复测闭环 + 全量回归 + 双克隆同步。
