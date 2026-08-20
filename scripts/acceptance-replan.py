@@ -15,6 +15,10 @@ BASE = "http://localhost:3400"
 SHOTS = pathlib.Path(r"C:/Users/G-NC-00144/Documents/Codex/trellis-cleanup/.wrangler/acceptance-shots-replan")
 SHOTS.mkdir(parents=True, exist_ok=True)
 
+# 匿名 owner 隔离后：浏览器页面请求带 localStorage ownerId，
+# 脚本 API 快照必须用同一 owner，否则快照落在 DEFAULT_OWNER 上（两者状态不同）。
+OWNER_ID = "acceptance-owner-0001"
+
 results = []
 
 def check(name, cond, detail=""):
@@ -22,13 +26,15 @@ def check(name, cond, detail=""):
     print(f"{'✓' if cond else '✗'} {name}{' — ' + detail if detail else ''}")
 
 def api_get(path):
-    with urllib.request.urlopen(f"{BASE}{path}", timeout=10) as r:
+    req = urllib.request.Request(f"{BASE}{path}", headers={"x-trellis-owner-id": OWNER_ID})
+    with urllib.request.urlopen(req, timeout=10) as r:
         return json.loads(r.read().decode())
 
 def api_post(path, body=None):
     data = json.dumps(body or {}).encode()
     req = urllib.request.Request(f"{BASE}{path}", data=data, method="POST",
-                                 headers={"Content-Type": "application/json"})
+                                 headers={"Content-Type": "application/json",
+                                          "x-trellis-owner-id": OWNER_ID})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read().decode())
 
@@ -36,6 +42,8 @@ def main():
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1440, "height": 900})
+        # 每次导航前注入固定 ownerId，使页面 fetch 与脚本 API 快照落在同一 owner
+        page.add_init_script(f"localStorage.setItem('trellis.anonymousOwnerId', '{OWNER_ID}')")
         page.set_default_timeout(20000)
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))

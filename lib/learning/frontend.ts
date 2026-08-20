@@ -147,8 +147,37 @@ async function readJson<T>(response: Response): Promise<T> {
 
 const jsonHeaders = { "content-type": "application/json" };
 
+// ── 匿名 owner 隔离（demo，非鉴权）──────────────────
+// 浏览器首次访问生成稳定 ownerId 存 localStorage，随请求头发给后端；
+// 每个浏览器一个独立学习状态，互不干扰。
+// SSR（无 localStorage）不带 header → 后端回退 DEFAULT_OWNER（首帧为 loading 态，无数据依赖）。
+const OWNER_ID_KEY = "trellis.anonymousOwnerId";
+
+export function getOwnerId(): string {
+  if (typeof localStorage === "undefined") return "";
+  try {
+    let id = localStorage.getItem(OWNER_ID_KEY);
+    if (!id) {
+      id = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `trellis-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(OWNER_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+
+function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  const ownerId = getOwnerId();
+  if (ownerId) headers.set("x-trellis-owner-id", ownerId);
+  return fetch(input, { ...init, headers });
+}
+
 export async function fetchWorkspace(): Promise<Workspace> {
-  const data = await readJson<{ workspace: Workspace }>(await fetch("/api/learning/workspace"));
+  const data = await readJson<{ workspace: Workspace }>(await apiFetch("/api/learning/workspace"));
   return data.workspace;
 }
 
@@ -160,21 +189,21 @@ export async function postDiagnostic(input: {
   preference?: "breadth_first" | "build_first";
 }): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch("/api/learning/diagnostic", { method: "POST", headers: jsonHeaders, body: JSON.stringify(input) }),
+    await apiFetch("/api/learning/diagnostic", { method: "POST", headers: jsonHeaders, body: JSON.stringify(input) }),
   );
   return data.workspace;
 }
 
 export async function confirmProposal(): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch("/api/learning/proposal/confirm", { method: "POST" }),
+    await apiFetch("/api/learning/proposal/confirm", { method: "POST" }),
   );
   return data.workspace;
 }
 
 export async function startActivity(activityId: string): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch(`/api/learning/activities/${activityId}/start`, { method: "POST" }),
+    await apiFetch(`/api/learning/activities/${activityId}/start`, { method: "POST" }),
   );
   return data.workspace;
 }
@@ -184,7 +213,7 @@ export async function submitEvidence(
   input: { content: string; externalUrl?: string; evidenceType?: string },
 ): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch(`/api/learning/activities/${activityId}/evidence`, {
+    await apiFetch(`/api/learning/activities/${activityId}/evidence`, {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify(input),
@@ -198,13 +227,13 @@ export async function reviewEvidence(evidenceId: string): Promise<{
   assessment: AssessmentResult;
 }> {
   return readJson<{ workspace: Workspace; assessment: AssessmentResult }>(
-    await fetch(`/api/learning/evidence/${evidenceId}/review`, { method: "POST" }),
+    await apiFetch(`/api/learning/evidence/${evidenceId}/review`, { method: "POST" }),
   );
 }
 
 export async function confirmAdjustment(adjustmentId: string): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch(`/api/learning/adjustments/${adjustmentId}/confirm`, { method: "POST" }),
+    await apiFetch(`/api/learning/adjustments/${adjustmentId}/confirm`, { method: "POST" }),
   );
   return data.workspace;
 }
@@ -214,7 +243,7 @@ export async function proposeAdjustment(input: {
   reason: string;
 }): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch("/api/learning/adjustments/propose", {
+    await apiFetch("/api/learning/adjustments/propose", {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify(input),
@@ -225,21 +254,21 @@ export async function proposeAdjustment(input: {
 
 export async function skipNode(nodeId: string): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch(`/api/learning/nodes/${nodeId}/skip`, { method: "POST" }),
+    await apiFetch(`/api/learning/nodes/${nodeId}/skip`, { method: "POST" }),
   );
   return data.workspace;
 }
 
 export async function resetLearner(): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch("/api/learning/reset", { method: "POST" }),
+    await apiFetch("/api/learning/reset", { method: "POST" }),
   );
   return data.workspace;
 }
 
 export async function replanCurrentWeek(input: { weeklyMinutes?: number } = {}): Promise<Workspace> {
   const data = await readJson<{ workspace: Workspace }>(
-    await fetch("/api/learning/replan", {
+    await apiFetch("/api/learning/replan", {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify(input),
@@ -259,7 +288,7 @@ export interface ApiConfigStatus {
 
 export async function fetchApiConfig(): Promise<ApiConfigStatus> {
   const data = await readJson<{ config: ApiConfigStatus }>(
-    await fetch("/api/learning/api-config"),
+    await apiFetch("/api/learning/api-config"),
   );
   return data.config;
 }
@@ -271,7 +300,7 @@ export async function saveApiConfig(input: {
   enabled: boolean;
 }): Promise<ApiConfigStatus> {
   const data = await readJson<{ config: ApiConfigStatus }>(
-    await fetch("/api/learning/api-config", {
+    await apiFetch("/api/learning/api-config", {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify(input),

@@ -45,6 +45,7 @@
 - [x] 重排本周浏览器验收（2026-08-20）：新增 `scripts/acceptance-replan.py`，32/32 通过；证据/节点/支持证据列表保留、未产生证据活动被替换、新活动出现、状态未清空，可作为演示版本。
 - [x] 部署前检查（2026-08-20）：`.openai/hosting.json` 有 project_id 可复用；远程 D1 `trellis-v02-d1` 已建但迁移从未应用（num_tables=0）；`dist/server/wrangler.json` 是 placeholder 需 `DATABASE_ID` 重新 build；无敏感信息入库。
 - [x] P0 工程任务计划（2026-08-20）：产出 `docs/engineering/TRELLIS_V0.2_P0_PLAN.md`——综合情境任务（复用 activity + synthesis_task subtype）、掌握确认（pending_confirmation + 复用 adjustments）、延迟复测（复测元数据列 + retest 活动），含数据模型/API/前端/测试/实施顺序/Checkpoint。
+- [x] 匿名 owner 隔离（2026-08-20，demo anonymous workspace isolation，非鉴权）：`ownerOf()` 优先读 `x-trellis-owner-id` header（正则校验，无/非法回退 DEFAULT_OWNER）；前端 localStorage 生成 UUID + `apiFetch()` 统一注入 header；7 个新测试（ownerOf 3 + 多 owner 隔离 4）；验收脚本适配统一 owner。test:domain 49/49、HTTP 层端到端隔离验证通过、验收 32/32。
 
 ## 最近验证证据
 
@@ -93,7 +94,9 @@
 
 - 浏览器自动化验收已由本任务完成（Playwright 16/16 + 重排验收 32/32），证据见“最近验证证据”。
 - 旧 D1 状态已有温和处理入口：学习页“重排本周”会保留证据和节点进度，并替换未产生证据的开放活动；“重新设置”才会清空学习状态并回到诊断。
-- **远程 D1 `trellis-v02-d1` 迁移从未应用（num_tables=0）**：部署前需 `wrangler d1 execute trellis-v02-d1 --remote --file drizzle/0004_*.sql`（0005/0006 同）并验证 14 张 learning_ 表；部署 build 需 `DATABASE_ID=5490481c-c5a9-4423-8906-6a0d0e6e278f`（当前 dist 是 placeholder）。
+- 公网匿名 owner 隔离已上线实现（header 隔离，非鉴权）：每个浏览器一个独立状态；换浏览器/清缓存丢状态、ownerId 可伪造是已知边界。真鉴权（登录体系）明确不做。
+- **远程 D1 `trellis-v02-d1` 已应用迁移（2026-08-20）**：0004/0005/0006 已跑，15 张 learning_ 表就位；生产 build 用 `DATABASE_ID=5490481c-c5a9-4423-8906-6a0d0e6e278f` 生成。
+- **公网部署已完成（2026-08-20）**：`https://trellis.rashaunzh.workers.dev` 已上线（version 93c2a2bd），/product /learn /grow /workbench /api/learning/workspace 全部 200；账号 workers.dev 子域已注册为 `rashaunzh`。远程库为空（全新用户起点）；验证线上 URL 的 curl 必须带浏览器 UA（Bot Fight Mode 403 坑）。
 - Sites 保存/部署需要基于已推送 commit；`.openai/hosting.json` 已有 project_id（appgprj_6a72003abefc8191a4bd0c79702ee892）可复用，不新建 site。
 - 本地 D1 数据只存在于当前机器 `.wrangler/state`；新机器首次打开交互页前如遇缺表，按 `docs/development/LOCAL_DEVELOPMENT.md` 的“本地 D1 初始化”执行迁移。
 - P0 已出工程计划（`docs/engineering/TRELLIS_V0.2_P0_PLAN.md`）未实现：综合情境任务（synthesis_task subtype）、掌握确认（pending_confirmation）、延迟复测（retest 活动 + 复测元数据列）。
@@ -104,10 +107,11 @@
 
 ## 精确下一步
 
-1. 提交推送本轮成果（`scripts/acceptance-replan.py` + `docs/engineering/TRELLIS_V0.2_P0_PLAN.md` + memory 三件），不要 `git add .`。
-2. 用户验收重排本周（本地 `http://localhost:3400/learn`，截图在 `.wrangler/acceptance-shots-replan/`）；验收通过即可作为演示版本。
-3. 若用户放行部署：应用远程迁移 0004/0005/0006 → `DATABASE_ID=<uuid> vinext build` → `wrangler deploy`（复用 hosting.json project_id，不新建 site）。
-4. 进入 P0 实施，按计划 CP-A 起步（数据模型 + 0007 迁移），每 Checkpoint 停下让用户检查：
+1. 提交推送匿名隔离轮（`app/api/learning/_shared.ts` + `lib/learning/frontend.ts` + `tests/learning-domain/owner-isolation.test.ts` + `scripts/acceptance-replan.py` + memory），不要 `git add .`。
+2. 重新部署线上（`DATABASE_ID=5490481c-… vinext build` + `wrangler deploy`），公网 URL 即具备匿名隔离。
+3. 用户验收重排本周（本地 `http://localhost:3400/learn`，截图在 `.wrangler/acceptance-shots-replan/`）；验收通过即可作为演示版本。
+4. 若用户放行部署：应用远程迁移 0004/0005/0006 → `DATABASE_ID=<uuid> vinext build` → `wrangler deploy`（复用 hosting.json project_id，不新建 site）。
+5. 进入 P0 实施，按计划 CP-A 起步（数据模型 + 0007 迁移），每 Checkpoint 停下让用户检查：
    - CP-A：数据模型与迁移；
    - CP-B：综合情境任务流；
    - CP-C：掌握确认（确认/纠正两分支）；
