@@ -509,13 +509,16 @@ export class LearningApplicationService {
     // 综合任务/复测驱动的首次验证需用户确认（pending_confirmation）；
     // 复测通过（节点已 validated）不重复确认，直接顺延下次复测
     const progress = await this.getOrCreateNodeProgress(ownerId, evidence.nodeId);
+    // 综合任务 = 最终裁决，永远需用户确认（即便节点已 validated 再次验证）；
+    // 复测 = 复核机制，仅首次验证需确认（通过后直接顺延）
     const requiresConfirmation =
-      (activity.activityType === "integrated_task" || activity.activityType === "retest")
-      && progress.status !== "validated";
+      activity.activityType === "integrated_task" ||
+      (activity.activityType === "retest" && progress.status !== "validated");
     if (assessment.verdict === "accepted") {
       const nodeEvent = nodeEventOfEvidence(evidence.status, { requiresConfirmation });
-      if (nodeEvent && progress.status !== "validated") {
-        // 已 validated 节点（复测通过）保持状态，只顺延复测时间
+      // 需确认的活动（综合任务）无条件迁移（含 validated → pending 再确认）；
+      // 免确认活动在 validated 节点上跳过迁移（复测通过保持状态只顺延）
+      if (nodeEvent && (requiresConfirmation || progress.status !== "validated")) {
         progress.status = transitionNode(progress.status, nodeEvent);
         progress.confidence = Math.max(progress.confidence, assessment.suggestedLevel);
         progress.lastValidatedAt =
@@ -531,10 +534,7 @@ export class LearningApplicationService {
         progress.reviewIntervalDays = interval;
         progress.nextReviewAt = new Date(Date.now() + interval * 86400000).toISOString();
       }
-      // 掌握确认通过：记录确认时间
-      if (progress.status === "validated" && requiresConfirmation) {
-        progress.confirmedAt = new Date().toISOString();
-      }
+      // 掌握确认时间由 confirm-mastery 接口写入（reviewEvidence 只迁移状态）
       // 活动完成（评估通过后）
       if (activity.status === "reviewed") {
         activity.status = transitionActivity(activity.status, { type: "complete" });

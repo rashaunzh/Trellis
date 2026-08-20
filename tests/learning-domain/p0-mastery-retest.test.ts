@@ -165,3 +165,22 @@ test("复测失败：节点回 growing + 熟练等级降级", async () => {
   assert.equal(np.status, "growing", "复测失败回成长中");
   assert.ok(np.confidence <= before.confidence, "熟练等级不升反降");
 });
+
+test("已验证节点再完成综合任务 → 再次待确认（强证据需用户确认）", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id); // 概念活动自动验证 → validated
+  const task = (await service.getWorkspace(OWNER)).activities.find((a) => a.activityType === "integrated_task")!;
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const ev2 = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  const { workspace } = await service.reviewEvidence(OWNER, ev2.id);
+  const np = workspace.nodeProgress.find((p) => p.nodeId === task.nodeId)!;
+  assert.equal(np.status, "pending_confirmation", "已验证节点综合任务再次进入待确认");
+  const ws2 = await service.confirmMastery(OWNER, task.nodeId, { decision: "confirmed" });
+  assert.equal(ws2.nodeProgress.find((p) => p.nodeId === task.nodeId)!.status, "validated");
+});

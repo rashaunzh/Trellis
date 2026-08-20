@@ -102,6 +102,7 @@ const NODE_TRANSITIONS: Record<NodeStatus, Partial<Record<NodeEvent["type"], Nod
     evidenceInvalidated: "growing", // 新证据不足
   },
   validated: {
+    pendingConfirmation: "pending_confirmation", // 综合任务等强证据需要再次确认
     evidenceInvalidated: "growing", // 允许新证据降级
   },
 };
