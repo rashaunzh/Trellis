@@ -120,25 +120,26 @@ export class RulePlanner implements PlannerPort {
         return a.id.localeCompare(b.id);
       });
 
-    // 打包活动：每个节点最多取活动链前 3 个（建立模型→跟随示范→独立练习），
-    // 然后推进到下一节点，避免一个节点被拆成 8 段、类型重复。
-    // 承诺（核心）按容量编排；可选活动作为缓冲，不计入承诺。
+    // 6 类活动链（顺序 = 学习顺序；时长基准 = 6h 示例：45/45/90/30/30/120）
+    // 每个节点只取该节点 activityTemplates 里允许的类型，类型不重复。
     const activityChain: Array<{ activityType: ActivityType; minutes: number; label: string; why: string }> = [
       { activityType: "build_model", minutes: 45, label: "建立模型", why: "先把概念、机制和边界说清楚，避免直接进入碎片练习。" },
-      { activityType: "follow_demo", minutes: 60, label: "跟随示范", why: "通过完整示例理解这个节点在真实任务中怎么用。" },
-      { activityType: "independent_practice", minutes: 75, label: "独立练习", why: "用一个小产出验证是否能离开提示独立应用。" },
+      { activityType: "follow_demo", minutes: 45, label: "阅读与示范", why: "通过完整示例理解这个节点在真实任务中怎么用。" },
+      { activityType: "independent_practice", minutes: 90, label: "动手实践", why: "用一个小产出验证是否能离开提示独立应用。" },
+      { activityType: "quiz", minutes: 30, label: "小测验", why: "快速检查理解是否到位，暴露薄弱点。" },
+      { activityType: "reflection", minutes: 30, label: "反思总结", why: "复盘收获与缺口，为下一周编排提供依据。" },
+      { activityType: "integrated_task", minutes: 120, label: "综合情境", why: "整合本周所学完成一个真实任务，验证迁移能力。" },
     ];
-    const CORE_PER_NODE = activityChain.length;
     const selected: Array<typeof candidates[number] & { activityType: ActivityType; minutes: number; label: string; why: string }> = [];
     let committedMinutes = 0;
     const targetCoreCount = Math.min(8, Math.max(2, Math.floor(input.capacityMinutes / 60)));
 
     outer:
     for (const node of candidates) {
-      for (let i = 0; i < CORE_PER_NODE && i < activityChain.length; i++) {
-        const template = activityChain[i];
+      for (const template of activityChain) {
+        if (!node.activityTemplates.includes(template.activityType)) continue;
         if (selected.length >= targetCoreCount) break outer;
-        if (committedMinutes + template.minutes > input.capacityMinutes - 30) break outer;
+        if (committedMinutes + template.minutes > input.capacityMinutes) break outer;
         selected.push({ ...node, ...template });
         committedMinutes += template.minutes;
       }

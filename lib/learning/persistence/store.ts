@@ -3,6 +3,7 @@
 // 提供内存实现（测试）与 D1 实现（生产）。
 
 import type {
+  UserResource,
   AdjustmentRecord,
   Evidence,
   LearningActivity,
@@ -58,5 +59,8 @@ export interface LearningStore {
   getApiConfig(ownerId: string): Promise<ApiConfig | null>;
   saveApiConfig(config: ApiConfig): Promise<void>;
   // 重置：清空该用户全部学习状态（重新诊断用），内容层不动
+    // 工作台收集箱
+  listUserResources(ownerId: string): Promise<UserResource[]>;
+  saveUserResource(resource: UserResource): Promise<void>;
   resetLearner(ownerId: string): Promise<void>;
 }

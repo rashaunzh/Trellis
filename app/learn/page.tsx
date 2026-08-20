@@ -15,22 +15,21 @@ import {
   confirmAdjustment,
   resetLearner,
   replanCurrentWeek,
-  nodeTitle,
   type AssessmentResult,
   type Workspace,
   type WorkspaceActivity,
 } from "../../lib/learning/frontend";
 
 const WEEKLY_TIME_OPTIONS = [
-  [120, "2 小时"],
-  [240, "4 小时"],
+  [180, "3 小时"],
+  [300, "5 小时"],
   [360, "6 小时"],
   [480, "8 小时"],
-  [600, "10 小时"],
   [720, "12 小时"],
   [900, "15 小时"],
   [1200, "20 小时"],
 ] as const;
+const CUSTOM_TIME = "custom";
 
 export default function LearnPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
@@ -39,7 +38,8 @@ export default function LearnPage() {
   const [error, setError] = useState("");
   // 诊断表单
   const [goal, setGoal] = useState("");
-  const [weeklyMinutes, setWeeklyMinutes] = useState(360);
+  const [weeklyMinutes, setWeeklyMinutes] = useState(300); // 默认 5 小时
+  const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
   const [preference, setPreference] = useState<"breadth_first" | "build_first">("breadth_first");
   // 活动抽屉
   const [activeActivity, setActiveActivity] = useState<WorkspaceActivity | null>(null);
@@ -121,11 +121,34 @@ export default function LearnPage() {
             <div className="t2-form-row">
               <label>
                 每周可用时间
-                <select value={weeklyMinutes} onChange={(e) => setWeeklyMinutes(Number(e.target.value))}>
+                <select
+                  value={timeMode === "custom" ? CUSTOM_TIME : weeklyMinutes}
+                  onChange={(e) => {
+                    if (e.target.value === CUSTOM_TIME) {
+                      setTimeMode("custom");
+                    } else {
+                      setWeeklyMinutes(Number(e.target.value));
+                      setTimeMode("preset");
+                    }
+                  }}
+                >
                   {WEEKLY_TIME_OPTIONS.map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}
+                  <option value={CUSTOM_TIME}>自定义</option>
                 </select>
+                {timeMode === "custom" && (
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    placeholder="1–20 小时"
+                    onChange={(e) => {
+                      const hours = Number(e.target.value);
+                      if (hours >= 1 && hours <= 20) setWeeklyMinutes(hours * 60);
+                    }}
+                  />
+                )}
               </label>
               <label>
                 优先方向
@@ -172,7 +195,7 @@ export default function LearnPage() {
             <div className="t2-proposal-meta">
               <span>地图节点 <b>{ws.nodeProgress.length}</b></span>
               <span>已有基础 <b>{growingCount}</b></span>
-              <span>首个节点 <b>{firstNode ? nodeTitle(firstNode.nodeId) : "—"}</b></span>
+              <span>首个节点 <b>{firstNode ? firstNode.title : "—"}</b></span>
             </div>
             {ws.adjacentBranches.length > 0 && (
               <div className="t2-adjacent">
@@ -334,6 +357,48 @@ export default function LearnPage() {
             </header>
 
             <div className="t2-drawer-body">
+              {/* 为什么学：节点位置与前后关系 */}
+              <section>
+                <span className="t2-drawer-label">为什么学</span>
+                <p className="t2-goal">{activeActivity.goal}</p>
+                <div className="t2-node-rel">
+                  <em>对应节点：{activeActivity.nodeId.replace(/^ai-literacy\./, "")}</em>
+                  {(() => {
+                    const prereqs = ws.edges
+                      .filter((e) => e.relationType === "prerequisite" && e.targetNodeId === activeActivity.nodeId)
+                      .map((e) => ws.nodeProgress.find((p) => p.nodeId === e.sourceNodeId)?.title ?? e.sourceNodeId);
+                    const nexts = ws.edges
+                      .filter((e) => e.relationType === "prerequisite" && e.sourceNodeId === activeActivity.nodeId)
+                      .map((e) => ws.nodeProgress.find((p) => p.nodeId === e.targetNodeId)?.title ?? e.targetNodeId);
+                    return (
+                      <>
+                        {prereqs.length > 0 && <em>前置：{prereqs.join("、")}</em>}
+                        {nexts.length > 0 && <em>完成后可进入：{nexts.join("、")}</em>}
+                      </>
+                    );
+                  })()}
+                </div>
+              </section>
+
+              {/* 学什么：关联材料资源卡（可点击） */}
+              {(() => {
+                const refs = ws.workbench.resources.filter((r) => activeActivity.inputRefs.includes(r.resourceId));
+                if (refs.length === 0) return null;
+                return (
+                  <section>
+                    <span className="t2-drawer-label">学什么 · 关联材料</span>
+                    <div className="t2-resource-links">
+                      {refs.map((r) => (
+                        <a key={r.resourceId} href={r.url} target="_blank" rel="noreferrer" className="t2-resource-link">
+                          {r.title}
+                          <small>{r.usage}</small>
+                        </a>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })()}
+
               <section>
                 <span className="t2-drawer-label">操作步骤</span>
                 <div className="t2-step-checklist">

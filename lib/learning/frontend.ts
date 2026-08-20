@@ -39,7 +39,7 @@ export interface WorkspaceActivity {
   weeklyPlanId: string;
   nodeId: string;
   title: string;
-  activityType: "build_model" | "follow_demo" | "independent_practice";
+  activityType: "build_model" | "follow_demo" | "independent_practice" | "quiz" | "reflection" | "integrated_task";
   goal: string;
   estimatedMinutes: number;
   isCore: boolean;
@@ -51,6 +51,16 @@ export interface WorkspaceActivity {
   evaluationCriteria: string;
   nextAdvice: string;
   sequence: number;
+}
+
+export interface WorkspaceUserResource {
+  id: string;
+  title: string;
+  type: "link" | "note" | "tool" | "resource";
+  content: string;
+  sourceUrl: string;
+  relatedNodeIds: string[];
+  createdAt: string;
 }
 
 export interface WorkspaceEvidence {
@@ -69,6 +79,7 @@ export interface WorkspaceNodeProgress {
   id: string;
   ownerId: string;
   nodeId: string;
+  title: string; // 中文标题（workspace 聚合注入，来自内容包）
   status: "unstarted" | "growing" | "validated";
   confidence: number;
   lastValidatedAt: string | null;
@@ -117,6 +128,7 @@ export interface Workspace {
   nodeProgress: WorkspaceNodeProgress[];
   evidence: WorkspaceEvidence[];
   adjustments: WorkspaceAdjustment[];
+  userResources: WorkspaceUserResource[];
   workbench: { resources: WorkbenchResource[]; tools: WorkbenchTool[] };
 }
 
@@ -286,6 +298,28 @@ export interface ApiConfigStatus {
   keyMasked: boolean;
 }
 
+export async function fetchInboxResources(): Promise<WorkspaceUserResource[]> {
+  const data = await readJson<{ resources: WorkspaceUserResource[] }>(
+    await apiFetch("/api/learning/resources/inbox"),
+  );
+  return data.resources;
+}
+
+export async function addInboxResource(input: {
+  title: string;
+  type: WorkspaceUserResource["type"];
+  content?: string;
+  sourceUrl?: string;
+}): Promise<{ resources: WorkspaceUserResource[] }> {
+  return readJson<{ resources: WorkspaceUserResource[] }>(
+    await apiFetch("/api/learning/resources/inbox", {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
 export async function fetchApiConfig(): Promise<ApiConfigStatus> {
   const data = await readJson<{ config: ApiConfigStatus }>(
     await apiFetch("/api/learning/api-config"),
@@ -333,8 +367,11 @@ export const EVIDENCE_STATUS_TEXT: Record<WorkspaceEvidence["status"], string> =
 
 export const ACTIVITY_TYPE_TEXT: Record<WorkspaceActivity["activityType"], string> = {
   build_model: "建立模型",
-  follow_demo: "跟随示范",
-  independent_practice: "独立练习",
+  follow_demo: "阅读与示范",
+  independent_practice: "动手实践",
+  quiz: "小测验",
+  reflection: "反思总结",
+  integrated_task: "综合情境",
 };
 
 export const ADJUSTMENT_TYPE_TEXT: Record<WorkspaceAdjustment["adjustmentType"], string> = {
@@ -343,22 +380,4 @@ export const ADJUSTMENT_TYPE_TEXT: Record<WorkspaceAdjustment["adjustmentType"],
   route_revision: "路线调整",
 };
 
-export const NODE_TITLE_BY_ID: Record<string, string> = {
-  "ai-literacy.mechanism": "模型机制",
-  "ai-literacy.context": "上下文与提示",
-  "ai-literacy.fit": "适用边界",
-  "ai-literacy.architecture": "AI 应用结构",
-  "ai-literacy.evaluation": "评估与质量",
-  "ai-literacy.responsibility": "责任与安全",
-  "ai-app-dev.prompting": "提示工程",
-  "ai-app-dev.rag": "RAG 检索增强",
-  "ai-app-dev.tools": "工具调用",
-  "ai-app-dev.eval-harness": "评估脚手架",
-  "ai-product.problem-def": "问题定义",
-  "ai-product.capability-design": "能力设计",
-  "ai-product.eval-decision": "评估决策",
-};
-
-export function nodeTitle(nodeId: string): string {
-  return NODE_TITLE_BY_ID[nodeId] ?? nodeId;
-}
+// 节点中文标题由 workspace 聚合注入（内容包为唯一真相），前端不再维护映射表。

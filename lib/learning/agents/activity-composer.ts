@@ -16,6 +16,12 @@ export class RuleActivityComposer implements ActivityComposerPort {
         return this.followDemo(input, minutes);
       case "independent_practice":
         return this.independentPractice(input, minutes);
+      case "quiz":
+        return this.quiz(input, minutes);
+      case "reflection":
+        return this.reflection(input, minutes);
+      case "integrated_task":
+        return this.integratedTask(input, minutes);
     }
   }
 
@@ -80,6 +86,67 @@ export class RuleActivityComposer implements ActivityComposerPort {
         input.isSkipValidation
           ? "跳学验证证据被接受后，节点进入已验证；不足则插入前置活动。"
           : "证据评估后进入下一步：继续、复习或补前置。",
+    };
+  }
+
+  private quiz(input: ComposeActivityInput, minutes: number): ActivityDraft {
+    return {
+      nodeId: input.nodeId,
+      activityType: "quiz",
+      title: `小测验：${input.nodeTitle}`,
+      goal: `回答 3 个自测题，检查对「${input.nodeTitle}」的理解是否到位。`,
+      estimatedMinutes: minutes,
+      inputRefs: input.resourceIds,
+      steps: [
+        "针对本节点写 3 个自测题（概念、边界、应用各一题）。",
+        "先不看材料回答，再对照材料核对。",
+        "对答错或不确定的题目，写明卡点是什么。",
+        "把 3 题的回答与核对结果作为证据提交。",
+      ],
+      expectedEvidence: "3 个自测题的回答 + 核对结果 + 卡点说明",
+      evaluationCriteria: "回答反映真实理解（不是抄材料）；能指出不确定处；卡点说明具体。",
+      nextAdvice: "小测验暴露的薄弱点将进入下一周的活动编排。",
+    };
+  }
+
+  private reflection(input: ComposeActivityInput, minutes: number): ActivityDraft {
+    return {
+      nodeId: input.nodeId,
+      activityType: "reflection",
+      title: `反思总结：${input.nodeTitle}`,
+      goal: `复盘本周在「${input.nodeTitle}」上的收获与缺口，形成下一步依据。`,
+      estimatedMinutes: minutes,
+      inputRefs: input.resourceIds,
+      steps: [
+        "回顾本周学习材料与完成的活动。",
+        "写收获：你比一周前多会了什么，能举一个具体例子。",
+        "写缺口：哪里还不确定、哪里需要更多练习。",
+        "给出下一步：继续、复习还是补前置，并说明理由。",
+      ],
+      expectedEvidence: "收获 + 缺口 + 下一步建议的复盘短文",
+      evaluationCriteria: "收获有具体例子支撑；缺口真实具体；下一步建议与缺口对应。",
+      nextAdvice: "复盘结论将作为调整建议的输入，驱动下周编排。",
+    };
+  }
+
+  private integratedTask(input: ComposeActivityInput, minutes: number): ActivityDraft {
+    return {
+      nodeId: input.nodeId,
+      activityType: "integrated_task",
+      title: `综合情境：${input.nodeTitle}`,
+      goal: `整合本周所学，完成一个真实场景任务，验证迁移能力。`,
+      estimatedMinutes: minutes,
+      inputRefs: input.resourceIds,
+      steps: [
+        "读题：用一个真实场景问题，覆盖本周节点的关键概念。",
+        "先列方案思路（涉及哪些概念、彼此如何配合），再动手。",
+        "完成产出：判断、方案、代码或作品，至少 500 字或等价产物。",
+        "写自评：对照评估量规逐条说明达标情况。",
+        "提交产出与自评作为证据。",
+      ],
+      expectedEvidence: "完整产出（判断/方案/代码/作品）+ 对照量规的自评",
+      evaluationCriteria: "产出调动本周 ≥2 个节点的概念；结论可复核；说明适用边界与失败场景；自评与产出一致。",
+      nextAdvice: "综合任务通过后，主节点熟练等级提升，进入下一节点或复测。",
     };
   }
 }

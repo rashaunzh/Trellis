@@ -147,8 +147,14 @@ export const learningNodes = sqliteTable("learning_nodes", {
   routeId: text("route_id")
     .notNull()
     .references(() => learningRoutes.id),
-  title: text("title").notNull(),
+  title: text("title").notNull(), // 中文标题
+  moduleId: text("module_id").notNull().default(""), // 模块标识（内容包内分组）
+  titleEn: text("title_en").notNull().default(""), // 英文标题
   description: text("description").notNull().default(""),
+  outcomes: text("outcomes").notNull().default("[]"), // JSON 数组：学习成果
+  sourceRefs: text("source_refs").notNull().default("[]"), // JSON 数组：[{label,url}]
+  activityTemplates: text("activity_templates").notNull().default("[]"), // JSON 数组：活动模板 id
+  assessmentRubric: text("assessment_rubric").notNull().default(""), // 评估量规
   targetLevel: integer("target_level").notNull().default(2), // 0-3 熟练等级
   isKeyMilestone: integer("is_key_milestone", { mode: "boolean" })
     .notNull()
@@ -365,4 +371,20 @@ export const learningAdjustments = sqliteTable("learning_adjustments", {
 }, (table) => [
   index("learning_adjustments_owner_idx").on(table.ownerId),
   index("learning_adjustments_route_idx").on(table.routeId),
+]);
+
+// 工作台收集箱：用户主动收集的资源/想法/工具（ownerId 边界，可持久化）
+export const learningUserResources = sqliteTable("learning_user_resources", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  title: text("title").notNull(),
+  type: text("type", {
+    enum: ["link", "note", "tool", "resource"],
+  }).notNull().default("link"),
+  content: text("content").notNull().default(""),
+  sourceUrl: text("source_url").notNull().default(""),
+  relatedNodeIds: text("related_node_ids").notNull().default(""), // 逗号分隔
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("learning_user_resources_owner_idx").on(table.ownerId),
 ]);

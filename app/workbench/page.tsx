@@ -5,11 +5,13 @@ import { useEffect, useState } from "react";
 import Shell from "../_components/shell";
 import {
   fetchWorkspace,
-  nodeTitle,
+  fetchInboxResources,
+  addInboxResource,
   fetchApiConfig,
   saveApiConfig,
   type ApiConfigStatus,
   type Workspace,
+  type WorkspaceUserResource,
 } from "../../lib/learning/frontend";
 
 type InboxItem = {
@@ -27,11 +29,16 @@ const ROUTE_GROUPS = [
   { prefix: "ai-product.", label: "AI 产品经理" },
 ] as const;
 
+// 节点中文标题来自 workspace 聚合（内容包为唯一真相）
+function nodeTitleOf(ws: Workspace | null, nodeId: string): string {
+  return ws?.nodeProgress.find((p) => p.nodeId === nodeId)?.title ?? nodeId;
+}
+
 export default function WorkbenchPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
+  const [inboxResources, setInboxResources] = useState<WorkspaceUserResource[]>([]);
   const [inboxType, setInboxType] = useState<InboxItem["type"]>("link");
   const [inboxText, setInboxText] = useState("");
-  const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
   const [workbenchMessage, setWorkbenchMessage] = useState("");
   // AI 配置
   const [apiStatus, setApiStatus] = useState<ApiConfigStatus>({
@@ -52,6 +59,9 @@ export default function WorkbenchPage() {
     fetchWorkspace()
       .then((next) => { if (alive) setWs(next); })
       .catch(() => { if (alive) setWs(null); });
+    fetchInboxResources()
+      .then((resources) => { if (alive) setInboxResources(resources); })
+      .catch(() => { /* 收集箱加载失败不阻塞页面 */ });
     return () => { alive = false; };
   }, []);
 
@@ -112,13 +122,14 @@ export default function WorkbenchPage() {
 
   const resources = ws.workbench.resources;
   const tools = ws.workbench.tools;
-  const defaultNodeId = ws.nodeProgress.find((p) => p.status !== "validated")?.nodeId ?? ws.nodeProgress[0]?.nodeId ?? "unmapped";
 
-  function addInboxItem(input: Omit<InboxItem, "id">) {
-    setInboxItems((items) => [
-      { ...input, id: `inbox-${Date.now()}-${items.length}` },
-      ...items,
-    ]);
+  async function addInboxItem(input: { type: InboxItem["type"]; title: string; content: string }) {
+    const { resources } = await addInboxResource({
+      type: input.type,
+      title: input.title,
+      content: input.content,
+    });
+    setInboxResources(resources);
   }
 
   return (
@@ -157,29 +168,33 @@ export default function WorkbenchPage() {
             className="t2-primary"
             disabled={!inboxText.trim()}
             onClick={() => {
-              addInboxItem({
+              void addInboxItem({
                 type: inboxType,
                 title: inboxText.trim().split("\n")[0].slice(0, 48),
                 content: inboxText.trim(),
-                mappedNodeId: defaultNodeId,
-              });
-              setInboxText("");
-              setWorkbenchMessage("已加入收集箱，并建议映射到当前未验证节点。");
+              })
+                .then(() => {
+                  setInboxText("");
+                  setWorkbenchMessage("已加入收集箱（持久化保存，刷新不丢）。");
+                })
+                .catch((e) => setWorkbenchMessage(e instanceof Error ? e.message : "加入失败"));
             }}
           >
             加入收集箱
           </button>
         </div>
         <div className="t2-inbox-list">
-          {inboxItems.map((item) => (
+          {inboxResources.map((item) => (
             <article key={item.id} className="t2-inbox-item">
               <span>{item.type}</span>
               <b>{item.title}</b>
               <p>{item.content}</p>
-              <em>建议映射：{nodeTitle(item.mappedNodeId)}</em>
+              {item.sourceUrl && (
+                <a href={item.sourceUrl} target="_blank" rel="noreferrer">{item.sourceUrl.slice(0, 60)}</a>
+              )}
             </article>
           ))}
-          {inboxItems.length === 0 && <p className="t2-empty">还没有临时材料。先丢一个链接或想法进来试试。</p>}
+          {inboxResources.length === 0 && <p className="t2-empty">还没有临时材料。先丢一个链接或想法进来试试。</p>}
         </div>
       </div>
 
@@ -221,7 +236,7 @@ export default function WorkbenchPage() {
                       <div className="t2-resource-main">
                         <div className="t2-resource-head">
                           <span>{r.sourceType} · 可信度 {r.credibilityLevel}/5</span>
-                          <em>节点：{nodeTitle(r.nodeId)}</em>
+                          <em>节点：{nodeTitleOf(ws, r.nodeId)}</em>
                         </div>
                         <h4>{r.title}</h4>
                         <p>{r.summary}</p>
@@ -264,7 +279,7 @@ export default function WorkbenchPage() {
             <article key={t.toolId} className="t2-tool-card">
               <header>
                 <b>{t.name}</b>
-                <span>对应节点：{nodeTitle(t.nodeId)}</span>
+                <span>对应节点：{nodeTitleOf(ws, t.nodeId)}</span>
               </header>
               <p>{t.description}</p>
               <div className="t2-tool-usage">

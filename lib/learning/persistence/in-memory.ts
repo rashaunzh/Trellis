@@ -2,6 +2,7 @@
 // 模拟 LearningStore，便于应用层测试与 API 场景测试。
 
 import type {
+  UserResource,
   AdjustmentRecord,
   Evidence,
   LearningActivity,
@@ -18,6 +19,7 @@ export class InMemoryLearningStore implements LearningStore {
   private nodeProgress = new Map<string, NodeProgress>();
   private adjustments = new Map<string, AdjustmentRecord>();
   private apiConfigs = new Map<string, ApiConfig>();
+  private userResources = new Map<string, UserResource>();
 
   async getProfile(ownerId: string): Promise<LearnerProfile | null> {
     for (const p of Array.from(this.profiles.values())) {
@@ -121,7 +123,17 @@ export class InMemoryLearningStore implements LearningStore {
     this.adjustments.set(adjustment.id, { ...adjustment });
   }
 
-  async resetLearner(ownerId: string): Promise<void> {
+    async listUserResources(ownerId: string): Promise<UserResource[]> {
+    return Array.from(this.userResources.values())
+      .filter((r) => r.ownerId === ownerId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async saveUserResource(resource: UserResource): Promise<void> {
+    this.userResources.set(resource.id, { ...resource });
+  }
+
+async resetLearner(ownerId: string): Promise<void> {
     for (const map of [this.profiles, this.weeklyPlans, this.activities, this.nodeProgress, this.evidence, this.adjustments]) {
       for (const [key, value] of map) {
         if (value.ownerId === ownerId) map.delete(key);

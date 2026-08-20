@@ -38,15 +38,18 @@ test("renders the independent Chinese learning entry", async () => {
   assert.match(html,/正在准备你的学习环境/);
 });
 
-test("serves the validated AI literacy content pack", async () => {
-  const response = await renderPath("/api/learning/content");
-  const data = await response.json();
-  assert.equal(response.status,200);
-  assert.equal(data.contentPack.能力.length,6);
-  assert.equal(data.contentPack.诊断题.length,6);
-  assert.equal(data.contentPack.建议分钟下限,720);
-  assert.equal(data.contentPack.版本,"1.1.0");
-  assert.equal(data.contentPack.能力[0].关键概念.length,4);
+test("build artifact includes V0.2 API routes", async () => {
+  // workspace/收集箱等端到端由 test:domain + 浏览器验收覆盖；
+  // 这里验证 build 产物确实打包了 V0.2 闭环路由。
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const testDir = path.dirname(fileURLToPath(import.meta.url));
+  const serverFile = path.join(testDir, "..", "dist", "server", "index.js");
+  const src = fs.readFileSync(serverFile, "utf-8");
+  for (const route of ["api/learning/workspace", "api/learning/replan", "api/learning/resources/inbox", "api/learning/api-config"]) {
+    assert.ok(src.includes(route), `build 产物应包含路由 ${route}`);
+  }
 });
 
 test("redirects the default entry to the new learning MVP", async () => {

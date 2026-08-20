@@ -16,6 +16,7 @@ import type {
   ResourceMapping,
   ToolMapping,
 } from "./types.ts";
+import { ACTIVITY_TYPES } from "./types.ts";
 
 export const ROUTE_IDS = ["ai-literacy", "ai-app-dev", "ai-product"] as const;
 export type RouteId = (typeof ROUTE_IDS)[number];
@@ -41,119 +42,311 @@ const routes: LearningRoute[] = [
   },
 ];
 
+// ── 模块定义（内容包内分组）──────────────────────────
+export const MODULES = [
+  { id: "ai-intro", routeId: "ai-literacy", name: "AI 是什么", order: 1 },
+  { id: "ai-methods", routeId: "ai-literacy", name: "AI 的主要方法", order: 2 },
+  { id: "ai-practice", routeId: "ai-literacy", name: "AI 的实践入口", order: 3 },
+  { id: "ai-app-dev", routeId: "ai-app-dev", name: "AI 应用开发", order: 1 },
+  { id: "ai-product", routeId: "ai-product", name: "AI 产品经理", order: 1 },
+] as const;
+
+// AI-For-Beginners 课程引用（真实可点击路径）
+const AFB = "https://github.com/microsoft/AI-For-Beginners";
+const AFB_LESSONS = `${AFB}/tree/main/lessons`;
+const AFB_SETUP = `${AFB}/blob/main/lessons/0-course-setup/setup.md`;
+
 const nodes: LearningNode[] = [
-  // ── AI 通识与认知（主干）────────────────────────────
+  // ── AI 通识与认知（主干，内容样本：Microsoft AI-For-Beginners）──
   {
     id: "ai-literacy.mechanism",
     routeId: "ai-literacy",
-    title: "机制与边界",
-    description: "解释模型为何有效、为何会失败，以及概率性输出意味着什么。",
+    moduleId: "ai-intro",
+    title: "AI 基本概念与能力边界",
+    titleEn: "Introduction to AI",
+    description: "AI 是什么：AI 与传统程序的区别、弱 AI 与强 AI、AI 能做什么不能做什么。",
     targetLevel: 2,
     isKeyMilestone: false,
+    outcomes: [
+      "用自己的话区分 AI 与普通程序（学习 vs 指令）",
+      "举例说明 AI 擅长与不擅长的任务各至少 2 个",
+      "解释弱 AI（窄能力）与强 AI（通用智能）的差异",
+    ],
+    sourceRefs: [
+      { label: "AI-For-Beginners · Lesson 1 Intro（课程与预习）", url: `${AFB_LESSONS}/1-Intro/README.md` },
+      { label: "Lesson 1 作业 assignment", url: `${AFB_LESSONS}/1-Intro/assignment.md` },
+      { label: "课程总览（12 周结构）", url: AFB },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能用自己的话定义 AI 并说明其学习本质；能给出至少 2 个 AI 能做/不能做的对比例子；能区分弱 AI 与强 AI，并指出当前主流 AI 属于弱 AI。",
+  },
+  {
+    id: "ai-literacy.history",
+    routeId: "ai-literacy",
+    moduleId: "ai-intro",
+    title: "AI 发展史：从符号主义到深度学习",
+    titleEn: "History of AI",
+    description: "AI 的三次浪潮：符号主义与专家系统、统计学习、深度学习，以及为什么 2012 年后深度学习爆发。",
+    targetLevel: 2,
+    isKeyMilestone: false,
+    outcomes: [
+      "按时间线说出 AI 发展的关键阶段",
+      "解释专家系统为何受限（知识获取难、规则组合爆炸）",
+      "说明深度学习兴起的三个条件（数据、算力、算法）",
+    ],
+    sourceRefs: [
+      { label: "AI-For-Beginners · Lesson 2 Symbolic（符号主义）", url: `${AFB_LESSONS}/2-Symbolic/README.md` },
+      { label: "符号主义 Notebook：家族本体", url: `${AFB_LESSONS}/2-Symbolic/FamilyOntology.ipynb` },
+      { label: "符号主义 Notebook：动物分类规则", url: `${AFB_LESSONS}/2-Symbolic/Animals.ipynb` },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能画出 AI 发展时间线（符号主义→统计学习→深度学习）；能解释专家系统的两个局限；能说出深度学习爆发的三个条件。",
   },
   {
     id: "ai-literacy.fit",
     routeId: "ai-literacy",
-    title: "问题适配与人机职责",
-    description: "判断问题是否适合 AI，并界定成功结果、失败边界与人工责任。",
+    moduleId: "ai-methods",
+    title: "神经网络与深度学习",
+    titleEn: "Neural Networks and Deep Learning",
+    description: "从感知机到神经网络：模型如何从数据学习，规则方法与学习方法各自的适用场景。",
     targetLevel: 3,
     isKeyMilestone: true,
+    outcomes: [
+      "用感知机例子解释“从数据中学习”的含义",
+      "对比规则方法（符号主义）与学习方法（神经网络）的适用场景",
+      "解释训练与推理的区别",
+    ],
+    sourceRefs: [
+      { label: "AI-For-Beginners · Lesson 3 Neural Networks（含感知机 Notebook）", url: `${AFB_LESSONS}/3-NeuralNetworks/README.md` },
+      { label: "感知机 Notebook 与 lab", url: `${AFB_LESSONS}/3-NeuralNetworks/03-Perceptron/Perceptron.ipynb` },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能用感知机示例解释权重学习过程；能针对给定问题判断适合规则法还是学习法并给出理由；能区分训练阶段与推理阶段。",
   },
   {
     id: "ai-literacy.context",
     routeId: "ai-literacy",
-    title: "上下文与可核验使用",
-    description: "组织指令、上下文、工具和来源，完成可复核任务。",
+    moduleId: "ai-methods",
+    title: "数据、模型与训练",
+    titleEn: "Data, Models and Training",
+    description: "数据集、特征与标签如何塑造模型；训练与推理；数据分布对泛化与偏差的影响。",
     targetLevel: 2,
     isKeyMilestone: false,
+    outcomes: [
+      "说明数据集、特征、标签在训练中的作用",
+      "解释“模型学到的是数据分布中的规律，不是事实”",
+      "指出数据偏差如何导致模型偏见",
+    ],
+    sourceRefs: [
+      { label: "AI-For-Beginners · Lesson 3 自建框架（训练原理）", url: `${AFB_LESSONS}/3-NeuralNetworks/04-OwnFramework` },
+      { label: "课程环境配置（Notebook 运行）", url: AFB_SETUP },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能说清训练数据如何影响模型行为；能用例子解释泛化与过拟合的直观含义；能指出至少一种数据偏差导致的风险。",
   },
   {
     id: "ai-literacy.architecture",
     routeId: "ai-literacy",
-    title: "应用架构选择",
-    description: "区分直接生成、RAG、工具调用与 Agent，并选择基础架构。",
+    moduleId: "ai-practice",
+    title: "AI 实践环境与工具链",
+    titleEn: "AI Practice: Notebooks and Tooling",
+    description: "用 Notebook/Python 环境跑通一个 AI 示例：环境搭建、运行 notebook、理解一个分类或文本分析案例。",
     targetLevel: 2,
     isKeyMilestone: false,
+    outcomes: [
+      "在 Notebook 环境运行一个 AI 示例并解释输出",
+      "理解 notebook/lab 式的动手学习流程",
+      "复述一个简单分类或文本分析案例中模型做了什么",
+    ],
+    sourceRefs: [
+      { label: "课程环境搭建指南 setup", url: AFB_SETUP },
+      { label: "AI-For-Beginners · Lesson 4 Computer Vision", url: `${AFB_LESSONS}/4-ComputerVision/README.md` },
+      { label: "AI-For-Beginners · Lesson 5 NLP（文本分析）", url: `${AFB_LESSONS}/5-NLP/README.md` },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能运行一个 notebook 并用自己的话解释输出；能说明该案例中模型输入是什么、输出是什么、依据什么训练。",
   },
   {
     id: "ai-literacy.evaluation",
     routeId: "ai-literacy",
-    title: "评测与人工确认",
-    description: "设计样例、指标、拒答、失败检查与人工升级机制。",
+    moduleId: "ai-practice",
+    title: "评测与实验验证",
+    titleEn: "Evaluation and Verification",
+    description: "用样例、指标和失败检查评估 AI 输出；理解“看起来对 ≠ 正确”；设计人工确认点。",
     targetLevel: 3,
     isKeyMilestone: true,
+    outcomes: [
+      "针对一个 AI 输出给出评估依据（对在哪、错在哪）",
+      "设计至少一个失败检查（拒答/越界/幻觉）",
+      "说明为什么关键决策需要人工确认",
+    ],
+    sourceRefs: [
+      { label: "Lesson 1 作业（评估式练习）", url: `${AFB_LESSONS}/1-Intro/assignment.md` },
+      { label: "Microsoft Learn：AI 基础模块", url: "https://learn.microsoft.com/ai" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能对给定 AI 输出给出具体评估依据而非笼统评价；能设计一个可执行的失败检查；能说明人工确认在什么场景必须。",
   },
   {
     id: "ai-literacy.responsibility",
     routeId: "ai-literacy",
-    title: "责任与约束",
-    description: "识别隐私、安全、偏见、版权、权限、成本和自动化风险。",
+    moduleId: "ai-practice",
+    title: "AI 伦理与负责任使用",
+    titleEn: "Responsible AI and Ethics",
+    description: "识别隐私、偏见、滥用与自动化风险；负责任 AI 的实践原则；对具体场景做风险判断。",
     targetLevel: 3,
     isKeyMilestone: true,
+    outcomes: [
+      "识别一个具体 AI 应用的至少 2 类风险",
+      "为每类风险给出缓解措施",
+      "区分系统责任与使用者责任",
+    ],
+    sourceRefs: [
+      { label: "AI-For-Beginners · Lesson 7 Ethics", url: `${AFB_LESSONS}/7-Ethics/README.md` },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能对具体 AI 场景识别 2 类以上风险并给出缓解措施；能区分系统责任与使用者责任；能说明偏见如何从数据进入模型。",
   },
   // ── AI 应用开发分支 ──────────────────────────────────
   {
     id: "ai-app-dev.prompting",
     routeId: "ai-app-dev",
+    moduleId: "ai-app-dev",
     title: "提示工程基础",
+    titleEn: "Prompting Fundamentals",
     description: "用任务说明、材料边界和输出格式稳定控制模型输出。",
     targetLevel: 2,
     isKeyMilestone: false,
+    outcomes: [
+      "写出包含任务、边界、格式三要素的提示",
+      "对比不同提示对同一任务的输出差异",
+    ],
+    sourceRefs: [
+      { label: "Google AI for Developers: Prompting Strategies", url: "https://ai.google.dev/gemini-api/docs/prompting-strategies" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "提示包含明确任务、材料边界与输出格式；能解释提示改动为何改变输出。",
   },
   {
     id: "ai-app-dev.rag",
     routeId: "ai-app-dev",
+    moduleId: "ai-app-dev",
     title: "检索增强生成（RAG）",
+    titleEn: "Retrieval-Augmented Generation",
     description: "把受控知识源接入模型：切分、检索、引用与无答案处理。",
     targetLevel: 2,
     isKeyMilestone: true,
+    outcomes: [
+      "画出 RAG 的检索→增强→生成链路",
+      "说明引用与无答案处理为什么必要",
+    ],
+    sourceRefs: [
+      { label: "Google AI for Developers: RAG 相关指南", url: "https://ai.google.dev/gemini-api/docs/retrieval" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能说清 RAG 各环节作用；能指出不引用/不拒答的风险。",
   },
   {
     id: "ai-app-dev.tools",
     routeId: "ai-app-dev",
+    moduleId: "ai-app-dev",
     title: "工具调用与动作",
+    titleEn: "Tool Use and Actions",
     description: "让模型读取实时数据或执行受控动作，并处理权限边界。",
     targetLevel: 2,
     isKeyMilestone: false,
+    outcomes: [
+      "说明工具调用中权限边界与确认点的作用",
+    ],
+    sourceRefs: [
+      { label: "Google AI for Developers: Tools", url: "https://ai.google.dev/gemini-api/docs/function-calling" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能说明工具调用链路与权限边界；能指出高风险动作必须人工确认。",
   },
   {
     id: "ai-app-dev.eval-harness",
     routeId: "ai-app-dev",
+    moduleId: "ai-app-dev",
     title: "最小评测集搭建",
+    titleEn: "Minimal Eval Harness",
     description: "为应用搭建固定样例评测集，比较版本并拦截关键红线。",
     targetLevel: 3,
     isKeyMilestone: true,
+    outcomes: [
+      "为给定应用设计 5 个以上评测样例",
+      "说明评测集如何拦截回归",
+    ],
+    sourceRefs: [
+      { label: "OpenAI Evals Guide", url: "https://cookbook.openai.com/examples/evaluation" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "评测样例覆盖正常/边界/失败三类；能说明评测结果如何驱动版本决策。",
   },
   // ── AI 产品经理分支 ──────────────────────────────────
   {
     id: "ai-product.problem-def",
     routeId: "ai-product",
+    moduleId: "ai-product",
     title: "问题定义与用户价值",
+    titleEn: "Problem Definition",
     description: "从用户问题出发界定 AI 产品要解决的真实问题与成功标准。",
     targetLevel: 2,
     isKeyMilestone: false,
+    outcomes: [
+      "把一个用户诉求拆成可验证的问题陈述",
+      "定义成功标准（而非功能清单）",
+    ],
+    sourceRefs: [
+      { label: "NIST AI Risk Management Framework", url: "https://www.nist.gov/itl/ai-risk-management-framework" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "问题陈述包含用户、场景、痛点与成功标准；不把解决方案当需求。",
   },
   {
     id: "ai-product.capability-design",
     routeId: "ai-product",
+    moduleId: "ai-product",
     title: "能力设计与边界",
+    titleEn: "Capability Design",
     description: "把需求拆成可评测的能力，明确模型行为边界与人工兜底。",
     targetLevel: 3,
     isKeyMilestone: true,
+    outcomes: [
+      "把需求拆成可评测的能力清单",
+      "为每项能力定义边界与兜底",
+    ],
+    sourceRefs: [
+      { label: "NIST AI 600-1（生成式 AI 概况）", url: "https://www.nist.gov/itl/ai-risk-management-framework" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "能力可评测（有输入输出与判定）；边界与人工兜底明确。",
   },
   {
     id: "ai-product.eval-decision",
     routeId: "ai-product",
+    moduleId: "ai-product",
     title: "评估与产品决策",
+    titleEn: "Evaluation-Driven Decisions",
     description: "用评测结果做上线/回滚/迭代决策，区分用户感知与系统指标。",
     targetLevel: 3,
     isKeyMilestone: true,
+    outcomes: [
+      "用评测结果给出上线/回滚/迭代决策",
+      "区分用户感知指标与系统指标",
+    ],
+    sourceRefs: [
+      { label: "OpenAI Evals Guide", url: "https://cookbook.openai.com/examples/evaluation" },
+    ],
+    activityTemplates: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task"],
+    assessmentRubric: "决策有评测数据支撑；能解释系统指标与用户感知的差异。",
   },
 ];
 
 const edges: LearningEdge[] = [
   // 通识内部前置
   { sourceNodeId: "ai-literacy.mechanism", targetNodeId: "ai-literacy.fit", relationType: "prerequisite" },
+  { sourceNodeId: "ai-literacy.mechanism", targetNodeId: "ai-literacy.history", relationType: "prerequisite" },
   { sourceNodeId: "ai-literacy.mechanism", targetNodeId: "ai-literacy.context", relationType: "prerequisite" },
   { sourceNodeId: "ai-literacy.fit", targetNodeId: "ai-literacy.architecture", relationType: "prerequisite" },
   { sourceNodeId: "ai-literacy.context", targetNodeId: "ai-literacy.architecture", relationType: "prerequisite" },
@@ -327,6 +520,7 @@ export const learningContentPack: LearningContentPack = {
 // 2. 三条路线存在
 // 3. 前置关系合法（引用的节点存在、无环）
 // 4. 当前路线能找到相邻分支
+// 5. 每个节点有完整学习字段：outcomes / sourceRefs(可点击 URL) / activityTemplates / assessmentRubric
 export function validateContentPack(pack: LearningContentPack = learningContentPack): void {
   // 节点 ID 唯一
   const nodeIds = new Set(pack.nodes.map((n) => n.id));
@@ -344,6 +538,34 @@ export function validateContentPack(pack: LearningContentPack = learningContentP
   for (const node of pack.nodes) {
     if (!routeIds.has(node.routeId)) {
       throw new Error(`内容包校验失败：节点 ${node.id} 属于不存在的路线 ${node.routeId}`);
+    }
+  }
+  // 每个节点具备完整学习字段（内容样本工程要求）
+  const allActivityTypes = new Set<string>(ACTIVITY_TYPES);
+  for (const node of pack.nodes) {
+    if (!node.moduleId) throw new Error(`内容包校验失败：节点 ${node.id} 缺少 moduleId`);
+    if (!node.titleEn) throw new Error(`内容包校验失败：节点 ${node.id} 缺少 titleEn`);
+    if (!Array.isArray(node.outcomes) || node.outcomes.length === 0) {
+      throw new Error(`内容包校验失败：节点 ${node.id} 缺少 outcomes`);
+    }
+    if (!Array.isArray(node.sourceRefs) || node.sourceRefs.length === 0) {
+      throw new Error(`内容包校验失败：节点 ${node.id} 缺少 sourceRefs`);
+    }
+    for (const ref of node.sourceRefs) {
+      if (!ref.label || !ref.url || !/^https?:\/\//.test(ref.url)) {
+        throw new Error(`内容包校验失败：节点 ${node.id} 的 sourceRef 必须是可点击 http(s) 链接`);
+      }
+    }
+    if (!Array.isArray(node.activityTemplates) || node.activityTemplates.length === 0) {
+      throw new Error(`内容包校验失败：节点 ${node.id} 缺少 activityTemplates`);
+    }
+    for (const t of node.activityTemplates) {
+      if (!allActivityTypes.has(t)) {
+        throw new Error(`内容包校验失败：节点 ${node.id} 引用未知活动模板 ${t}`);
+      }
+    }
+    if (!node.assessmentRubric || node.assessmentRubric.trim().length === 0) {
+      throw new Error(`内容包校验失败：节点 ${node.id} 缺少 assessmentRubric`);
     }
   }
   // 前置关系合法：引用的节点存在

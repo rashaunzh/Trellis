@@ -24,11 +24,14 @@ export const EVIDENCE_STATUS = [
 ] as const;
 export type EvidenceStatus = (typeof EVIDENCE_STATUS)[number];
 
-// ── 活动类型（MVP 三类，架构支持五类）──────────────────
+// ── 活动类型（6 类最小集合）──────────────────────────
 export const ACTIVITY_TYPES = [
-  "build_model", // 建立模型：解释概念、画出关系、总结判断标准
-  "follow_demo", // 跟随示范：看例子并解释为什么有效
-  "independent_practice", // 独立练习：完成小产出
+  "build_model", // 概念理解：解释概念、画出关系、总结判断标准
+  "follow_demo", // 阅读整理/跟随示范：看材料并解释为什么有效
+  "independent_practice", // Notebook/工具实践：完成小产出
+  "quiz", // 小测验：自测题，检查理解
+  "reflection", // 反思总结：复盘收获与缺口
+  "integrated_task", // 综合情境任务：整合多节点完成真实任务
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -70,13 +73,25 @@ export interface LearningRoute {
   description: string;
 }
 
+// ── 来源引用（可点击的学习材料）──────────────────────
+export interface SourceRef {
+  label: string; // 显示名，如 "AI-For-Beginners Lesson 1"
+  url: string;   // 可点击链接
+}
+
 export interface LearningNode {
   id: string; // 稳定 ID，如 "ai-literacy.mechanism"
   routeId: string;
-  title: string;
+  moduleId: string; // 模块标识，如 "ai-intro"（内容包内 3 模块）
+  title: string; // 中文标题（前端主显示）
+  titleEn: string; // 英文标题
   description: string;
   targetLevel: number; // 0-3
   isKeyMilestone: boolean;
+  outcomes: string[]; // 学习成果：学完能做什么
+  sourceRefs: SourceRef[]; // 来源引用（lesson/notebook/quiz/learn 链接）
+  activityTemplates: string[]; // 活动模板 id（见 ACTIVITY_TYPES）
+  assessmentRubric: string; // 评估量规（中文，评估器与前端共用）
 }
 
 export interface LearningEdge {
@@ -197,4 +212,16 @@ export interface LearningContentPack {
   resourceMappings: ResourceMapping[];
   tools: LearningTool[];
   toolMappings: ToolMapping[];
+}
+
+// ── 工作台收集箱（用户主动收集，ownerId 边界）────────
+export interface UserResource {
+  id: string;
+  ownerId: string;
+  title: string;
+  type: "link" | "note" | "tool" | "resource";
+  content: string;
+  sourceUrl: string;
+  relatedNodeIds: string[];
+  createdAt: string;
 }

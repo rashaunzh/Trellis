@@ -9,6 +9,7 @@ import type {
   Evidence,
   LearningActivity,
   NodeProgress,
+  UserResource,
   WeeklyPlan,
 } from "../domain/types.ts";
 import { learningContentPack } from "../domain/content.ts";
@@ -46,10 +47,25 @@ export class D1LearningStore implements LearningStore {
       await this.db
         .prepare(
           `INSERT OR IGNORE INTO learning_nodes
-             (id, route_id, title, description, target_level, is_key_milestone)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+             (id, route_id, title, module_id, title_en, description,
+              outcomes, source_refs, activity_templates, assessment_rubric,
+              target_level, is_key_milestone)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .bind(node.id, node.routeId, node.title, node.description, node.targetLevel, node.isKeyMilestone ? 1 : 0)
+        .bind(
+          node.id,
+          node.routeId,
+          node.title,
+          node.moduleId,
+          node.titleEn,
+          node.description,
+          JSON.stringify(node.outcomes),
+          JSON.stringify(node.sourceRefs),
+          JSON.stringify(node.activityTemplates),
+          node.assessmentRubric,
+          node.targetLevel,
+          node.isKeyMilestone ? 1 : 0,
+        )
         .run();
     }
 
@@ -473,7 +489,44 @@ export class D1LearningStore implements LearningStore {
 
   // 重置：清空该用户全部学习状态（重新诊断用），内容层不动；
   // 删除顺序先子后父（证据/调整引用活动，活动引用周计划/节点，周计划引用画像）
-  async resetLearner(ownerId: string): Promise<void> {
+    async listUserResources(ownerId: string): Promise<UserResource[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_user_resources WHERE owner_id = ? ORDER BY created_at DESC")
+      .bind(ownerId)
+      .all();
+    return (rows.results ?? []).map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      ownerId: String(row.owner_id),
+      title: String(row.title),
+      type: row.type as UserResource["type"],
+      content: String(row.content),
+      sourceUrl: String(row.source_url),
+      relatedNodeIds: String(row.related_node_ids || "").split(",").filter(Boolean),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  async saveUserResource(resource: UserResource): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO learning_user_resources
+           (id, owner_id, title, type, content, source_url, related_node_ids, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        resource.id,
+        resource.ownerId,
+        resource.title,
+        resource.type,
+        resource.content,
+        resource.sourceUrl,
+        resource.relatedNodeIds.join(","),
+        resource.createdAt,
+      )
+      .run();
+  }
+
+async resetLearner(ownerId: string): Promise<void> {
     await this.db.batch([
       this.db.prepare("DELETE FROM learning_evidence WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_adjustments WHERE owner_id = ?").bind(ownerId),

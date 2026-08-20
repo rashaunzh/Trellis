@@ -20,6 +20,7 @@ import type {
   AdjustmentType,
   Evidence,
   LearningActivity,
+  UserResource,
   NodeProgress,
   NodeStatus,
   WeeklyPlan,
@@ -77,9 +78,12 @@ export interface Workspace {
   }>;
   weeklyPlan: WeeklyPlan | null;
   activities: LearningActivity[];
-  nodeProgress: NodeProgress[];
+  // 节点进度带中文标题（内容包为唯一真相，前端不再维护标题映射）
+  nodeProgress: Array<NodeProgress & { title: string }>;
   evidence: Evidence[];
   adjustments: AdjustmentRecord[];
+  // 工作台：资源/工具与节点的映射
+  userResources: UserResource[];
   // 工作台：资源/工具与节点的映射
   workbench: {
     resources: Array<{
@@ -127,6 +131,7 @@ export class LearningApplicationService {
         nodeProgress: [],
         evidence: [],
         adjustments: [],
+        userResources: [],
         workbench: { resources: [], tools: [] },
       };
     }
@@ -148,12 +153,17 @@ export class LearningApplicationService {
     const activities = weeklyPlan
       ? await this.store.listActivitiesByPlan(weeklyPlan.id)
       : [];
-    const nodeProgress = await this.store.listNodeProgress(ownerId);
+    const nodeProgress = (await this.store.listNodeProgress(ownerId)).map((p) => ({
+      ...p,
+      // 中文标题来自内容包（单一真相），不落库
+      title: learningContentPack.nodes.find((n) => n.id === p.nodeId)?.title ?? p.nodeId,
+    }));
     const evidence: Evidence[] = [];
     for (const activity of activities) {
       evidence.push(...(await this.store.listEvidenceByActivity(activity.id)));
     }
     const adjustments = await this.store.listAdjustments(ownerId);
+    const userResources = await this.store.listUserResources(ownerId);
 
     // 工作台映射
     const resources = learningContentPack.resourceMappings
@@ -208,6 +218,7 @@ export class LearningApplicationService {
       nodeProgress,
       evidence,
       adjustments,
+      userResources,
       workbench: { resources, tools },
     };
   }
@@ -522,6 +533,32 @@ export class LearningApplicationService {
     return this.getWorkspace(ownerId);
   }
 
+  // ── GET /api/learning/resources/inbox ─────────────────
+  // 收集箱独立于学习状态（无 profile 也能读），不走 getWorkspace（profile null 会早退）。
+  async listInboxResources(ownerId: string): Promise<UserResource[]> {
+    return this.store.listUserResources(ownerId);
+  }
+
+  // ── POST /api/learning/resources/inbox ───────────────
+  async saveUserResource(
+    ownerId: string,
+    input: { title: string; type: UserResource["type"]; content?: string; sourceUrl?: string },
+  ): Promise<Workspace> {
+    if (!input.title.trim()) throw new LearningError("标题不能为空", 400);
+    const resource: UserResource = {
+      id: stableId("uresource", `${ownerId}:${Date.now()}`),
+      ownerId,
+      title: input.title.trim(),
+      type: input.type,
+      content: input.content?.trim() ?? "",
+      sourceUrl: input.sourceUrl?.trim() ?? "",
+      relatedNodeIds: [],
+      createdAt: new Date().toISOString(),
+    };
+    await this.store.saveUserResource(resource);
+    return this.getWorkspace(ownerId);
+  }
+
   // ── POST /api/learning/reset ─────────────────────────
   // 重新设置：清空该用户全部学习状态，回到未诊断起点（内容层不动）。
   async resetLearner(ownerId: string): Promise<Workspace> {
@@ -686,7 +723,7 @@ export class LearningApplicationService {
         .map((m) => m.resourceId);
       const draft: ActivityDraft = this.agents.activityComposer.composeActivity({
         nodeId: item.nodeId,
-        nodeTitle: item.title,
+        nodeTitle: node.title, // 纯节点标题（composer 自行加类型前缀，避免双重前缀）
         nodeDescription: node.description,
         activityType: item.activityType,
         isSkipValidation: false,

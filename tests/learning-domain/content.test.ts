@@ -96,3 +96,42 @@ test("前置查询与满足判断", () => {
     true,
   );
 });
+
+test("内容包节点字段完整（outcomes/sourceRefs/模板/量规）", () => {
+  const pack = learningContentPack;
+  assert.ok(pack.nodes.length >= 6, `至少 6 个节点，实际 ${pack.nodes.length}`);
+  for (const node of pack.nodes) {
+    assert.ok(node.moduleId, `${node.id} 有 moduleId`);
+    assert.ok(node.titleEn, `${node.id} 有 titleEn`);
+    assert.ok(node.outcomes.length >= 1, `${node.id} 有 outcomes`);
+    assert.ok(node.sourceRefs.length >= 1, `${node.id} 有 sourceRefs`);
+    for (const ref of node.sourceRefs) {
+      assert.match(ref.url, /^https?:\/\//, `${node.id} sourceRef 可点击: ${ref.url}`);
+    }
+    assert.ok(node.activityTemplates.length >= 1, `${node.id} 有活动模板`);
+    assert.ok(node.assessmentRubric.trim().length > 0, `${node.id} 有评估量规`);
+  }
+  // ai-literacy 至少 6 个中文节点（内容样本要求）
+  const literacyNodes = pack.nodes.filter((n) => n.routeId === "ai-literacy");
+  assert.ok(literacyNodes.length >= 6, `ai-literacy 至少 6 节点，实际 ${literacyNodes.length}`);
+  // 中文标题优先（内容包工程要求：不再大面积英文）
+  for (const node of literacyNodes) {
+    assert.ok(/[\u4e00-\u9fff]/.test(node.title), `${node.id} 中文标题: ${node.title}`);
+  }
+});
+
+test("内容包校验：缺失字段抛错", () => {
+  const pack = structuredClone(learningContentPack);
+  const bad = pack.nodes[0];
+  bad.outcomes = [];
+  assert.throws(() => validateContentPack(pack), /outcomes/);
+  bad.outcomes = ["ok"];
+  bad.sourceRefs = [{ label: "x", url: "not-a-url" }];
+  assert.throws(() => validateContentPack(pack), /sourceRef/);
+  bad.sourceRefs = [{ label: "x", url: "https://example.com" }];
+  bad.activityTemplates = ["not-a-template"];
+  assert.throws(() => validateContentPack(pack), /未知活动模板/);
+  bad.activityTemplates = ["build_model"];
+  bad.assessmentRubric = "";
+  assert.throws(() => validateContentPack(pack), /assessmentRubric/);
+});

@@ -9,7 +9,6 @@ import {
   NODE_STATUS_TEXT,
   confirmAdjustment,
   fetchWorkspace,
-  nodeTitle,
   proposeAdjustment,
   skipNode,
   type Workspace,
@@ -120,7 +119,7 @@ export default function GrowPage() {
       {/* 节点详情 */}
       {selected && (
         <section className="t2-section">
-          <header><h3>{nodeTitle(selected.nodeId)}</h3><span className="t2-muted">{selected.nodeId}</span></header>
+          <header><h3>{selected.title}</h3><span className="t2-muted">{selected.nodeId}</span></header>
           <div className="t2-node-detail">
             <div className="t2-node-detail-row">
               <span>状态</span>
@@ -240,7 +239,7 @@ function NodeCard({
   onSkip: () => void;
   busy: boolean;
 }) {
-  const nodeLabel = nodeTitle(progress.nodeId);
+  const nodeLabel = progress.title;
   return (
     <article className={`t2-node-card ${active ? "active" : ""}`} onClick={onSelect}>
       <i className={`t2-node-dot st-${progress.status}`} />

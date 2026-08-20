@@ -5,13 +5,14 @@
 #       活动闭环(开始/足量证据/评估通过) → 成长页(节点/中文/相邻分支) →
 #       重排本周 → 证据/节点保留 + 新活动 + activity_replan 记录 + 状态未清空
 import json
+import os
 import sys
 import pathlib
 import urllib.request
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:3400"
+BASE = os.environ.get("TRELLIS_BASE", "http://localhost:3400")
 SHOTS = pathlib.Path(r"C:/Users/G-NC-00144/Documents/Codex/trellis-cleanup/.wrangler/acceptance-shots-replan")
 SHOTS.mkdir(parents=True, exist_ok=True)
 
