@@ -78,7 +78,10 @@ export function transitionEvidence(
 export type NodeEvent =
   | { type: "beginLearning" } // 开始学习或产生候选证据
   | { type: "skipNode" } // 跳学：进入待验证
-  | { type: "evidenceAccepted" } // 证据被接受
+  | { type: "evidenceAccepted" } // 证据被接受（直接验证）
+  | { type: "pendingConfirmation" } // 证据被接受但需用户确认（综合任务/复测驱动）
+  | { type: "confirmMastery" } // 用户确认掌握 → validated
+  | { type: "correctMastery" } // 用户纠正/否认 → 回 growing
   | { type: "evidenceInvalidated" }; // 新证据表明能力不足（降级）
 
 const NODE_TRANSITIONS: Record<NodeStatus, Partial<Record<NodeEvent["type"], NodeStatus>>> = {
@@ -90,7 +93,13 @@ const NODE_TRANSITIONS: Record<NodeStatus, Partial<Record<NodeEvent["type"], Nod
   growing: {
     beginLearning: "growing", // 继续学习，保持成长中
     evidenceAccepted: "validated",
+    pendingConfirmation: "pending_confirmation", // 需用户确认的验证
     evidenceInvalidated: "growing", // 保持成长中，重新积累
+  },
+  pending_confirmation: {
+    confirmMastery: "validated", // 用户确认掌握
+    correctMastery: "growing", // 用户纠正/否认，重新积累
+    evidenceInvalidated: "growing", // 新证据不足
   },
   validated: {
     evidenceInvalidated: "growing", // 允许新证据降级
@@ -124,8 +133,12 @@ export function nodeEffectOfActivityEvent(
 // 证据 needs_revision → 节点保持 growing
 export function nodeEventOfEvidence(
   evidenceStatus: EvidenceStatus,
+  opts: { requiresConfirmation?: boolean } = {},
 ): NodeEvent | null {
-  if (evidenceStatus === "accepted") return { type: "evidenceAccepted" };
+  if (evidenceStatus === "accepted") {
+    // 综合任务/复测驱动的验证需用户确认（pending_confirmation），其余自动验证
+    return opts.requiresConfirmation ? { type: "pendingConfirmation" } : { type: "evidenceAccepted" };
+  }
   if (evidenceStatus === "needs_revision") return null; // 不降级，仅保持
   return null;
 }

@@ -22,6 +22,8 @@ export class RuleActivityComposer implements ActivityComposerPort {
         return this.reflection(input, minutes);
       case "integrated_task":
         return this.integratedTask(input, minutes);
+      case "retest":
+        return this.retest(input, minutes);
     }
   }
 
@@ -126,6 +128,26 @@ export class RuleActivityComposer implements ActivityComposerPort {
       expectedEvidence: "收获 + 缺口 + 下一步建议的复盘短文",
       evaluationCriteria: "收获有具体例子支撑；缺口真实具体；下一步建议与缺口对应。",
       nextAdvice: "复盘结论将作为调整建议的输入，驱动下周编排。",
+    };
+  }
+
+  private retest(input: ComposeActivityInput, minutes: number): ActivityDraft {
+    return {
+      nodeId: input.nodeId,
+      activityType: "retest",
+      title: `延迟复测：${input.nodeTitle}`,
+      goal: `复核「${input.nodeTitle}」是否仍然掌握：脱离材料完成一次验证。`,
+      estimatedMinutes: minutes,
+      inputRefs: [],
+      steps: [
+        "不看材料，独立回答 3 个验证题：概念、边界、应用各一题。",
+        "对照评估量规自评：是否仍满足全部要点。",
+        "对不确定的部分，说明卡点（复测失败会降低熟练等级并生成补强）。",
+        "提交回答与自评作为复测证据。",
+      ],
+      expectedEvidence: "3 个验证题回答 + 对照量规的自评",
+      evaluationCriteria: "回答反映持续掌握（非背诵）；能指出不确定处；自评诚实。",
+      nextAdvice: "复测通过后下次复测间隔翻倍；失败则降低熟练等级并安排补强。",
     };
   }
 

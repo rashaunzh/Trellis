@@ -2,7 +2,7 @@
 // 设计约束：状态用独立枚举，不用大 JSON；agent 输出结构化
 
 // ── 节点状态（成长页三色）──────────────────────────────
-export const NODE_STATUS = ["unstarted", "growing", "validated"] as const;
+export const NODE_STATUS = ["unstarted", "growing", "pending_confirmation", "validated"] as const;
 export type NodeStatus = (typeof NODE_STATUS)[number];
 
 // ── 活动状态 ──────────────────────────────────────────
@@ -32,6 +32,7 @@ export const ACTIVITY_TYPES = [
   "quiz", // 小测验：自测题，检查理解
   "reflection", // 反思总结：复盘收获与缺口
   "integrated_task", // 综合情境任务：整合多节点完成真实任务
+  "retest", // 延迟复测：已验证节点到期复核
 ] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
@@ -55,6 +56,7 @@ export const ADJUSTMENT_TYPES = [
   "activity_replan", // 活动重新编排
   "weekly_light", // 周计划轻量调整
   "route_revision", // 路线版本变化
+  "mastery_confirm", // 掌握确认/纠正
 ] as const;
 export type AdjustmentType = (typeof ADJUSTMENT_TYPES)[number];
 
@@ -188,6 +190,10 @@ export interface NodeProgress {
   confidence: number; // 0-3 熟练等级
   lastValidatedAt: string | null;
   supportingEvidenceIds: string[]; // 逗号分隔存库，内存中为数组
+  confirmedAt: string | null; // 掌握确认时间（pending_confirmation → validated 时写入）
+  reviewIntervalDays: number; // 复测间隔（默认 14，通过后翻倍）
+  nextReviewAt: string | null; // 下次复测时间
+  reviewCount: number; // 已复测次数
 }
 
 export interface AdjustmentRecord {

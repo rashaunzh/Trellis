@@ -345,6 +345,12 @@ export const learningNodeProgress = sqliteTable("learning_node_progress", {
     .default("unstarted"),
   confidence: integer("confidence").notNull().default(0), // 0-3 熟练等级
   lastValidatedAt: text("last_validated_at"),
+  // 掌握确认（pending_confirmation → validated 时写入）
+  confirmedAt: text("confirmed_at"),
+  // 延迟复测元数据
+  reviewIntervalDays: integer("review_interval_days").notNull().default(14),
+  nextReviewAt: text("next_review_at"),
+  reviewCount: integer("review_count").notNull().default(0),
   // 支持验证的证据 ID 列表，逗号分隔
   supportingEvidenceIds: text("supporting_evidence_ids").notNull().default(""),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

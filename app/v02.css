@@ -721,13 +721,15 @@
   border-radius: 50%;
 }
 
-/* 三色状态 */
+/* 四色状态 */
 .st-unstarted { background: #d5dad4 !important; }
 .st-growing { background: #e0a63c !important; }
+.st-pending_confirmation { background: #8e5bc9 !important; }
 .st-validated { background: var(--t2-green) !important; }
 .t2-status { padding: 4px 9px; border-radius: 99px; font-size: 11px; }
 .t2-status.st-unstarted { background: #e9ede8; color: #6b736d; }
 .t2-status.st-growing { background: #f6e3bd; color: #8a6414; }
+.t2-status.st-pending_confirmation { background: #ece1f7; color: #6a3fa0; }
 .t2-status.st-validated { background: #d9efe5; color: var(--t2-green); }
 
 .t2-node-detail {

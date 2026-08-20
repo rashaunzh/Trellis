@@ -15,6 +15,7 @@ import {
   confirmAdjustment,
   resetLearner,
   replanCurrentWeek,
+  retestNode,
   type AssessmentResult,
   type Workspace,
   type WorkspaceActivity,
@@ -275,6 +276,23 @@ export default function LearnPage() {
 
       {message && <p className="t2-message">{message}</p>}
       {error && <p className="t2-error">{error}</p>}
+
+      {ws.dueReviews.length > 0 && (
+        <div className="t2-due-reviews">
+          <b>复测提醒</b>
+          <span>已验证能力进入复核期，避免一次通过就永久掌握。</span>
+          {ws.dueReviews.map((d) => (
+            <button
+              key={d.nodeId}
+              className="t2-mini"
+              disabled={busy}
+              onClick={() => void run(() => retestNode(d.nodeId), "已生成延迟复测活动，完成它来复核掌握")}
+            >
+              {d.title}（已 {d.daysSinceValidated} 天）
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="t2-week-hero">
         <div>

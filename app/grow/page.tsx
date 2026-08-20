@@ -11,6 +11,7 @@ import {
   fetchWorkspace,
   proposeAdjustment,
   skipNode,
+  confirmMastery,
   type Workspace,
   type WorkspaceNodeProgress,
 } from "../../lib/learning/frontend";
@@ -104,6 +105,7 @@ export default function GrowPage() {
           <div className="t2-legend">
             <i className="st-unstarted" />未点亮
             <i className="st-growing" />成长中
+            <i className="st-pending_confirmation" />待确认
             <i className="st-validated" />已验证
           </div>
         </header>
@@ -150,7 +152,26 @@ export default function GrowPage() {
                 <p className="t2-empty">暂无证据，完成学习活动并提交。</p>
               )}
             </div>
-            {selected.status !== "validated" && (
+            {selected.status === "pending_confirmation" && (
+              <div className="t2-mastery-confirm">
+                <p className="t2-hint">系统评估通过，请确认或纠正「{selected.title}」的掌握判断。</p>
+                <button
+                  className="t2-primary"
+                  disabled={busy}
+                  onClick={() => void run(() => confirmMastery(selected.nodeId, { decision: "confirmed" }), "已确认掌握，节点进入已验证")}
+                >
+                  确认掌握
+                </button>
+                <button
+                  className="t2-secondary"
+                  disabled={busy}
+                  onClick={() => void run(() => confirmMastery(selected.nodeId, { decision: "corrected", note: "尚未完全掌握" }), "已纠正，节点回到成长中并生成补强建议")}
+                >
+                  纠正（尚未掌握）
+                </button>
+              </div>
+            )}
+            {selected.status !== "validated" && selected.status !== "pending_confirmation" && (
               <button
                 className="t2-secondary"
                 disabled={busy}
@@ -228,12 +249,14 @@ export default function GrowPage() {
 
 function NodeCard({
   progress,
+  dueReview,
   active,
   onSelect,
   onSkip,
   busy,
 }: {
   progress: WorkspaceNodeProgress;
+  dueReview: boolean;
   active: boolean;
   onSelect: () => void;
   onSkip: () => void;
@@ -246,6 +269,7 @@ function NodeCard({
       <div>
         <b>{nodeLabel}</b>
         <span>{NODE_STATUS_TEXT[progress.status]}{progress.confidence > 0 ? ` · 等级 ${progress.confidence}` : ""}</span>
+        {dueReview && <em className="t2-due-badge">待复测</em>}
       </div>
       {active && progress.status !== "validated" && (
         <button className="t2-mini" disabled={busy} onClick={(e) => { e.stopPropagation(); onSkip(); }}>
@@ -335,6 +359,7 @@ function TreeMap({
           >
             <NodeCard
               progress={progress}
+              dueReview={ws.dueReviews.some((d) => d.nodeId === progress.nodeId)}
               active={selectedNode === progress.nodeId}
               onSelect={() => onSelect(progress.nodeId)}
               onSkip={() => onSkip(progress.nodeId)}

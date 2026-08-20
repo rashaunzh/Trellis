@@ -421,12 +421,17 @@ export class D1LearningStore implements LearningStore {
       .prepare(
         `INSERT INTO learning_node_progress
            (id, owner_id, node_id, status, confidence, last_validated_at,
+            confirmed_at, review_interval_days, next_review_at, review_count,
             supporting_evidence_ids, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO UPDATE SET
            status = excluded.status,
            confidence = excluded.confidence,
            last_validated_at = excluded.last_validated_at,
+           confirmed_at = excluded.confirmed_at,
+           review_interval_days = excluded.review_interval_days,
+           next_review_at = excluded.next_review_at,
+           review_count = excluded.review_count,
            supporting_evidence_ids = excluded.supporting_evidence_ids,
            updated_at = excluded.updated_at`,
       )
@@ -437,6 +442,10 @@ export class D1LearningStore implements LearningStore {
         progress.status,
         progress.confidence,
         progress.lastValidatedAt,
+        progress.confirmedAt,
+        progress.reviewIntervalDays,
+        progress.nextReviewAt,
+        progress.reviewCount,
         progress.supportingEvidenceIds.join(","),
         now,
       )
@@ -583,6 +592,10 @@ function nodeProgressFromRow(row: Record<string, unknown>): NodeProgress {
     status: row.status as NodeProgress["status"],
     confidence: Number(row.confidence),
     lastValidatedAt: row.last_validated_at ? String(row.last_validated_at) : null,
+    confirmedAt: row.confirmed_at ? String(row.confirmed_at) : null,
+    reviewIntervalDays: row.review_interval_days != null ? Number(row.review_interval_days) : 14,
+    nextReviewAt: row.next_review_at ? String(row.next_review_at) : null,
+    reviewCount: row.review_count != null ? Number(row.review_count) : 0,
     supportingEvidenceIds: row.supporting_evidence_ids
       ? String(row.supporting_evidence_ids).split(",").filter(Boolean)
       : [],

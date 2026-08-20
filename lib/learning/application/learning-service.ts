@@ -84,6 +84,8 @@ export interface Workspace {
   adjustments: AdjustmentRecord[];
   // 工作台：资源/工具与节点的映射
   userResources: UserResource[];
+  // 到期复测节点（延迟复测提醒）
+  dueReviews: Array<{ nodeId: string; title: string; daysSinceValidated: number; nextReviewAt: string | null }>;
   // 工作台：资源/工具与节点的映射
   workbench: {
     resources: Array<{
@@ -132,6 +134,7 @@ export class LearningApplicationService {
         evidence: [],
         adjustments: [],
         userResources: [],
+        dueReviews: [],
         workbench: { resources: [], tools: [] },
       };
     }
@@ -164,6 +167,29 @@ export class LearningApplicationService {
     }
     const adjustments = await this.store.listAdjustments(ownerId);
     const userResources = await this.store.listUserResources(ownerId);
+    // 到期复测：validated 节点且 nextReviewAt 已过（或 lastValidatedAt + 间隔已过）
+    const now = Date.now();
+    const dueReviews = nodeProgress
+      .filter((p) => p.status === "validated")
+      .map((p) => {
+        const node = learningContentPack.nodes.find((n) => n.id === p.nodeId);
+        const dueAt = p.nextReviewAt
+          ? new Date(p.nextReviewAt).getTime()
+          : p.lastValidatedAt
+            ? new Date(p.lastValidatedAt).getTime() + p.reviewIntervalDays * 86400000
+            : Infinity;
+        return {
+          nodeId: p.nodeId,
+          title: node?.title ?? p.nodeId,
+          daysSinceValidated: p.lastValidatedAt
+            ? Math.floor((now - new Date(p.lastValidatedAt).getTime()) / 86400000)
+            : 0,
+          nextReviewAt: p.nextReviewAt,
+          dueAt,
+        };
+      })
+      .filter((d) => d.dueAt <= now)
+      .map(({ dueAt: _dueAt, ...rest }) => rest);
 
     // 工作台映射
     const resources = learningContentPack.resourceMappings
@@ -219,6 +245,7 @@ export class LearningApplicationService {
       evidence,
       adjustments,
       userResources,
+      dueReviews,
       workbench: { resources, tools },
     };
   }
@@ -264,6 +291,10 @@ export class LearningApplicationService {
           confidence: self,
           lastValidatedAt: null,
           supportingEvidenceIds: [],
+          confirmedAt: null,
+          reviewIntervalDays: 14,
+          nextReviewAt: null,
+          reviewCount: 0,
         });
       }
     }
@@ -381,10 +412,12 @@ export class LearningApplicationService {
     const next = transitionActivity(activity.status, { type: "start" });
     activity.status = next;
     await this.store.saveActivity(activity);
-    // 节点进入成长中
+    // 节点进入成长中（已验证节点开始复测活动不降级，保持 validated）
     const progress = await this.getOrCreateNodeProgress(ownerId, activity.nodeId);
-    progress.status = transitionNode(progress.status, { type: "beginLearning" });
-    await this.store.saveNodeProgress(progress);
+    if (progress.status !== "validated") {
+      progress.status = transitionNode(progress.status, { type: "beginLearning" });
+      await this.store.saveNodeProgress(progress);
+    }
     return this.getWorkspace(ownerId);
   }
 
@@ -459,16 +492,30 @@ export class LearningApplicationService {
     } else {
       evidence.status = transitionEvidence(evidence.status, { type: "requestRevision" });
       activity.status = transitionActivity(activity.status, { type: "reviewNeedsRevision" });
+      // 复测失败：节点降级回 growing + 熟练等级 -1（能力被证明不足）
+      if (activity.activityType === "retest") {
+        const progress = await this.getOrCreateNodeProgress(ownerId, evidence.nodeId);
+        progress.status = transitionNode(progress.status, { type: "evidenceInvalidated" });
+        progress.confidence = Math.max(0, progress.confidence - 1);
+        progress.reviewCount += 1;
+        await this.store.saveNodeProgress(progress);
+      }
     }
     evidence.feedback = assessment.reasons.join("；") || assessment.missing.join("；");
     await this.store.saveEvidence(evidence);
     await this.store.saveActivity(activity);
 
     // 节点状态：证据 accepted 后驱动节点迁移
+    // 综合任务/复测驱动的首次验证需用户确认（pending_confirmation）；
+    // 复测通过（节点已 validated）不重复确认，直接顺延下次复测
     const progress = await this.getOrCreateNodeProgress(ownerId, evidence.nodeId);
+    const requiresConfirmation =
+      (activity.activityType === "integrated_task" || activity.activityType === "retest")
+      && progress.status !== "validated";
     if (assessment.verdict === "accepted") {
-      const nodeEvent = nodeEventOfEvidence(evidence.status);
-      if (nodeEvent) {
+      const nodeEvent = nodeEventOfEvidence(evidence.status, { requiresConfirmation });
+      if (nodeEvent && progress.status !== "validated") {
+        // 已 validated 节点（复测通过）保持状态，只顺延复测时间
         progress.status = transitionNode(progress.status, nodeEvent);
         progress.confidence = Math.max(progress.confidence, assessment.suggestedLevel);
         progress.lastValidatedAt =
@@ -476,6 +523,17 @@ export class LearningApplicationService {
         progress.supportingEvidenceIds = [
           ...new Set([...progress.supportingEvidenceIds, evidenceId]),
         ];
+      }
+      // 复测通过：顺延下次复测（间隔翻倍，上限 56 天）
+      if (activity.activityType === "retest" && progress.status === "validated") {
+        progress.reviewCount += 1;
+        const interval = Math.min(progress.reviewIntervalDays * 2, 56);
+        progress.reviewIntervalDays = interval;
+        progress.nextReviewAt = new Date(Date.now() + interval * 86400000).toISOString();
+      }
+      // 掌握确认通过：记录确认时间
+      if (progress.status === "validated" && requiresConfirmation) {
+        progress.confirmedAt = new Date().toISOString();
       }
       // 活动完成（评估通过后）
       if (activity.status === "reviewed") {
@@ -537,6 +595,132 @@ export class LearningApplicationService {
   // 收集箱独立于学习状态（无 profile 也能读），不走 getWorkspace（profile null 会早退）。
   async listInboxResources(ownerId: string): Promise<UserResource[]> {
     return this.store.listUserResources(ownerId);
+  }
+
+  // ── POST /api/learning/nodes/:id/confirm-mastery ──────
+  // 掌握确认：pending_confirmation 节点 → 确认(validated) / 纠正(growing + 降级 + 补强建议)
+  async confirmMastery(
+    ownerId: string,
+    nodeId: string,
+    input: { decision: "confirmed" | "corrected"; note?: string },
+  ): Promise<Workspace> {
+    const progress = await this.getOrCreateNodeProgress(ownerId, nodeId);
+    if (progress.status !== "pending_confirmation") {
+      throw new LearningError(`节点状态 ${progress.status} 不需要掌握确认`, 400);
+    }
+    const node = learningContentPack.nodes.find((n) => n.id === nodeId);
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+
+    if (input.decision === "confirmed") {
+      progress.status = transitionNode(progress.status, { type: "confirmMastery" });
+      progress.lastValidatedAt = new Date().toISOString();
+      progress.confirmedAt = new Date().toISOString();
+      const adjustment: AdjustmentRecord = {
+        id: stableId("adjustment", `${ownerId}:${nodeId}:mastery-confirm:${Date.now()}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weeklyPlanId: null,
+        adjustmentType: "mastery_confirm",
+        reason: "用户确认掌握",
+        status: "accepted",
+        summary: `用户确认掌握「${node?.title ?? nodeId}」，节点进入已验证。`,
+      };
+      await this.store.saveAdjustment(adjustment);
+    } else {
+      // 纠正：回 growing + 降级 + 补强建议
+      progress.status = transitionNode(progress.status, { type: "correctMastery" });
+      progress.confidence = Math.max(0, progress.confidence - 1);
+      progress.confirmedAt = null;
+      const note = input.note?.trim() || "未说明原因";
+      const confirmAdjustment: AdjustmentRecord = {
+        id: stableId("adjustment", `${ownerId}:${nodeId}:mastery-correct:${Date.now()}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weeklyPlanId: null,
+        adjustmentType: "mastery_confirm",
+        reason: `用户纠正掌握判断：${note}`,
+        status: "rejected",
+        summary: `用户纠正「${node?.title ?? nodeId}」的掌握判断：${note}；熟练等级降 1，生成补强建议。`,
+      };
+      await this.store.saveAdjustment(confirmAdjustment);
+      const boost: AdjustmentRecord = {
+        id: stableId("adjustment", `${ownerId}:${nodeId}:boost:${Date.now()}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weeklyPlanId: null,
+        adjustmentType: "weekly_light",
+        reason: "掌握确认被纠正，需要补强",
+        status: "proposed",
+        summary: `为「${node?.title ?? nodeId}」安排复习/补强活动，重新积累证据后再次验证。`,
+      };
+      await this.store.saveAdjustment(boost);
+    }
+    await this.store.saveNodeProgress(progress);
+    return this.getWorkspace(ownerId);
+  }
+
+  // ── POST /api/learning/nodes/:id/retest ──────────────
+  // 延迟复测：为到期节点生成 retest 活动（走现有活动闭环）
+  async retestNode(ownerId: string, nodeId: string): Promise<Workspace> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    const progress = await this.getOrCreateNodeProgress(ownerId, nodeId);
+    if (progress.status !== "validated") {
+      throw new LearningError(`节点状态 ${progress.status} 不是已验证，无需复测`, 400);
+    }
+    const node = learningContentPack.nodes.find((n) => n.id === nodeId);
+    if (!node) throw new LearningError("节点不存在", 404);
+
+    const weekKey = currentWeekKey();
+    let plan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, weekKey);
+    if (!plan) {
+      // 本周无计划则创建（retest 独立于周计划编排）
+      plan = {
+        id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${weekKey}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weekKey,
+        capacityMinutes: profile.weeklyMinutes,
+        status: "confirmed",
+        rationale: "为延迟复测创建的本周计划。",
+      };
+      await this.store.saveWeeklyPlan(plan);
+    }
+    const draft: ActivityDraft = this.agents.activityComposer.composeActivity({
+      nodeId,
+      nodeTitle: node.title,
+      nodeDescription: node.description,
+      activityType: "retest",
+      isSkipValidation: false,
+      resourceIds: [],
+      estimatedMinutes: 45,
+    });
+    const existing = await this.store.listActivitiesByPlan(plan.id);
+    const sequence = existing.length
+      ? Math.max(...existing.map((a) => a.sequence)) + 1
+      : 0;
+    const activity: LearningActivity = {
+      id: stableId("activity", `${plan.id}:${sequence}:${nodeId}:retest`),
+      ownerId,
+      weeklyPlanId: plan.id,
+      nodeId,
+      title: draft.title,
+      activityType: "retest",
+      goal: draft.goal,
+      estimatedMinutes: draft.estimatedMinutes,
+      isCore: false,
+      status: "planned",
+      isSkipValidation: false,
+      inputRefs: [],
+      steps: draft.steps.join("\n"),
+      expectedEvidence: draft.expectedEvidence,
+      evaluationCriteria: draft.evaluationCriteria,
+      nextAdvice: draft.nextAdvice,
+      sequence,
+    };
+    await this.store.saveActivity(activity);
+    return this.getWorkspace(ownerId);
   }
 
   // ── POST /api/learning/resources/inbox ───────────────
@@ -631,6 +815,7 @@ export class LearningApplicationService {
       weekly_light: `用户提出本周容量/节奏微调：${reason}`,
       activity_replan: `用户提出重排学习活动：${reason}`,
       route_revision: `用户提出路线或分支调整：${reason}`,
+      mastery_confirm: `用户对掌握判断提出纠正：${reason}`,
     };
     const adjustment: AdjustmentRecord = {
       id: stableId("adjustment", `${ownerId}:${Date.now()}:${input.adjustmentType}:${reason}`),
@@ -773,6 +958,10 @@ export class LearningApplicationService {
       confidence: 0,
       lastValidatedAt: null,
       supportingEvidenceIds: [],
+      confirmedAt: null,
+      reviewIntervalDays: 14,
+      nextReviewAt: null,
+      reviewCount: 0,
     };
     await this.store.saveNodeProgress(progress);
     return progress;

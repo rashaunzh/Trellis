@@ -39,7 +39,7 @@ export interface WorkspaceActivity {
   weeklyPlanId: string;
   nodeId: string;
   title: string;
-  activityType: "build_model" | "follow_demo" | "independent_practice" | "quiz" | "reflection" | "integrated_task";
+  activityType: "build_model" | "follow_demo" | "independent_practice" | "quiz" | "reflection" | "integrated_task" | "retest";
   goal: string;
   estimatedMinutes: number;
   isCore: boolean;
@@ -80,7 +80,7 @@ export interface WorkspaceNodeProgress {
   ownerId: string;
   nodeId: string;
   title: string; // 中文标题（workspace 聚合注入，来自内容包）
-  status: "unstarted" | "growing" | "validated";
+  status: "unstarted" | "growing" | "pending_confirmation" | "validated";
   confidence: number;
   lastValidatedAt: string | null;
   supportingEvidenceIds: string[];
@@ -129,6 +129,7 @@ export interface Workspace {
   evidence: WorkspaceEvidence[];
   adjustments: WorkspaceAdjustment[];
   userResources: WorkspaceUserResource[];
+  dueReviews: Array<{ nodeId: string; title: string; daysSinceValidated: number; nextReviewAt: string | null }>;
   workbench: { resources: WorkbenchResource[]; tools: WorkbenchTool[] };
 }
 
@@ -305,6 +306,27 @@ export async function fetchInboxResources(): Promise<WorkspaceUserResource[]> {
   return data.resources;
 }
 
+export async function confirmMastery(
+  nodeId: string,
+  input: { decision: "confirmed" | "corrected"; note?: string },
+): Promise<Workspace> {
+  const data = await readJson<{ workspace: Workspace }>(
+    await apiFetch(`/api/learning/nodes/${nodeId}/confirm-mastery`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify(input),
+    }),
+  );
+  return data.workspace;
+}
+
+export async function retestNode(nodeId: string): Promise<Workspace> {
+  const data = await readJson<{ workspace: Workspace }>(
+    await apiFetch(`/api/learning/nodes/${nodeId}/retest`, { method: "POST" }),
+  );
+  return data.workspace;
+}
+
 export async function addInboxResource(input: {
   title: string;
   type: WorkspaceUserResource["type"];
@@ -347,6 +369,7 @@ export async function saveApiConfig(input: {
 export const NODE_STATUS_TEXT: Record<WorkspaceNodeProgress["status"], string> = {
   unstarted: "未点亮",
   growing: "成长中",
+  pending_confirmation: "待确认",
   validated: "已验证",
 };
 
@@ -372,12 +395,14 @@ export const ACTIVITY_TYPE_TEXT: Record<WorkspaceActivity["activityType"], strin
   quiz: "小测验",
   reflection: "反思总结",
   integrated_task: "综合情境",
+  retest: "延迟复测",
 };
 
 export const ADJUSTMENT_TYPE_TEXT: Record<WorkspaceAdjustment["adjustmentType"], string> = {
   activity_replan: "活动重排",
   weekly_light: "周计划微调",
   route_revision: "路线调整",
+  mastery_confirm: "掌握确认",
 };
 
 // 节点中文标题由 workspace 聚合注入（内容包为唯一真相），前端不再维护映射表。
