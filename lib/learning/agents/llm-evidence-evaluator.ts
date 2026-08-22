@@ -44,13 +44,21 @@ export class LLMEvidenceEvaluator implements EvidenceEvaluatorPort {
       if (parsed.verdict !== "accepted" && parsed.verdict !== "needs_revision") {
         throw new Error("LLM verdict 非法");
       }
+      const base = await this.fallback.evaluateEvidence(input);
       return {
+        ...base,
         evidenceId: input.evidenceId,
         verdict: parsed.verdict,
         confidence: parsed.confidence ?? 0.6,
-        reasons: parsed.reasons ?? [],
-        missing: parsed.missing ?? [],
-        suggestedLevel: Math.min(input.targetLevel, parsed.suggestedLevel ?? 0),
+        score: parsed.score ?? base.score,
+        evidenceCard: parsed.evidenceCard ?? base.evidenceCard,
+        signalReviews: parsed.signalReviews ?? base.signalReviews,
+        dimensionScores: parsed.dimensionScores ?? base.dimensionScores,
+        reasons: parsed.reasons ?? base.reasons,
+        missing: parsed.missing ?? base.missing,
+        rationale: parsed.rationale ?? base.rationale,
+        credibilityNote: parsed.credibilityNote ?? base.credibilityNote,
+        suggestedLevel: Math.min(input.targetLevel, parsed.suggestedLevel ?? base.suggestedLevel),
         nextAction: parsed.nextAction ?? "revise_and_resubmit",
       };
     } catch {
