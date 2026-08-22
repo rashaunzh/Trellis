@@ -123,7 +123,7 @@ export default function WorkbenchPage() {
   const resources = ws.workbench.resources;
   const tools = ws.workbench.tools;
 
-  async function addInboxItem(input: { type: InboxItem["type"]; title: string; content: string }) {
+  async function addInboxItem(input: { type: InboxItem["type"]; title: string; content: string; mappedNodeId?: string }) {
     const { resources } = await addInboxResource({
       type: input.type,
       title: input.title,
