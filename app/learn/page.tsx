@@ -230,6 +230,13 @@ export default function LearnPage() {
   const capacityMinutes = ws.weeklyPlan?.capacityMinutes ?? ws.profile.weeklyMinutes;
   const remainingMinutes = Math.max(0, capacityMinutes - plannedMinutes);
   const completionPercent = core.length ? (doneCount / core.length) * 100 : 0;
+  const activeEvidence = activeActivity
+    ? ws.evidence.find((e) => e.activityId === activeActivity.id && e.reviewJson && e.reviewJson !== "{}")
+      ?? ws.evidence.find((e) => e.activityId === activeActivity.id)
+    : null;
+  const visibleAssessment = lastAssessment ?? parseAssessment(activeEvidence?.reviewJson);
+  const coveredSignals = visibleAssessment?.signalReviews.filter((s) => s.status === "covered") ?? [];
+  const pendingSignals = visibleAssessment?.signalReviews.filter((s) => s.status !== "covered") ?? [];
 
   function openActivity(activity: WorkspaceActivity) {
     setActiveActivity(activity);
@@ -549,29 +556,87 @@ export default function LearnPage() {
                 </div>
               )}
 
-              {/* 评估结果：让用户理解判断依据 */}
-              {lastAssessment && (
+              {/* 评估结果：让用户理解「提交了什么 → 提取到什么 → 证明了哪些能力 → 还缺什么 → 下一步」 */}
+              {visibleAssessment && (
                 <section className="t2-assessment">
                   <span className="t2-drawer-label">
-                    评估结果：{lastAssessment.verdict === "accepted" ? "已接受" : "需修订"}
+                    评审结果：{visibleAssessment.verdict === "accepted" ? "已接受" : "需要补充"}
                   </span>
-                  {lastAssessment.reasons.length > 0 && (
-                    <ul className="t2-assessment-list">
-                      {lastAssessment.reasons.map((r, i) => <li key={i}>{r}</li>)}
-                    </ul>
+                  <div className="t2-review-score">
+                    <b>{visibleAssessment.score}</b>
+                    <span>总分 / 100</span>
+                    <em>置信度 {Math.round(visibleAssessment.confidence * 100)}%</em>
+                  </div>
+                  <p className="t2-hint t2-assessment-rationale">{visibleAssessment.rationale}</p>
+
+                  {/* 证据卡片：我提交了什么，AI 提取到了什么 */}
+                  <div className="t2-evidence-card">
+                    <b>证据卡片</b>
+                    <p>{visibleAssessment.evidenceCard.summary}</p>
+                    <div className="t2-review-tags">
+                      <span>{ARTIFACT_TYPE_LABEL[visibleAssessment.evidenceCard.artifactType] ?? visibleAssessment.evidenceCard.artifactType}</span>
+                      <span>{READABILITY_LABEL[visibleAssessment.evidenceCard.sourceReadability] ?? visibleAssessment.evidenceCard.sourceReadability}</span>
+                    </div>
+                    {visibleAssessment.evidenceCard.extractedItems.length > 0 && (
+                      <ul>
+                        {visibleAssessment.evidenceCard.extractedItems.map((item, i) => <li key={i}>{item}</li>)}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* 已覆盖能力信号：这份材料证明了哪些能力 */}
+                  {coveredSignals.length > 0 && (
+                    <>
+                      <span className="t2-assessment-sub">已覆盖能力信号</span>
+                      <div className="t2-signal-grid">
+                        {coveredSignals.map((signal) => (
+                          <div key={signal.signalId} className={`t2-signal ${signal.status}`}>
+                            <b>{signal.label}</b>
+                            <span>已覆盖</span>
+                            <p>{signal.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
-                  {lastAssessment.missing.length > 0 && (
+
+                  {/* 待补充能力信号：还缺哪些能力证据 */}
+                  <span className="t2-assessment-sub">待补充能力信号</span>
+                  {pendingSignals.length > 0 ? (
+                    <div className="t2-signal-grid">
+                      {pendingSignals.map((signal) => (
+                        <div key={signal.signalId} className={`t2-signal ${signal.status}`}>
+                          <b>{signal.label}</b>
+                          <span>{signal.status === "partial" ? "部分覆盖" : "待补充"}</span>
+                          <p>{signal.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="t2-signal-note">全部能力信号均已覆盖，无需补充。</p>
+                  )}
+
+                  {/* 评审维度 */}
+                  <span className="t2-assessment-sub">评审维度</span>
+                  <div className="t2-dimension-grid">
+                    {visibleAssessment.dimensionScores.map((dimension) => (
+                      <div key={dimension.id} className="t2-dimension">
+                        <span>{dimension.label}</span>
+                        <b>{dimension.score}</b>
+                        <i style={{ width: `${dimension.score}%` }} />
+                      </div>
+                    ))}
+                  </div>
+
+                  {visibleAssessment.missing.length > 0 && (
                     <div className="t2-assessment-missing">
-                      <b>未满足：</b>
-                      <ul>{lastAssessment.missing.map((m, i) => <li key={i}>{m}</li>)}</ul>
+                      <b>还缺什么：</b>
+                      <ul>{visibleAssessment.missing.map((m, i) => <li key={i}>{m}</li>)}</ul>
                     </div>
                   )}
-                  {lastAssessment.verdict === "needs_revision" && (
-                    <p className="t2-hint">
-                      建议熟练等级 {lastAssessment.suggestedLevel}。请按反馈修订证据后重新提交，
-                      或回到活动重新学习。
-                    </p>
-                  )}
+
+                  <p className="t2-hint"><b>可信度说明：</b>{visibleAssessment.credibilityNote}</p>
+                  <p className="t2-hint"><b>下一步建议：</b>{nextActionLabel(visibleAssessment.nextAction)}</p>
                 </section>
               )}
 
@@ -594,6 +659,50 @@ export default function LearnPage() {
       )}
     </Shell>
   );
+}
+
+// 证据卡片枚举字段的中文展示（仅展示层映射，不改数据结构）
+const ARTIFACT_TYPE_LABEL: Record<string, string> = {
+  text: "文本",
+  webpage: "网页",
+  doc: "文档",
+  code: "代码",
+  table: "表格",
+  unknown: "未知类型",
+};
+
+const READABILITY_LABEL: Record<string, string> = {
+  readable: "内容完整可读",
+  partial: "内容部分可读",
+  unknown: "链接暂未解析",
+};
+
+// nextAction 枚举 → 学习者可执行的下一步建议
+function nextActionLabel(action: string): string {
+  switch (action) {
+    case "proceed":
+      return "证据已足够，可以继续推进";
+    case "insert_prerequisite":
+      return "先补齐前置能力，再回来完成本活动";
+    case "revise_and_resubmit":
+      return "按上方的缺项修订证据后重新提交";
+    default:
+      return action;
+  }
+}
+
+function parseAssessment(reviewJson?: string): AssessmentResult | null {
+  if (!reviewJson || reviewJson === "{}") return null;
+  try {
+    const parsed = JSON.parse(reviewJson) as Partial<AssessmentResult>;
+    if (parsed.verdict !== "accepted" && parsed.verdict !== "needs_revision") return null;
+    if (!parsed.evidenceCard || !Array.isArray(parsed.signalReviews) || !Array.isArray(parsed.dimensionScores)) {
+      return null;
+    }
+    return parsed as AssessmentResult;
+  } catch {
+    return null;
+  }
 }
 
 function ActivityCard({
