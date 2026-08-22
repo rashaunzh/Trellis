@@ -1,10 +1,10 @@
 # 当前接力
 
-更新时间：2026-08-20
+更新时间：2026-08-22
 
 ## 当前目标
 
-在 GitHub 仓库 `rashaunzh/AI-Learning-OS` 的当前分支 `docs/trellis-v02-adaptive-learning-prd` 上推进 Trellis V0.2 MVP。当前阶段已经完成 Checkpoint 5，并补齐产品交付物：PRD、产品介绍、MVP 交付说明和可交互产品网页。
+在 GitHub 仓库 `rashaunzh/AI-Learning-OS` 的默认分支 `main` 上推进 Trellis V0.2 MVP。当前阶段已经完成 Checkpoint 5、P0 三件套、产品交付物和可交互产品网页；`docs/trellis-v02-adaptive-learning-prd` 已与 `main` 指向同一最新提交，后续以 `main` 为唯一交付源。
 
 本轮浏览器自动化验收由另一条任务负责；当前接力不把浏览器验收写成已完成。
 
@@ -22,7 +22,7 @@
 
 ## 交付源
 
-- GitHub 当前分支 `docs/trellis-v02-adaptive-learning-prd` 是唯一交付源。
+- GitHub 默认分支 `main` 是唯一交付源。
 - 本地 clone 只是工作区；不要把任何盘符路径写成长期唯一源。
 - 会话开始前拉取，结束后按需提交和推送；冲突时停止，不得覆盖另一台设备的工作。
 
