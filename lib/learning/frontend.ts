@@ -73,6 +73,8 @@ export interface WorkspaceEvidence {
   externalUrl: string;
   status: "draft" | "submitted" | "accepted" | "needs_revision";
   feedback: string;
+  extractedJson: string;
+  reviewJson: string;
 }
 
 export interface WorkspaceNodeProgress {
@@ -91,7 +93,7 @@ export interface WorkspaceAdjustment {
   ownerId: string;
   routeId: string;
   weeklyPlanId: string | null;
-  adjustmentType: "activity_replan" | "weekly_light" | "route_revision";
+  adjustmentType: "activity_replan" | "weekly_light" | "route_revision" | "mastery_confirm";
   reason: string;
   status: "proposed" | "accepted" | "rejected" | "superseded";
   summary: string;
@@ -144,10 +146,40 @@ export interface AssessmentResult {
   evidenceId: string;
   verdict: "accepted" | "needs_revision";
   confidence: number;
+  score: number;
+  evidenceCard: EvidenceCard;
+  signalReviews: SignalReview[];
+  dimensionScores: ReviewDimensionScore[];
   reasons: string[];
   missing: string[];
+  rationale: string;
+  credibilityNote: string;
   suggestedLevel: number;
   nextAction: string;
+}
+
+export interface EvidenceCard {
+  title: string;
+  artifactUrl: string;
+  artifactType: string;
+  summary: string;
+  extractedItems: string[];
+  sourceReadability: string;
+}
+
+export interface SignalReview {
+  signalId: string;
+  label: string;
+  status: "covered" | "partial" | "missing";
+  reason: string;
+  evidenceRefs: string[];
+}
+
+export interface ReviewDimensionScore {
+  id: string;
+  label: string;
+  score: number;
+  rationale: string;
 }
 
 async function readJson<T>(response: Response): Promise<T> {

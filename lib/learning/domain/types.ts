@@ -91,6 +91,7 @@ export interface LearningNode {
   targetLevel: number; // 0-3
   isKeyMilestone: boolean;
   outcomes: string[]; // 学习成果：学完能做什么
+  signals: string[]; // 能力信号：证据评审时判断是否被证明的关键表现
   sourceRefs: SourceRef[]; // 来源引用（lesson/notebook/quiz/learn 链接）
   activityTemplates: string[]; // 活动模板 id（见 ACTIVITY_TYPES）
   assessmentRubric: string; // 评估量规（中文，评估器与前端共用）
@@ -180,6 +181,8 @@ export interface Evidence {
   externalUrl: string;
   status: EvidenceStatus;
   feedback: string;
+  extractedJson: string;
+  reviewJson: string;
 }
 
 export interface NodeProgress {

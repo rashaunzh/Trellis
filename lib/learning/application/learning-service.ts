@@ -441,6 +441,8 @@ export class LearningApplicationService {
       externalUrl: input.externalUrl ?? "",
       status: transitionEvidence("draft", { type: "submit" }),
       feedback: "",
+      extractedJson: "{}",
+      reviewJson: "{}",
     };
     await this.store.saveEvidence(evidence);
 
@@ -481,7 +483,9 @@ export class LearningApplicationService {
       targetLevel: node.targetLevel,
       evidenceType: evidence.evidenceType,
       content: evidence.content,
+      externalUrl: evidence.externalUrl,
       criteria: activity.evaluationCriteria,
+      capabilitySignals: node.signals,
       isSkipValidation: activity.isSkipValidation,
     }, llm);
 
@@ -501,7 +505,9 @@ export class LearningApplicationService {
         await this.store.saveNodeProgress(progress);
       }
     }
-    evidence.feedback = assessment.reasons.join("；") || assessment.missing.join("；");
+    evidence.feedback = assessment.rationale || assessment.reasons.join("；") || assessment.missing.join("；");
+    evidence.extractedJson = JSON.stringify(assessment.evidenceCard);
+    evidence.reviewJson = JSON.stringify(assessment);
     await this.store.saveEvidence(evidence);
     await this.store.saveActivity(activity);
 

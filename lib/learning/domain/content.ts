@@ -17,6 +17,7 @@ import type {
   ToolMapping,
 } from "./types.ts";
 import { ACTIVITY_TYPES } from "./types.ts";
+import { getReviewSignalsForNode } from "./signals.ts";
 
 export const ROUTE_IDS = ["ai-literacy", "ai-app-dev", "ai-product"] as const;
 export type RouteId = (typeof ROUTE_IDS)[number];
@@ -72,6 +73,7 @@ const nodes: LearningNode[] = [
       "举例说明 AI 擅长与不擅长的任务各至少 2 个",
       "解释弱 AI（窄能力）与强 AI（通用智能）的差异",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.mechanism"),
     sourceRefs: [
       { label: "AI-For-Beginners · Lesson 1 Intro（课程与预习）", url: `${AFB_LESSONS}/1-Intro/README.md` },
       { label: "Lesson 1 作业 assignment", url: `${AFB_LESSONS}/1-Intro/assignment.md` },
@@ -94,6 +96,7 @@ const nodes: LearningNode[] = [
       "解释专家系统为何受限（知识获取难、规则组合爆炸）",
       "说明深度学习兴起的三个条件（数据、算力、算法）",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.history"),
     sourceRefs: [
       { label: "AI-For-Beginners · Lesson 2 Symbolic（符号主义）", url: `${AFB_LESSONS}/2-Symbolic/README.md` },
       { label: "符号主义 Notebook：家族本体", url: `${AFB_LESSONS}/2-Symbolic/FamilyOntology.ipynb` },
@@ -116,6 +119,7 @@ const nodes: LearningNode[] = [
       "对比规则方法（符号主义）与学习方法（神经网络）的适用场景",
       "解释训练与推理的区别",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.fit"),
     sourceRefs: [
       { label: "AI-For-Beginners · Lesson 3 Neural Networks（含感知机 Notebook）", url: `${AFB_LESSONS}/3-NeuralNetworks/README.md` },
       { label: "感知机 Notebook 与 lab", url: `${AFB_LESSONS}/3-NeuralNetworks/03-Perceptron/Perceptron.ipynb` },
@@ -137,6 +141,7 @@ const nodes: LearningNode[] = [
       "解释“模型学到的是数据分布中的规律，不是事实”",
       "指出数据偏差如何导致模型偏见",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.context"),
     sourceRefs: [
       { label: "AI-For-Beginners · Lesson 3 自建框架（训练原理）", url: `${AFB_LESSONS}/3-NeuralNetworks/04-OwnFramework` },
       { label: "课程环境配置（Notebook 运行）", url: AFB_SETUP },
@@ -158,6 +163,7 @@ const nodes: LearningNode[] = [
       "理解 notebook/lab 式的动手学习流程",
       "复述一个简单分类或文本分析案例中模型做了什么",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.architecture"),
     sourceRefs: [
       { label: "课程环境搭建指南 setup", url: AFB_SETUP },
       { label: "AI-For-Beginners · Lesson 4 Computer Vision", url: `${AFB_LESSONS}/4-ComputerVision/README.md` },
@@ -180,6 +186,7 @@ const nodes: LearningNode[] = [
       "设计至少一个失败检查（拒答/越界/幻觉）",
       "说明为什么关键决策需要人工确认",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.evaluation"),
     sourceRefs: [
       { label: "Lesson 1 作业（评估式练习）", url: `${AFB_LESSONS}/1-Intro/assignment.md` },
       { label: "Microsoft Learn：AI 基础模块", url: "https://learn.microsoft.com/ai" },
@@ -201,6 +208,7 @@ const nodes: LearningNode[] = [
       "为每类风险给出缓解措施",
       "区分系统责任与使用者责任",
     ],
+    signals: getReviewSignalsForNode("ai-literacy.responsibility"),
     sourceRefs: [
       { label: "AI-For-Beginners · Lesson 7 Ethics", url: `${AFB_LESSONS}/7-Ethics/README.md` },
     ],
@@ -221,6 +229,7 @@ const nodes: LearningNode[] = [
       "写出包含任务、边界、格式三要素的提示",
       "对比不同提示对同一任务的输出差异",
     ],
+    signals: getReviewSignalsForNode("ai-app-dev.prompting"),
     sourceRefs: [
       { label: "Google AI for Developers: Prompting Strategies", url: "https://ai.google.dev/gemini-api/docs/prompting-strategies" },
     ],
@@ -240,6 +249,7 @@ const nodes: LearningNode[] = [
       "画出 RAG 的检索→增强→生成链路",
       "说明引用与无答案处理为什么必要",
     ],
+    signals: getReviewSignalsForNode("ai-app-dev.rag"),
     sourceRefs: [
       { label: "Google AI for Developers: RAG 相关指南", url: "https://ai.google.dev/gemini-api/docs/retrieval" },
     ],
@@ -258,6 +268,7 @@ const nodes: LearningNode[] = [
     outcomes: [
       "说明工具调用中权限边界与确认点的作用",
     ],
+    signals: getReviewSignalsForNode("ai-app-dev.tools"),
     sourceRefs: [
       { label: "Google AI for Developers: Tools", url: "https://ai.google.dev/gemini-api/docs/function-calling" },
     ],
@@ -277,6 +288,7 @@ const nodes: LearningNode[] = [
       "为给定应用设计 5 个以上评测样例",
       "说明评测集如何拦截回归",
     ],
+    signals: getReviewSignalsForNode("ai-app-dev.eval-harness"),
     sourceRefs: [
       { label: "OpenAI Evals Guide", url: "https://cookbook.openai.com/examples/evaluation" },
     ],
@@ -297,6 +309,7 @@ const nodes: LearningNode[] = [
       "把一个用户诉求拆成可验证的问题陈述",
       "定义成功标准（而非功能清单）",
     ],
+    signals: getReviewSignalsForNode("ai-product.problem-def"),
     sourceRefs: [
       { label: "NIST AI Risk Management Framework", url: "https://www.nist.gov/itl/ai-risk-management-framework" },
     ],
@@ -316,6 +329,7 @@ const nodes: LearningNode[] = [
       "把需求拆成可评测的能力清单",
       "为每项能力定义边界与兜底",
     ],
+    signals: getReviewSignalsForNode("ai-product.capability-design"),
     sourceRefs: [
       { label: "NIST AI 600-1（生成式 AI 概况）", url: "https://www.nist.gov/itl/ai-risk-management-framework" },
     ],
@@ -335,6 +349,7 @@ const nodes: LearningNode[] = [
       "用评测结果给出上线/回滚/迭代决策",
       "区分用户感知指标与系统指标",
     ],
+    signals: getReviewSignalsForNode("ai-product.eval-decision"),
     sourceRefs: [
       { label: "OpenAI Evals Guide", url: "https://cookbook.openai.com/examples/evaluation" },
     ],
@@ -547,6 +562,9 @@ export function validateContentPack(pack: LearningContentPack = learningContentP
     if (!node.titleEn) throw new Error(`内容包校验失败：节点 ${node.id} 缺少 titleEn`);
     if (!Array.isArray(node.outcomes) || node.outcomes.length === 0) {
       throw new Error(`内容包校验失败：节点 ${node.id} 缺少 outcomes`);
+    }
+    if (!Array.isArray(node.signals) || node.signals.length === 0) {
+      throw new Error(`内容包校验失败：节点 ${node.id} 缺少 signals`);
     }
     if (!Array.isArray(node.sourceRefs) || node.sourceRefs.length === 0) {
       throw new Error(`内容包校验失败：节点 ${node.id} 缺少 sourceRefs`);

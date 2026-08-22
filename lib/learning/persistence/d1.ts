@@ -374,13 +374,15 @@ export class D1LearningStore implements LearningStore {
       .prepare(
         `INSERT INTO learning_evidence
            (id, owner_id, activity_id, node_id, evidence_type, content, external_url,
-            status, feedback, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            status, feedback, extracted_json, review_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
          ON CONFLICT (id) DO UPDATE SET
            content = excluded.content,
            external_url = excluded.external_url,
            status = excluded.status,
            feedback = excluded.feedback,
+           extracted_json = excluded.extracted_json,
+           review_json = excluded.review_json,
            updated_at = excluded.updated_at`,
       )
       .bind(
@@ -393,6 +395,8 @@ export class D1LearningStore implements LearningStore {
         evidence.externalUrl,
         evidence.status,
         evidence.feedback,
+        evidence.extractedJson,
+        evidence.reviewJson,
         now,
       )
       .run();
@@ -581,6 +585,8 @@ function evidenceFromRow(row: Record<string, unknown>): Evidence {
     externalUrl: String(row.external_url ?? ""),
     status: row.status as Evidence["status"],
     feedback: String(row.feedback ?? ""),
+    extractedJson: String(row.extracted_json ?? "{}"),
+    reviewJson: String(row.review_json ?? "{}"),
   };
 }
 

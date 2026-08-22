@@ -105,20 +105,63 @@ export interface EvaluateEvidenceInput {
   nodeTitle: string;
   targetLevel: number; // 节点目标熟练等级
   evidenceType: EvidenceType;
+  externalUrl?: string;
   content: string; // 证据本体或摘要
   criteria: string; // 活动评估标准
+  capabilitySignals?: string[]; // 来自内容模型的能力信号
   isSkipValidation: boolean; // 跳学验证活动的证据
 }
 
 export type EvidenceVerdict = "accepted" | "needs_revision";
 
+export type EvidenceArtifactType = "text" | "webpage" | "doc" | "code" | "table" | "unknown";
+export type EvidenceReadability = "readable" | "partial" | "unknown";
+export type SignalReviewStatus = "covered" | "partial" | "missing";
+
+export interface EvidenceCard {
+  title: string;
+  artifactUrl: string;
+  artifactType: EvidenceArtifactType;
+  summary: string;
+  extractedItems: string[];
+  sourceReadability: EvidenceReadability;
+}
+
+export interface SignalReview {
+  signalId: string;
+  label: string;
+  status: SignalReviewStatus;
+  reason: string;
+  evidenceRefs: string[];
+}
+
+export interface ReviewDimensionScore {
+  id:
+    | "parseability"
+    | "criteriaCompleteness"
+    | "signalCoverage"
+    | "contentQuality"
+    | "credibility"
+    | "capabilityProof"
+    | "nextStepClarity";
+  label: string;
+  score: number;
+  rationale: string;
+}
+
 export interface EvidenceAssessment {
   evidenceId: string;
   verdict: EvidenceVerdict;
   confidence: number; // 0-1
+  score: number;
+  evidenceCard: EvidenceCard;
+  signalReviews: SignalReview[];
+  dimensionScores: ReviewDimensionScore[];
   reasons: string[]; // 逐条依据
   missing: string[]; // 尚未满足的方面
   suggestedLevel: number; // 建议的熟练等级 0-3
+  rationale: string;
+  credibilityNote: string;
   nextAction: "proceed" | "revise_and_resubmit" | "insert_prerequisite";
 }
 

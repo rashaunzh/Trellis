@@ -110,6 +110,10 @@ test("完整闭环：活动开始 → 证据提交 → 评估 → 节点成长",
   assert.equal(assessment.verdict, "accepted");
   const ev3 = ws3.evidence.find((e) => e.id === ev2.id)!;
   assert.equal(ev3.status, "accepted");
+  assert.notEqual(ev3.reviewJson, "{}");
+  const persistedReview = JSON.parse(ev3.reviewJson);
+  assert.equal(persistedReview.evidenceId, ev2.id);
+  assert.ok(Array.isArray(persistedReview.dimensionScores));
   const act3 = ws3.activities.find((a) => a.id === activity.id)!;
   assert.equal(act3.status, "completed", "评估通过后活动完成");
 

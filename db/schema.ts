@@ -328,6 +328,8 @@ export const learningEvidence = sqliteTable("learning_evidence", {
     enum: ["draft", "submitted", "accepted", "needs_revision"],
   }).notNull().default("draft"),
   feedback: text("feedback").notNull().default(""),
+  extractedJson: text("extracted_json").notNull().default("{}"),
+  reviewJson: text("review_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
