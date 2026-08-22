@@ -183,6 +183,11 @@ export interface AdjustmentInput {
   skippedNodeIds: string[];
   prerequisiteGaps: string[];
   routeId: string;
+  // Evidence Review 缺口回流：建议文案据此指出具体缺失的能力信号
+  missingSignals?: string[]; // 证据未覆盖的能力信号（signalReviews.status === "missing"）
+  partialSignals?: string[]; // 部分覆盖需补强的能力信号（status === "partial"）
+  reviewRationale?: string; // 评估结论摘要（assessment.rationale）
+  evidenceNextAction?: string; // 评估给出的下一步（assessment.nextAction）
 }
 
 export interface AdjustmentSuggestion {

@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 
 import { createRuleAgents } from "../../lib/learning/agents/index.ts";
 import { learningContentPack } from "../../lib/learning/domain/content.ts";
+import { LearningApplicationService } from "../../lib/learning/application/learning-service.ts";
+import { InMemoryLearningStore } from "../../lib/learning/persistence/in-memory.ts";
 
 const agents = createRuleAgents();
 
@@ -342,6 +344,68 @@ test("adjustmentAdvisor：前置缺口时插入前置活动", () => {
   assert.equal(suggestion.adjustmentType, "activity_replan");
   assert.ok(suggestion.actions.some((a) => a.action === "insert_activity"));
   assert.equal(suggestion.severity, "high");
+});
+
+test("adjustmentAdvisor：缺失/部分信号回流到建议文案（判定不变）", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-app-dev.rag",
+    nodeTitle: "RAG 应用构建",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-app-dev",
+    missingSignals: ["标准答案定义", "引用命中判断"],
+    partialSignals: ["测试问题设计"],
+  });
+  // 判定不变：activity_replan / medium
+  assert.equal(suggestion.adjustmentType, "activity_replan");
+  assert.equal(suggestion.severity, "medium");
+  // 文案包含具体信号名称
+  assert.ok(suggestion.reason.includes("标准答案定义"), `reason 应含缺失信号：${suggestion.reason}`);
+  assert.ok(suggestion.reason.includes("引用命中判断"), `reason 应含缺失信号：${suggestion.reason}`);
+  assert.ok(suggestion.reason.includes("测试问题设计"), `reason 应含部分信号：${suggestion.reason}`);
+  assert.ok(suggestion.summary.includes("标准答案定义"), `summary 应含缺失信号：${suggestion.summary}`);
+});
+
+test("adjustmentAdvisor：无缺口信号时保留旧文案", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+  });
+  assert.equal(suggestion.reason, "节点「机制与边界」的证据未达到评估标准。");
+  assert.equal(suggestion.summary, "保持节点成长中，修订证据或增加一次独立练习后再提交。");
+  assert.equal(suggestion.severity, "medium");
+});
+
+test("集成：证据缺口从 reviewEvidence 回流到调整建议落库", async () => {
+  const service = new LearningApplicationService(new InMemoryLearningStore(), agents);
+  const owner = "adj-gap-owner-01";
+  await service.runDiagnostic({ ownerId: owner, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(owner);
+  const ws = await service.getWorkspace(owner);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(owner, activity.id);
+  // 篇幅不足 → needs_revision，多个能力信号缺失
+  await service.submitEvidence(owner, activity.id, { content: "模型很厉害。" });
+  const evidence = (await service.getWorkspace(owner)).evidence.find((e) => e.activityId === activity.id)!;
+  const { assessment } = await service.reviewEvidence(owner, evidence.id);
+  assert.equal(assessment.verdict, "needs_revision");
+  assert.ok(assessment.signalReviews.some((s) => s.status === "missing"));
+  const ws2 = await service.getWorkspace(owner);
+  const adjustment = ws2.adjustments.filter((a) => a.adjustmentType === "activity_replan").at(-1);
+  assert.ok(adjustment, "应落库 activity_replan 调整建议");
+  assert.ok(
+    adjustment!.reason.includes("缺少能力信号"),
+    `调整 reason 应包含具体信号缺口：${adjustment!.reason}`,
+  );
 });
 
 test("内容包通过 agent 上下文可用（三条路线资源齐全）", () => {

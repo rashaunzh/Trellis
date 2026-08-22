@@ -565,6 +565,15 @@ export class LearningApplicationService {
       skippedNodeIds: skipped,
       prerequisiteGaps,
       routeId: (await this.store.getProfile(ownerId))?.activeRouteId ?? "",
+      // Evidence Review → Adjustment 缺口回流：建议文案能指出具体缺失的能力信号
+      missingSignals: assessment.signalReviews
+        .filter((signal) => signal.status === "missing")
+        .map((signal) => signal.label),
+      partialSignals: assessment.signalReviews
+        .filter((signal) => signal.status === "partial")
+        .map((signal) => signal.label),
+      reviewRationale: assessment.rationale,
+      evidenceNextAction: assessment.nextAction,
     });
     if (suggestion.severity !== "low") {
       const adjustment: AdjustmentRecord = {
