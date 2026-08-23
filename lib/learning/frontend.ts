@@ -97,6 +97,9 @@ export interface WorkspaceAdjustment {
   reason: string;
   status: "proposed" | "accepted" | "rejected" | "superseded";
   summary: string;
+  actionJson: string;
+  missingSignals?: string[];
+  partialSignals?: string[];
 }
 
 export interface WorkbenchResource {

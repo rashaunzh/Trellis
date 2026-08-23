@@ -1,6 +1,6 @@
 # Trellis Evidence Review Engine（v0.3）
 
-> 状态：v0.3 已完成（规则版引擎落地 2026-08-23，LLM 版接口就绪）；v0.3-beta 方向 = Proposal / Adjustment Engine
+> 状态：v0.3 已完成（规则版引擎落地 2026-08-23，LLM 版接口就绪）；v0.3-beta Proposal / Adjustment Engine 已进入 alpha（信号缺口回流、建议动作落库执行、确认/拒绝已落地 2026-08-23）
 > 定位：本文说明「证据评审」这一核心机制的产品逻辑与工程实现，面向协作者与 GitHub 读者
 > 关联：产品全景见 `product/TRELLIS_V0.2_PLATFORM_OVERVIEW.md`，架构基线见 `architecture/TRELLIS_V0.2_ARCHITECTURE.md`
 
@@ -70,7 +70,7 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 | Evidence Agent | `agents/evidence-extractor.ts` + `domain/signals.ts` | 提取器推断材料类型（文本/网页/文档/代码/表格）、生成摘要与提取要点；能力信号数据层（`NODE_SIGNALS` 节点信号 / `CAPABILITY_SIGNALS` 信号目录 / `DEFAULT_SIGNALS` 通用兜底）定义"这个节点要求什么证据" |
 | Review Agent | `agents/evidence-evaluator.ts`（规则版）+ `agents/llm-evidence-evaluator.ts`（LLM 版） | 规则版按关键词判定每个信号的覆盖状态；LLM 版调用用户自配的 OpenAI 兼容 API 评审，**失败自动回退规则版**，输出结构完全一致 |
 | Scoring Agent | `agents/evidence-evaluator.ts` 的 `buildDimensionScores` + `weightedScore` | 七维度：材料可解析性、完成标准完整性、信号覆盖度、内容质量、证据可信度、能力证明强度、下一步明确性；加权合成 0-100 总分 |
-| Proposal Agent | `agents/adjustment-advisor.ts`（规则版） | 证据被退回 → 修订重交或插入前置活动；完成率低 → 收缩周计划；有跳过节点 → 安排验证；正常 → 继续推进。`severity` 非 low 才记录为正式调整事件 |
+| Proposal Agent | `agents/adjustment-advisor.ts`（规则版） | 证据被退回 → 修订重交或插入前置活动；完成率低 → 收缩周计划；有跳过节点 → 安排验证；正常 → 继续推进。`severity` 非 low 才记录为正式调整事件；alpha 版建议已携带具体缺失/部分信号（来自 `missingSignals` / `partialSignals`），动作随建议落库（`action_json`），用户可确认或拒绝 |
 
 ### 一次评审的调用链
 
@@ -82,7 +82,7 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 4. 证据/活动状态机迁移：accepted → 活动进入 reviewed；needs_revision → 活动退回 in_progress（复测失败还会把节点降级回成长中）
 5. 节点状态驱动：证据通过 → 普通活动直接验证；综合任务/首次复测进入"待确认"，由用户确认或纠正后才落定
 6. 回写数据层：`extractedJson`（证据卡片）+ `reviewJson`（完整评审）持久化（迁移 `0010_evidence_review_engine.sql`）
-7. `adjustmentAdvisor.suggestAdjustment()` → 非 low 级别的建议记录为调整事件，进入"调整记录"可追溯
+7. `adjustmentAdvisor.suggestAdjustment()` → 建议携带具体信号缺口（`missingSignals` / `partialSignals` 合成进文案），动作列表随记录落库（`action_json`，迁移 0011）；非 low 级别建议记录为调整事件，用户可确认（执行动作）或拒绝，进入"调整记录"可追溯
 
 前端 `/learn` 活动抽屉把评审结果按学习者视角呈现：证据卡片（我提交了什么）、已覆盖/待补充能力信号（证明了哪些能力、还缺什么）、评审维度、可信度说明、下一步建议。
 
@@ -93,9 +93,9 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 - **LLM 增强版评估器**：用户自配 OpenAI 兼容 API（base_url/key/model，key 只存服务端），结构化 JSON 输出，失败自动回退规则版
 - **证据卡片提取**：材料类型推断、摘要、提取要点、可读性（`evidence-extractor.ts`）
 - **评审结果持久化**：`extracted_json` / `review_json` 两列落库（迁移 0010），评审历史可回放
-- **调整建议**：修订重交 / 插入前置活动 / 收缩周计划 / 继续推进，带 severity 分级，非 low 事件记录在案
-- **前端展示层**：`/learn` 抽屉中文化展示（证据卡片、信号覆盖分组、评审维度、可信度说明、下一步建议）
-- **测试**：`signals.test.ts`、`agents.test.ts`、`api-loop.test.ts` 等，`npm run test:domain` 71/71 通过
+- **调整建议（alpha）**：修订重交 / 插入前置活动 / 收缩周计划 / 继续推进，带 severity 分级；建议含具体缺失/部分信号（Evidence Review 缺口回流），动作随记录落库（迁移 0011 `action_json`），用户可确认（执行动作）或拒绝（`/reject`），非 low 事件记录在案
+- **前端展示层**：`/learn` 抽屉中文化展示（证据卡片、信号覆盖分组、评审维度、可信度说明、下一步建议）；调整记录区中文展示（类型映射、缺口信号、建议动作、确认/忽略）
+- **测试**：`signals.test.ts`、`agents.test.ts`、`api-loop.test.ts` 等，`npm run test:domain` 78/78 通过
 
 ## 六、v0.3 尚未实现
 
@@ -105,21 +105,37 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 | 复杂产物深度解析 | 代码/PDF/表格按文本近似处理 | 依赖文档解析基础设施，先验证文本证据评审的准确性 |
 | 多 agent 编排框架（LangGraph 级） | 端口 + 顺序调用，无状态图/工具调用 | 当前单次评审流水线不需要；见第八节 |
 | 评分公式实证标定 | 阈值与权重为产品预设（如 58 分接受线） | 需要真实学习者数据回测，先跑起来再校准 |
-| 能力信号目录全量覆盖 | 覆盖核心节点样本（7 节点） | 随内容包扩展逐步补齐 |
+| 能力信号目录全量覆盖 | 覆盖内容包全部节点（14 节点，含历史节点） | 随内容包扩展逐步补齐语义描述 |
 | 账号体系/鉴权 | 匿名 owner 隔离（非安全鉴权） | 演示与单机场景够用，多用户是另一条线 |
 
-## 七、下一阶段：v0.3-beta Proposal / Adjustment Engine
+## 七、v0.3-beta：Proposal / Adjustment Engine（已进入 alpha）
 
-v0.3 完成了评审流水线的"感知与认知"：证据被理解、被评审、被量化。但自适应闭环的最后一步——根据评审结果**真正改变学习路径**——目前还是轻量形态：`adjustmentAdvisor` 产出建议，非 low 级别事件记录在案，由用户确认后生效。
+v0.3 完成了评审流水线的"感知与认知"：证据被理解、被评审、被量化。自适应闭环的最后一步——根据评审结果**真正改变学习路径**——已进入 alpha：`adjustmentAdvisor` 产出携带具体信号缺口的建议，动作随记录落库，用户确认后**执行**（插入前置活动等），拒绝则记录为已忽略。
 
-v0.3-beta 把这最后一步升级为完整的 **Proposal / Adjustment Engine**：
+### alpha 已实现（2026-08-23）
 
-| 维度 | v0.3（现状） | v0.3-beta（目标） |
+| 能力 | 实现 |
+| --- | --- |
+| 缺口回流 | 建议文案携带 `missingSignals` / `partialSignals`（来自 Evidence Review 的信号评审），"为什么补强"具体到缺失的能力信号 |
+| 动作落库 | 建议动作列表随记录持久化（迁移 0011 `action_json`），不再只存在于函数返回值 |
+| 动作执行 | 用户确认建议后按动作类型真实执行（插入前置活动 / 修订 / 继续） |
+| 确认/拒绝 | `confirm` 与 `reject` 双接口，proposed → accepted / rejected 状态流转，`/learn` 调整记录区中文展示 |
+
+### contract 演进策略
+
+- **短期（当前）**：`missingSignals` / `partialSignals` 走 **transient contract**——经 `AdjustmentInput` 传入 `adjustmentAdvisor`，合成进 `reason` / `summary` 文案落库，不单独落字段；完整信号评审仍可经 `evidence.reviewJson` 追溯。
+- **中期**：若需要跨调整记录聚合"哪些信号反复缺失"这类分析，再把 missing/partial 信号结构化落库（新列或关联表）。
+- **action_json 已先行落库**：动作是"建议如何执行"的机器可读部分，alpha 起就结构化持久化（迁移 0011），与文案分离。
+- **LangGraph 仍后置**：见第八节，alpha 不引入编排框架。
+
+alpha 之后，v0.3-beta 的剩余目标是把调整从"单次证据评审后的规则建议"升级为完整的 **Proposal / Adjustment Engine**：
+
+| 维度 | alpha（现状） | v0.3-beta（剩余目标） |
 | --- | --- | --- |
-| 建议来源 | 单次证据评审后的规则建议 | 综合证据裁决、完成率、前置缺口、复测结果、时间容量的调整决策 |
-| 调整类型 | 以 activity_replan / weekly_light 为主 | 覆盖全部四类：活动重排 / 周计划微调 / 路线修订 / 掌握确认 |
-| 生效方式 | 建议 + 用户确认 | 分级生效：低风险自动、高风险用户确认 |
-| 实现形态 | `RuleAdjustmentAdvisor` 单函数 | 独立引擎：决策规则 + 可替换端口（复用 LLM 版评估器的"规则保底 + LLM 增强"先例） |
+| 建议来源 | 证据评审裁决 + 信号缺口 + 完成率 + 前置缺口 | 综合证据裁决、完成率、前置缺口、复测结果、时间容量的调整决策 |
+| 调整类型 | activity_replan / weekly_light / mastery_confirm | 覆盖全部四类：活动重排 / 周计划微调 / 路线修订 / 掌握确认 |
+| 生效方式 | 建议 + 用户确认（确认后执行动作，可拒绝） | 分级生效：低风险自动、高风险用户确认 |
+| 实现形态 | `RuleAdjustmentAdvisor` 单函数 + 动作落库执行 | 独立引擎：决策规则 + 可替换端口（复用 LLM 版评估器的"规则保底 + LLM 增强"先例） |
 
 **为什么这一步代表 adaptive learning loop：**
 
@@ -130,12 +146,12 @@ v0.3-beta 把这最后一步升级为完整的 **Proposal / Adjustment Engine**�
   ↓
 判断    Review + Scoring  裁决与量化                        （v0.3 已实现）
   ↓
-行动    Proposal/Adjustment Engine  改变路线、周计划与活动  （v0.3-beta）
+行动    Proposal/Adjustment Engine  改变路线、周计划与活动  （v0.3-beta，alpha 已打通建议→执行）
   ↓
 反馈    新计划 → 新活动 → 新证据 → 重新进入评审              （闭环）
 ```
 
-v0.3 的闭环停在"评估完就停"：它证明能力、记录判断，但路线仍主要由用户手动推进。只有 v0.3-beta 让系统能**基于证据流主动调整**——插前置、缩容量、换路线、发起复测——"学习系统根据你的证据自适应"才真正成立。这也是 Trellis 区别于 AI 问答/聊天工具的核心：系统对你的学习状态有判断，并据此采取行动，而不是等待你提问。
+alpha 已打通"建议 → 执行"的第一步：系统基于证据流主动提出具体动作（插前置、修订、验证），用户确认后真实生效。但组合决策（缩容量、换路线、发起复测的联动）与分级自动生效仍在 beta 目标中。完整的"学习系统根据你的证据自适应"——系统对你的学习状态有判断，并据此采取行动，而不是等待你提问——正是 v0.3-beta 要补全的最后一环。
 
 **agent runtime 替换空间（当前不是 LangGraph，但空间是设计出来的）：**
 

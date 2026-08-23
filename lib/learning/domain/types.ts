@@ -209,6 +209,9 @@ export interface AdjustmentRecord {
   status: AdjustmentStatus;
   summary: string;
   actionJson: string;
+  // workspace 聚合层派生字段，不落库；前端展示缺口 chips 时使用
+  missingSignals?: string[];
+  partialSignals?: string[];
 }
 
 // ── 内容包（版本化，只读）─────────────────────────────

@@ -147,6 +147,23 @@ test("不足证据 needs_revision：节点不验证、活动退回", async () =>
   assert.notEqual(np.status, "validated", "证据退回节点不得验证");
   // 应有调整建议（proposed）
   assert.ok(ws.adjustments.length >= 1, "应有调整记录");
+  // 契约：workspace 返回结构化缺口信号（transient 派生，不落库）
+  const proposed = ws.adjustments.find((a) => a.status === "proposed");
+  assert.ok(proposed, "应有待确认调整建议");
+  assert.ok(Array.isArray(proposed!.missingSignals), "missingSignals 应为数组");
+  assert.ok(proposed!.missingSignals!.length > 0, "应派生缺失信号");
+  const missingLabels = assessment.signalReviews
+    .filter((s) => s.status === "missing")
+    .map((s) => s.label);
+  assert.ok(
+    proposed!.missingSignals!.every((label) => missingLabels.includes(label)),
+    "派生缺口信号应来自评审结果",
+  );
+  assert.ok(Array.isArray(proposed!.partialSignals), "partialSignals 应为数组");
+  // 契约：actionJson 在 runtime payload 中可用（结构化动作，前端不再解析 reason 判断）
+  assert.equal(typeof proposed!.actionJson, "string");
+  const actions = JSON.parse(proposed!.actionJson);
+  assert.ok(Array.isArray(actions) && actions.some((x) => x.action === "insert_activity"));
 });
 
 test("跳学：生成验证活动，前置缺口拒绝", async () => {

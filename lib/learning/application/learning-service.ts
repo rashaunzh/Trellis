@@ -56,6 +56,19 @@ function parseAdjustmentActions(actionJson: string): AdjustmentAction[] {
   }
 }
 
+function parseAdjustmentGapSignals(reason: string): Pick<AdjustmentRecord, "missingSignals" | "partialSignals"> {
+  return {
+    missingSignals: parseSignalSegment(reason, "缺少能力信号："),
+    partialSignals: parseSignalSegment(reason, "部分信号需补强："),
+  };
+}
+
+function parseSignalSegment(reason: string, marker: string): string[] {
+  const segment = reason.split(marker)[1]?.split(/[。；;]/)[0];
+  if (!segment) return [];
+  return segment.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
+}
+
 // ── 当前周键（ISO 周）───────────────────────────────────
 export function currentWeekKey(now = new Date()): string {
   const date = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -181,7 +194,10 @@ export class LearningApplicationService {
     for (const activity of activities) {
       evidence.push(...(await this.store.listEvidenceByActivity(activity.id)));
     }
-    const adjustments = await this.store.listAdjustments(ownerId);
+    const adjustments = (await this.store.listAdjustments(ownerId)).map((adjustment) => ({
+      ...adjustment,
+      ...parseAdjustmentGapSignals(adjustment.reason),
+    }));
     const userResources = await this.store.listUserResources(ownerId);
     // 到期复测：validated 节点且 nextReviewAt 已过（或 lastValidatedAt + 间隔已过）
     const now = Date.now();
