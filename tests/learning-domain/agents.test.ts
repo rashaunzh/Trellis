@@ -477,3 +477,96 @@ test("内容包通过 agent 上下文可用（三条路线资源齐全）", () =
   assert.ok(learningContentPack.tools.length >= 2);
   assert.ok(learningContentPack.nodes.every((node) => node.signals.length >= 3));
 });
+
+// ── Proposal / Adjustment Engine：未被既有用例覆盖的分支 ──────────────
+// 既有用例覆盖：needs_revision 基础建议、前置缺口判定、补强 insert_activity、
+// reviewRationale 回退、信号回流文案、无信号旧文案、缺口回流落库。
+// 此处补充：前置缺口 vs 普通补强的动作契约区分（UI 依赖该语义）、
+// weekly_light 两条未测分支（完成率低 / 跳过节点）。
+
+test("adjustmentAdvisor：前置缺口与普通补强的动作契约可区分", () => {
+  // 前置缺口：insert_activity 指向前置节点，description 带「插入前置节点活动：」前缀，severity high
+  const gap = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.fit",
+    nodeTitle: "神经网络与深度学习",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: ["ai-literacy.mechanism"],
+    routeId: "ai-literacy",
+  });
+  assert.equal(gap.adjustmentType, "activity_replan");
+  assert.equal(gap.severity, "high");
+  const gapInsert = gap.actions.find((a) => a.action === "insert_activity");
+  assert.equal(gapInsert?.targetNodeId, "ai-literacy.mechanism", "前置插入目标应为前置节点");
+  assert.ok(
+    gapInsert?.description.startsWith("插入前置节点活动："),
+    `前置插入 description 应带「插入前置节点活动：」前缀：${gapInsert?.description}`,
+  );
+
+  // 普通补强：insert_activity 指向当前节点，description 带「插入补强活动：」前缀，severity medium
+  const boost = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.fit",
+    nodeTitle: "神经网络与深度学习",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+    missingSignals: ["边界判断"],
+  });
+  assert.equal(boost.adjustmentType, "activity_replan");
+  assert.equal(boost.severity, "medium");
+  const boostInsert = boost.actions.find((a) => a.action === "insert_activity");
+  assert.equal(boostInsert?.targetNodeId, "ai-literacy.fit", "补强插入目标应为当前节点");
+  assert.ok(
+    boostInsert?.description.startsWith("插入补强活动："),
+    `补强插入 description 应带「插入补强活动：」前缀：${boostInsert?.description}`,
+  );
+});
+
+test("adjustmentAdvisor：完成率低时给出 weekly_light 收缩建议", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "accepted",
+    activityStatus: "reviewed",
+    completionRate: 0.4,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+  });
+  assert.equal(suggestion.adjustmentType, "weekly_light");
+  assert.equal(suggestion.severity, "medium");
+  assert.ok(
+    suggestion.actions.some((a) => a.action === "continue"),
+    "完成率低建议应含 continue 动作",
+  );
+  assert.ok(
+    !suggestion.actions.some((a) => a.action === "insert_activity"),
+    "收缩建议不应插入活动",
+  );
+});
+
+test("adjustmentAdvisor：跳过节点时建议安排验证活动（每节点一条）", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "accepted",
+    activityStatus: "reviewed",
+    completionRate: 1,
+    skippedNodeIds: ["ai-literacy.fit", "ai-literacy.context"],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+  });
+  assert.equal(suggestion.adjustmentType, "weekly_light");
+  assert.equal(suggestion.severity, "medium");
+  const inserts = suggestion.actions.filter((a) => a.action === "insert_activity");
+  assert.equal(inserts.length, 2, "每个跳过节点应有一条验证活动动作");
+  assert.ok(
+    inserts.every((a) => a.targetNodeId && a.description.includes("验证活动")),
+    "跳过节点动作应指向节点并说明验证活动",
+  );
+});

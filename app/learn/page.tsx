@@ -411,7 +411,7 @@ export default function LearnPage() {
       <section className="t2-section">
         <header>
           <h3>调整记录</h3>
-          <span className="t2-muted">路线变化均可追溯</span>
+          <span className="t2-muted">每次调整都说明原因，采纳后即时生效</span>
         </header>
         <div className="t2-adjust-list">
           {ws.adjustments.map((a) => {
@@ -437,7 +437,7 @@ export default function LearnPage() {
                       <button
                         className="t2-mini"
                         disabled={busy}
-                        onClick={() => void run(() => confirmAdjustment(a.id), "已采纳，继续按建议学习")}
+                        onClick={() => void run(() => confirmAdjustment(a.id), `已采纳：${describeAdjustmentAction(a)}`)}
                       >
                         采纳建议
                       </button>
@@ -454,7 +454,7 @@ export default function LearnPage() {
               </div>
             );
           })}
-          {ws.adjustments.length === 0 && <p className="t2-empty">暂无调整建议。证据被退回或计划偏离时，这里会给出具体建议。</p>}
+          {ws.adjustments.length === 0 && <p className="t2-empty">暂无调整建议。证据未通过评审或进度偏离时，系统会在这里说明原因和建议。</p>}
         </div>
       </section>
 

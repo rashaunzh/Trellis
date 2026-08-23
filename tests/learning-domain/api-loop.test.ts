@@ -380,3 +380,68 @@ test("Proposal/Adjustment：确认建议插入补强活动，原证据与活动�
   // 节点未被错误验证
   assert.notEqual(ws2.nodeProgress.find((p) => p.nodeId === nodeId)!.status, "validated");
 });
+
+// ── Proposal / Adjustment Engine：未被既有用例覆盖的闭环路径 ──────────
+// 既有用例覆盖：needs_revision → proposed 契约、确认插补强活动、忽略不执行、
+// 复测降级。此处补充：证据通过不产生补强建议（含 weekly_light 确认的
+// continue 语义）、用户主动提议的确认/忽略闭环（空 actionJson 容错）。
+
+test("证据通过：不产生补强类调整建议；weekly_light 确认不改变计划", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, {
+    content: "训练机制解释：模型从大量数据中学习统计规律而非存储事实。概率推理说明：输出按概率分布采样，流畅不等于正确。幻觉风险识别：幻觉来自训练数据覆盖不足。泛化边界说明：泛化依赖训练数据分布，超出分布会失败。AI 与普通程序区分：普通程序按规则执行，AI 从数据学习。判断标准可操作：需要快速推理时适合用 AI，精确计算与隐私场景不适用。概念解释：机制、边界与失效条件都已说清。解释覆盖机制与边界，关系图包含至少 2 个相邻概念。",
+  });
+  const ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  const ws1 = await service.reviewEvidence(OWNER, ev.id).then((r) => r.workspace);
+  assert.equal(ws1.evidence.find((e) => e.id === ev.id)!.status, "accepted", "证据应通过");
+  // 通过场景不应产生补强/重排建议（只有完成率偏低时的 weekly_light 允许存在）
+  assert.equal(
+    ws1.adjustments.filter((a) => a.adjustmentType === "activity_replan").length,
+    0,
+    "证据通过不应产生 activity_replan 建议",
+  );
+  // weekly_light（continue 语义）：确认后只记录状态，不插入活动
+  const light = ws1.adjustments.find((a) => a.adjustmentType === "weekly_light" && a.status === "proposed");
+  if (light) {
+    const before = ws1.activities.length;
+    const ws2 = await service.confirmAdjustment(OWNER, light.id);
+    assert.equal(ws2.adjustments.find((a) => a.id === light.id)!.status, "accepted");
+    assert.equal(ws2.activities.length, before, "weekly_light 确认不应插入活动");
+  }
+});
+
+test("用户主动提议 route_revision：确认后 accepted，空动作不插入活动", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws1 = await service.proposeAdjustment(OWNER, {
+    adjustmentType: "route_revision",
+    reason: "想切换路线到 AI 应用开发",
+  });
+  const proposed = ws1.adjustments.find((a) => a.adjustmentType === "route_revision" && a.status === "proposed");
+  assert.ok(proposed, "应有待确认的路线调整建议");
+  assert.equal(proposed!.actionJson, "[]", "主动提议应无结构化动作");
+  const before = ws1.activities.length;
+  const ws2 = await service.confirmAdjustment(OWNER, proposed!.id);
+  assert.equal(ws2.adjustments.find((a) => a.id === proposed!.id)!.status, "accepted");
+  assert.equal(ws2.activities.length, before, "确认主动提议不应插入活动");
+});
+
+test("用户主动提议 route_revision：忽略后 rejected", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws1 = await service.proposeAdjustment(OWNER, {
+    adjustmentType: "route_revision",
+    reason: "想切换路线到 AI 应用开发",
+  });
+  const proposed = ws1.adjustments.find((a) => a.adjustmentType === "route_revision" && a.status === "proposed")!;
+  const ws2 = await service.rejectAdjustment(OWNER, proposed.id);
+  assert.equal(ws2.adjustments.find((a) => a.id === proposed.id)!.status, "rejected");
+  assert.equal(ws2.activities.length, ws1.activities.length, "忽略主动提议不应改变计划");
+});
