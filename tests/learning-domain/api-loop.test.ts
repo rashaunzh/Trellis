@@ -186,10 +186,19 @@ test("调整建议确认：proposed → accepted", async () => {
   const ws1 = await service.getWorkspace(OWNER);
   const adjustment = ws1.adjustments.find((a) => a.status === "proposed");
   assert.ok(adjustment, "应有待确认调整建议");
+  const beforeActivityCount = ws1.activities.length;
   const ws2 = await service.confirmAdjustment(OWNER, adjustment!.id);
   assert.equal(
     ws2.adjustments.find((a) => a.id === adjustment!.id)!.status,
     "accepted",
+  );
+  assert.ok(
+    ws2.activities.length > beforeActivityCount,
+    "确认调整建议后应插入补强活动",
+  );
+  assert.ok(
+    ws2.activities.some((a) => a.title.startsWith("补强活动：") && a.isCore === false),
+    "补强活动应作为非核心活动插入本周计划",
   );
 });
 
@@ -290,4 +299,38 @@ test("重排本周：保留已产生证据和节点状态，只替换开放活�
     ws1.adjustments.some((a) => a.adjustmentType === "activity_replan" && a.status === "accepted"),
     "重排应留下已确认调整记录",
   );
+});
+
+test("Proposal/Adjustment：确认建议插入补强活动，原证据与活动仍可追溯", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  const nodeId = activity.nodeId;
+
+  // 不足证据 → needs_revision → 待确认调整建议（含 insert_activity 补强动作）
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "我学了一点概念，模型从数据中学习。" });
+  const ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, ev.id);
+  const ws1 = await service.getWorkspace(OWNER);
+  const adjustment = ws1.adjustments.find((a) => a.status === "proposed");
+  assert.ok(adjustment, "证据退回应生成待确认调整建议");
+
+  // 确认 → accepted + 插入补强活动（非核心、指向原节点）
+  const ws2 = await service.confirmAdjustment(OWNER, adjustment!.id);
+  assert.equal(ws2.adjustments.find((a) => a.id === adjustment!.id)!.status, "accepted");
+  const boost = ws2.activities.find((a) => a.title.startsWith("补强活动："));
+  assert.ok(boost, "确认后应插入补强活动");
+  assert.equal(boost!.nodeId, nodeId);
+  assert.equal(boost!.isCore, false);
+  assert.equal(boost!.status, "planned");
+
+  // 原证据仍可追溯（needs_revision 记录保留，未被覆盖）
+  assert.ok(ws2.evidence.some((e) => e.id === ev.id && e.status === "needs_revision"), "原证据记录应保留");
+  // 原活动仍可追溯（不被清理）
+  assert.ok(ws2.activities.some((a) => a.id === activity.id), "原活动应保留以保持追溯");
+  // 节点未被错误验证
+  assert.notEqual(ws2.nodeProgress.find((p) => p.nodeId === nodeId)!.status, "validated");
 });

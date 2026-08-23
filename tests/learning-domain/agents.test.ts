@@ -346,6 +346,64 @@ test("adjustmentAdvisor：前置缺口时插入前置活动", () => {
   assert.equal(suggestion.severity, "high");
 });
 
+// ── Proposal / Adjustment Engine：缺口信号驱动的建议文案 ──────────
+// 断言基于当前规则引擎输出（commit 2312346 引入 missingSignals 回流）。
+// missingSignals 文案、无信号旧文案、回流落库已由下方既有用例覆盖；
+// 此处补充未被覆盖的两条路径：补强 insert_activity 动作、仅 reviewRationale 回退。
+
+test("adjustmentAdvisor：needs_revision 建议含补强 insert_activity 动作（缺口文案随信号变化）", () => {
+  // 有 missingSignals：动作描述携带具体缺口
+  const withSignals = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+    missingSignals: ["概念解释", "边界判断"],
+  });
+  const insertWith = withSignals.actions.find((a) => a.action === "insert_activity");
+  assert.ok(insertWith, "应有补强活动动作");
+  assert.equal(insertWith!.targetNodeId, "ai-literacy.mechanism");
+  assert.ok(insertWith!.description.includes("补强活动"));
+  assert.ok(insertWith!.description.includes("概念解释"));
+  assert.ok(withSignals.actions.some((a) => a.action === "revise"));
+
+  // 无缺口信号：动作仍生成，但用通用描述
+  const withoutSignals = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+  });
+  const insertWithout = withoutSignals.actions.find((a) => a.action === "insert_activity");
+  assert.equal(insertWithout?.description, "插入「机制与边界」补强活动后再提交证据。");
+});
+
+test("adjustmentAdvisor：仅 reviewRationale 时用评估结论摘要回退", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+    reviewRationale: "当前材料还不足以稳定证明该能力。",
+  });
+  // 无结构化信号 → 用评估结论摘要，不出现信号词
+  assert.ok(suggestion.reason.includes("当前材料还不足以稳定证明该能力"));
+  assert.equal(suggestion.summary, "建议按评审反馈补充材料后重新提交。");
+  assert.ok(!suggestion.reason.includes("缺少能力信号"));
+});
+
 test("adjustmentAdvisor：缺失/部分信号回流到建议文案（判定不变）", () => {
   const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
     nodeId: "ai-app-dev.rag",
@@ -362,6 +420,10 @@ test("adjustmentAdvisor：缺失/部分信号回流到建议文案（判定不�
   // 判定不变：activity_replan / medium
   assert.equal(suggestion.adjustmentType, "activity_replan");
   assert.equal(suggestion.severity, "medium");
+  assert.ok(
+    suggestion.actions.some((action) => action.action === "insert_activity" && action.targetNodeId === "ai-app-dev.rag"),
+    "证据退回建议应包含可执行的补强活动动作",
+  );
   // 文案包含具体信号名称
   assert.ok(suggestion.reason.includes("标准答案定义"), `reason 应含缺失信号：${suggestion.reason}`);
   assert.ok(suggestion.reason.includes("引用命中判断"), `reason 应含缺失信号：${suggestion.reason}`);

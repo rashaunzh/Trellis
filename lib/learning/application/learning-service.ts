@@ -25,7 +25,7 @@ import type {
   NodeStatus,
   WeeklyPlan,
 } from "../domain/types.ts";
-import type { AgentRegistry, ActivityDraft, EvidenceAssessment } from "../agents/types.ts";
+import type { AgentRegistry, ActivityDraft, AdjustmentSuggestion, EvidenceAssessment } from "../agents/types.ts";
 import type { LearningStore, LearnerProfile } from "../persistence/store.ts";
 import { InMemoryLearningStore } from "../persistence/in-memory.ts";
 import { createRuleAgents } from "../agents/index.ts";
@@ -38,6 +38,22 @@ function stableId(prefix: string, value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return `${prefix}-${(hash >>> 0).toString(16)}`;
+}
+
+type AdjustmentAction = AdjustmentSuggestion["actions"][number];
+
+function parseAdjustmentActions(actionJson: string): AdjustmentAction[] {
+  try {
+    const parsed = JSON.parse(actionJson || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is AdjustmentAction =>
+      item &&
+      typeof item === "object" &&
+      typeof item.action === "string",
+    );
+  } catch {
+    return [];
+  }
 }
 
 // ── 当前周键（ISO 周）───────────────────────────────────
@@ -400,6 +416,7 @@ export class LearningApplicationService {
       reason: "用户主动重排本周计划",
       status: "accepted",
       summary: `本周计划已重排为 ${planDraft.coreActivityCount} 个核心活动、${planDraft.optionalActivityCount} 个可选活动；保留已产生证据的学习记录。`,
+      actionJson: "[]",
     };
     await this.store.saveAdjustment(adjustment);
 
@@ -585,6 +602,7 @@ export class LearningApplicationService {
         reason: suggestion.reason,
         status: "proposed",
         summary: suggestion.summary,
+        actionJson: JSON.stringify(suggestion.actions),
       };
       await this.store.saveAdjustment(adjustment);
     }
@@ -603,6 +621,7 @@ export class LearningApplicationService {
     }
     adjustment.status = "accepted";
     await this.store.saveAdjustment(adjustment);
+    await this.executeAdjustmentActions(ownerId, adjustment);
     return this.getWorkspace(ownerId);
   }
 
@@ -640,6 +659,7 @@ export class LearningApplicationService {
         reason: "用户确认掌握",
         status: "accepted",
         summary: `用户确认掌握「${node?.title ?? nodeId}」，节点进入已验证。`,
+        actionJson: "[]",
       };
       await this.store.saveAdjustment(adjustment);
     } else {
@@ -657,6 +677,7 @@ export class LearningApplicationService {
         reason: `用户纠正掌握判断：${note}`,
         status: "rejected",
         summary: `用户纠正「${node?.title ?? nodeId}」的掌握判断：${note}；熟练等级降 1，生成补强建议。`,
+        actionJson: "[]",
       };
       await this.store.saveAdjustment(confirmAdjustment);
       const boost: AdjustmentRecord = {
@@ -668,6 +689,7 @@ export class LearningApplicationService {
         reason: "掌握确认被纠正，需要补强",
         status: "proposed",
         summary: `为「${node?.title ?? nodeId}」安排复习/补强活动，重新积累证据后再次验证。`,
+        actionJson: "[]",
       };
       await this.store.saveAdjustment(boost);
     }
@@ -841,6 +863,7 @@ export class LearningApplicationService {
       reason,
       status: "proposed",
       summary: summaryByType[input.adjustmentType],
+      actionJson: "[]",
     };
     await this.store.saveAdjustment(adjustment);
 
@@ -947,6 +970,72 @@ export class LearningApplicationService {
         expectedEvidence: draft.expectedEvidence,
         evaluationCriteria: draft.evaluationCriteria,
         nextAdvice: draft.nextAdvice,
+        sequence,
+      };
+      await this.store.saveActivity(activity);
+      sequence += 1;
+    }
+  }
+
+  private async executeAdjustmentActions(ownerId: string, adjustment: AdjustmentRecord): Promise<void> {
+    const actions = parseAdjustmentActions(adjustment.actionJson);
+    if (!actions.some((action) => action.action === "insert_activity" && action.targetNodeId)) return;
+
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    const weekKey = currentWeekKey();
+    let weeklyPlan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, weekKey);
+    if (!weeklyPlan) {
+      weeklyPlan = {
+        id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${weekKey}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weekKey,
+        capacityMinutes: profile.weeklyMinutes,
+        status: "confirmed",
+        rationale: "为确认调整建议创建的本周计划。",
+      };
+      await this.store.saveWeeklyPlan(weeklyPlan);
+    }
+
+    const existing = await this.store.listActivitiesByPlan(weeklyPlan.id);
+    let sequence = existing.length
+      ? Math.max(...existing.map((activity) => activity.sequence)) + 1
+      : 0;
+
+    for (const action of actions) {
+      if (action.action !== "insert_activity" || !action.targetNodeId) continue;
+      const node = learningContentPack.nodes.find((item) => item.id === action.targetNodeId);
+      if (!node) continue;
+      const resourceIds = learningContentPack.resourceMappings
+        .filter((mapping) => mapping.nodeId === node.id)
+        .map((mapping) => mapping.resourceId);
+      const draft = this.agents.activityComposer.composeActivity({
+        nodeId: node.id,
+        nodeTitle: node.title,
+        nodeDescription: node.description,
+        activityType: "independent_practice",
+        isSkipValidation: false,
+        resourceIds,
+        estimatedMinutes: 45,
+      });
+      const activity: LearningActivity = {
+        id: stableId("activity", `${weeklyPlan.id}:${sequence}:${node.id}:adjustment:${adjustment.id}`),
+        ownerId,
+        weeklyPlanId: weeklyPlan.id,
+        nodeId: node.id,
+        title: `补强活动：${node.title}`,
+        activityType: draft.activityType,
+        goal: `${draft.goal} 调整原因：${action.description}`,
+        estimatedMinutes: draft.estimatedMinutes,
+        isCore: false,
+        status: "planned",
+        isSkipValidation: false,
+        inputRefs: draft.inputRefs,
+        steps: draft.steps.join("\n"),
+        expectedEvidence: draft.expectedEvidence,
+        evaluationCriteria: draft.evaluationCriteria,
+        nextAdvice: "完成补强活动并提交证据后，再回到原活动继续验证。",
         sequence,
       };
       await this.store.saveActivity(activity);

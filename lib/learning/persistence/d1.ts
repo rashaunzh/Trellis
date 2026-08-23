@@ -479,11 +479,12 @@ export class D1LearningStore implements LearningStore {
       .prepare(
         `INSERT INTO learning_adjustments
            (id, owner_id, route_id, weekly_plan_id, adjustment_type, reason, status,
-            summary, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            summary, action_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
          ON CONFLICT (id) DO UPDATE SET
            status = excluded.status,
            summary = excluded.summary,
+           action_json = excluded.action_json,
            updated_at = excluded.updated_at`,
       )
       .bind(
@@ -495,6 +496,7 @@ export class D1LearningStore implements LearningStore {
         adjustment.reason,
         adjustment.status,
         adjustment.summary,
+        adjustment.actionJson,
         now,
       )
       .run();
@@ -618,5 +620,6 @@ function adjustmentFromRow(row: Record<string, unknown>): AdjustmentRecord {
     reason: String(row.reason),
     status: row.status as AdjustmentRecord["status"],
     summary: String(row.summary),
+    actionJson: String(row.action_json ?? "[]"),
   };
 }

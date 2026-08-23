@@ -43,6 +43,13 @@ export class RuleAdjustmentAdvisor implements AdjustmentAdvisorPort {
           : `保持节点成长中，修订证据或增加一次独立练习后再提交。`,
         actions: [
           {
+            action: "insert_activity",
+            targetNodeId: input.nodeId,
+            description: gapText
+              ? `插入补强活动：${gapText.summary}`
+              : `插入「${input.nodeTitle}」补强活动后再提交证据。`,
+          },
+          {
             action: "revise",
             targetNodeId: input.nodeId,
             description: `按评估反馈修订证据并重新提交。`,

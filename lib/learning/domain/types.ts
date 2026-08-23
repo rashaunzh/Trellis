@@ -208,6 +208,7 @@ export interface AdjustmentRecord {
   reason: string;
   status: AdjustmentStatus;
   summary: string;
+  actionJson: string;
 }
 
 // ── 内容包（版本化，只读）─────────────────────────────

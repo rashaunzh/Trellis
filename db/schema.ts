@@ -374,6 +374,7 @@ export const learningAdjustments = sqliteTable("learning_adjustments", {
     .notNull()
     .default("proposed"),
   summary: text("summary").notNull().default(""),
+  actionJson: text("action_json").notNull().default("[]"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
