@@ -1058,7 +1058,25 @@ export class LearningApplicationService {
 
   private async executeAdjustmentActions(ownerId: string, adjustment: AdjustmentRecord): Promise<void> {
     const actions = parseAdjustmentActions(adjustment.actionJson);
-    if (!actions.some((action) => action.action === "insert_activity" && action.targetNodeId)) return;
+    const hasInsert = actions.some((action) => action.action === "insert_activity" && action.targetNodeId);
+
+    // weekly_light 无 insert_activity（continue/空动作）：不插活动不删活动，
+    // 仅把采纳说明追加到本周计划 rationale，让采纳有可观察、低风险的副作用。
+    if (adjustment.adjustmentType === "weekly_light" && !hasInsert) {
+      const profile = await this.store.getProfile(ownerId);
+      if (!profile) return;
+      const weeklyPlan = await this.store.getWeeklyPlanByWeek(
+        ownerId,
+        profile.activeRouteId,
+        currentWeekKey(),
+      );
+      if (!weeklyPlan) return;
+      weeklyPlan.rationale = `${weeklyPlan.rationale} 已采纳节奏微调：${adjustment.summary}`;
+      await this.store.saveWeeklyPlan(weeklyPlan);
+      return;
+    }
+
+    if (!hasInsert) return;
 
     const profile = await this.store.getProfile(ownerId);
     if (!profile) throw new LearningError("尚未完成诊断", 404);

@@ -103,6 +103,22 @@ function describeAdjustmentAction(adjustment: WorkspaceAdjustment): string {
   return "建议根据这次证据反馈更新后续学习路线。";
 }
 
+// 采纳后的效果声明：有 insert_activity 动作 → 插入补强活动；否则仅计划更新
+function describeAdjustmentEffect(adjustment: WorkspaceAdjustment): string {
+  const actions = parseAdjustmentActions(adjustment.actionJson);
+  return actions.some((action) => action.action === "insert_activity")
+    ? "已采纳，本周看板已插入补强活动。"
+    : "已采纳，本周计划已按建议更新。";
+}
+
+// 当前节点是否有待确认的调整建议（保守判断：actionJson targetNodeId === nodeId）
+function hasProposedAdjustmentForNode(adjustments: WorkspaceAdjustment[], nodeId: string): boolean {
+  return adjustments.some(
+    (a) => a.status === "proposed"
+      && parseAdjustmentActions(a.actionJson).some((x) => x.targetNodeId === nodeId),
+  );
+}
+
 export default function LearnPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [busy, setBusy] = useState(false);
@@ -437,7 +453,7 @@ export default function LearnPage() {
                       <button
                         className="t2-mini"
                         disabled={busy}
-                        onClick={() => void run(() => confirmAdjustment(a.id), `已采纳：${describeAdjustmentAction(a)}`)}
+                        onClick={() => void run(() => confirmAdjustment(a.id), describeAdjustmentEffect(a))}
                       >
                         采纳建议
                       </button>
@@ -657,14 +673,32 @@ export default function LearnPage() {
                   </span>
                   <div className="t2-review-score">
                     <b>{visibleAssessment.score}</b>
-                    <span>总分 / 100</span>
-                    <em>置信度 {Math.round(visibleAssessment.confidence * 100)}%</em>
+                    <span>总分 / 100（≥58 通过）</span>
+                    <em>系统判断把握 {Math.round(visibleAssessment.confidence * 100)}%</em>
                   </div>
                   <p className="t2-hint t2-assessment-rationale">{visibleAssessment.rationale}</p>
 
-                  {/* 证据卡片：我提交了什么，AI 提取到了什么 */}
+                  {/* 我提交的材料：与系统提取摘要对照 */}
+                  {(() => {
+                    const raw = activeEvidence?.content?.trim();
+                    const url = activeEvidence?.externalUrl?.trim();
+                    if (!raw && !url) return null;
+                    return (
+                      <details className="t2-evidence-raw">
+                        <summary>我提交的材料</summary>
+                        {url && (
+                          <p className="t2-evidence-raw-url">
+                            链接：<a href={url} target="_blank" rel="noreferrer">{url}</a>
+                          </p>
+                        )}
+                        {raw && <pre>{raw}</pre>}
+                      </details>
+                    );
+                  })()}
+
+                  {/* 系统提取的材料摘要：AI 从提交里读到了什么 */}
                   <div className="t2-evidence-card">
-                    <b>证据卡片</b>
+                    <b>系统提取的材料摘要</b>
                     <p>{visibleAssessment.evidenceCard.summary}</p>
                     <div className="t2-review-tags">
                       <span>{ARTIFACT_TYPE_LABEL[visibleAssessment.evidenceCard.artifactType] ?? visibleAssessment.evidenceCard.artifactType}</span>
@@ -709,8 +743,8 @@ export default function LearnPage() {
                     <p className="t2-signal-note">全部能力信号均已覆盖，无需补充。</p>
                   )}
 
-                  {/* 评审维度 */}
-                  <span className="t2-assessment-sub">评审维度</span>
+                  {/* 评分依据 */}
+                  <span className="t2-assessment-sub">评分依据</span>
                   <div className="t2-dimension-grid">
                     {visibleAssessment.dimensionScores.map((dimension) => (
                       <div key={dimension.id} className="t2-dimension">
@@ -730,6 +764,17 @@ export default function LearnPage() {
 
                   <p className="t2-hint"><b>可信度说明：</b>{visibleAssessment.credibilityNote}</p>
                   <p className="t2-hint"><b>下一步建议：</b>{nextActionLabel(visibleAssessment.nextAction)}</p>
+
+                  {/* 评审 → 调整的因果连接（只展示，不动数据流） */}
+                  {(() => {
+                    if (hasProposedAdjustmentForNode(ws.adjustments, activeActivity.nodeId)) {
+                      return <p className="t2-hint t2-assessment-followup">系统已基于本次评审生成调整建议，见页面下方「调整记录」。</p>;
+                    }
+                    if (visibleAssessment.verdict === "accepted") {
+                      return <p className="t2-hint t2-assessment-followup">证据已通过，本次无需调整。</p>;
+                    }
+                    return null;
+                  })()}
                 </section>
               )}
 

@@ -744,6 +744,48 @@
   font-size: 11px;
 }
 
+/* 我提交的材料折叠块（评审区对照） */
+.t2-evidence-raw {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--t2-line);
+  border-radius: 9px;
+  background: #fff;
+}
+.t2-evidence-raw summary {
+  cursor: pointer;
+  color: var(--t2-green);
+  font-size: 12px;
+  font-weight: 800;
+}
+.t2-evidence-raw pre {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #46524b;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+.t2-evidence-raw-url {
+  margin: 8px 0 0;
+  color: var(--t2-muted);
+  font-size: 11px;
+}
+.t2-evidence-raw-url a {
+  color: var(--t2-green);
+  word-break: break-all;
+}
+
+/* 评审 → 调整因果连接提示 */
+.t2-assessment-followup {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--t2-soft);
+  color: var(--t2-ink);
+}
+
 /* ── 成长页：地图 ───────────────────────────────────── */
 .t2-map-stats { display: flex; gap: 20px; }
 .t2-map-stats span { color: var(--t2-muted); font-size: 11px; }

@@ -638,3 +638,48 @@ test("accepted/rejected 旧建议不被 supersede", async () => {
     "rejected 旧建议不应被 supersede",
   );
 });
+
+test("采纳 weekly_light（无动作）：不插活动，rationale 追加采纳说明", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const rationaleBefore = ws0.weeklyPlan!.rationale;
+  const activityCountBefore = ws0.activities.length;
+
+  // 用户主动提出节奏微调 → weekly_light proposed，actionJson 为空
+  await service.proposeAdjustment(OWNER, { adjustmentType: "weekly_light", reason: "本周想放慢节奏" });
+  const ws1 = await service.getWorkspace(OWNER);
+  const adjustment = ws1.adjustments.find((a) => a.adjustmentType === "weekly_light" && a.status === "proposed")!;
+  assert.ok(adjustment, "应有待确认的 weekly_light 建议");
+
+  const ws2 = await service.confirmAdjustment(OWNER, adjustment.id);
+  // 状态 accepted
+  assert.equal(ws2.adjustments.find((a) => a.id === adjustment.id)!.status, "accepted");
+  // 不插入活动、不删除活动
+  assert.equal(ws2.activities.length, activityCountBefore, "weekly_light 采纳不应插入活动");
+  assert.ok(ws2.activities.every((a) => ws0.activities.some((b) => b.id === a.id)), "不应删除已有活动");
+  // rationale 可观察变化：追加采纳说明
+  assert.notEqual(ws2.weeklyPlan!.rationale, rationaleBefore);
+  assert.ok(ws2.weeklyPlan!.rationale.includes("已采纳节奏微调"), ws2.weeklyPlan!.rationale);
+  assert.ok(ws2.weeklyPlan!.rationale.includes(adjustment.summary), "应包含建议摘要");
+});
+
+test("采纳 route_revision（空动作）：不插活动，rationale 不变", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const rationaleBefore = ws0.weeklyPlan!.rationale;
+  const activityCountBefore = ws0.activities.length;
+
+  await service.proposeAdjustment(OWNER, { adjustmentType: "route_revision", reason: "想换方向" });
+  const ws1 = await service.getWorkspace(OWNER);
+  const adjustment = ws1.adjustments.find((a) => a.adjustmentType === "route_revision" && a.status === "proposed")!;
+  assert.ok(adjustment, "应有待确认的 route_revision 建议");
+
+  const ws2 = await service.confirmAdjustment(OWNER, adjustment.id);
+  assert.equal(ws2.adjustments.find((a) => a.id === adjustment.id)!.status, "accepted");
+  assert.equal(ws2.activities.length, activityCountBefore, "空动作不插活动");
+  assert.equal(ws2.weeklyPlan!.rationale, rationaleBefore, "route_revision 不改 rationale");
+});
