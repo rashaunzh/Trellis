@@ -166,6 +166,39 @@ test("不足证据 needs_revision：节点不验证、活动退回", async () =>
   assert.ok(Array.isArray(actions) && actions.some((x) => x.action === "insert_activity"));
 });
 
+test("重复退回：同节点第二次 needs_revision 升级建议并 supersede 旧建议", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const activity = (await service.getWorkspace(OWNER)).activities.find((a) => a.status === "planned")!;
+
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "第一次证据内容很空泛，只说我学了但没有解释概念、机制、边界，也没有任何判断标准。" });
+  const ev1 = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  const ws1 = await service.reviewEvidence(OWNER, ev1.id).then((result) => result.workspace);
+  const first = ws1.adjustments.find((a) => a.status === "proposed" && a.adjustmentType === "activity_replan")!;
+  assert.ok(first, "第一次退回应生成 proposed activity_replan");
+
+  await service.submitEvidence(OWNER, activity.id, { content: "第二次仍然空泛，只说已经理解 AI，但没有训练机制解释、幻觉风险识别、泛化边界说明。" });
+  const ev2 = (await service.getWorkspace(OWNER)).evidence
+    .filter((e) => e.activityId === activity.id)
+    .find((e) => e.id !== ev1.id)!;
+  const ws2 = await service.reviewEvidence(OWNER, ev2.id).then((result) => result.workspace);
+  const second = ws2.adjustments.find((a) =>
+    a.id !== first.id &&
+    a.status === "proposed" &&
+    a.adjustmentType === "activity_replan",
+  );
+  assert.ok(second, "第二次退回应生成新的 proposed activity_replan");
+  assert.ok(second!.reason.includes("第 2 次未通过"), second!.reason);
+  assert.ok(second!.reason.includes("反复缺失"), second!.reason);
+  assert.equal(
+    ws2.adjustments.find((a) => a.id === first.id)!.status,
+    "superseded",
+    "同节点新建议产生后旧 proposed 应被 superseded",
+  );
+});
+
 test("跳学：生成验证活动，前置缺口拒绝", async () => {
   const service = createService();
   await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
@@ -444,4 +477,163 @@ test("用户主动提议 route_revision：忽略后 rejected", async () => {
   const ws2 = await service.rejectAdjustment(OWNER, proposed.id);
   assert.equal(ws2.adjustments.find((a) => a.id === proposed.id)!.status, "rejected");
   assert.equal(ws2.activities.length, ws1.activities.length, "忽略主动提议不应改变计划");
+});
+
+// ── v0.3-beta 服务层推导：failureCount / isRetestFailure / lastMissingSignals / supersede ──
+// advisor 侧文案由 agents.test.ts 单测覆盖；此处验证服务层在 reviewEvidence 中
+// 正确推导历史上下文并传入 advisor，以及 supersede 的保守执行。
+
+test("同一节点第二次 needs_revision：新建议 reason 含「第 2 次未通过」", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  // 第一次：短证据 → needs_revision（failureCount=1）
+  await service.submitEvidence(OWNER, activity.id, { content: "短。" });
+  let ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, ev.id);
+  // 第二次：仍不足 → needs_revision（服务层应推导 failureCount=2）
+  await service.submitEvidence(OWNER, activity.id, { content: "模型很厉害，能回答很多问题。" });
+  ev = (await service.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === activity.id).at(-1)!;
+  const ws2 = await service.reviewEvidence(OWNER, ev.id).then((r) => r.workspace);
+  const second = ws2.adjustments.filter((a) => a.status === "proposed").at(-1);
+  assert.ok(second, "第二次失败应产生新建议");
+  assert.ok(
+    second!.reason.includes("第 2 次未通过"),
+    `reason 应含第 2 次未通过：${second!.reason}`,
+  );
+});
+
+test("第二次缺同一信号：新建议 reason 含「反复缺失」", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  // 两次都覆盖不足且刻意缺「幻觉风险识别」
+  const weak1 = "训练机制解释：模型从数据中学习。概率推理说明：输出按概率分布采样。";
+  const weak2 = "训练机制解释：模型从数据中学习。概率推理说明：输出按概率分布采样。泛化边界说明：超出分布会失败。";
+  await service.submitEvidence(OWNER, activity.id, { content: weak1 });
+  let ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, ev.id);
+  await service.submitEvidence(OWNER, activity.id, { content: weak2 });
+  ev = (await service.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === activity.id).at(-1)!;
+  const ws2 = await service.reviewEvidence(OWNER, ev.id).then((r) => r.workspace);
+  const second = ws2.adjustments.filter((a) => a.status === "proposed").at(-1);
+  assert.ok(second, "第二次失败应产生新建议");
+  assert.ok(
+    second!.reason.includes("反复缺失"),
+    `reason 应含反复缺失：${second!.reason}`,
+  );
+});
+
+test("复测证据退回：新建议 reason 含「复测未通过」", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 360 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  // 先验证通过（普通活动 accepted 自动验证），才能发起复测
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, {
+    content: "训练机制解释：模型从大量数据中学习统计规律而非存储事实。概率推理说明：输出按概率分布采样，流畅不等于正确。幻觉风险识别：幻觉来自训练数据覆盖不足。泛化边界说明：泛化依赖训练数据分布，超出分布会失败。AI 与普通程序区分：普通程序按规则执行，AI 从数据学习。判断标准可操作：需要快速推理时适合用 AI，精确计算与隐私场景不适用。概念解释：机制、边界与失效条件都已说清。解释覆盖机制与边界，关系图包含至少 2 个相邻概念。",
+  });
+  let ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, ev.id);
+  const ws1 = await service.getWorkspace(OWNER);
+  assert.equal(ws1.nodeProgress.find((p) => p.nodeId === activity.nodeId)!.status, "validated", "普通活动证据通过应验证节点");
+  // 发起复测 → 复测活动 → 提交不足证据 → 复测失败
+  const wsRetest = await service.retestNode(OWNER, activity.nodeId);
+  const retestActivity = wsRetest.activities.find((a) => a.activityType === "retest" && a.nodeId === activity.nodeId)!;
+  await service.startActivity(OWNER, retestActivity.id);
+  await service.submitEvidence(OWNER, retestActivity.id, { content: "短。" });
+  ev = (await service.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === retestActivity.id).at(-1)!;
+  const ws2 = await service.reviewEvidence(OWNER, ev.id).then((r) => r.workspace);
+  const suggestion = ws2.adjustments.filter((a) => a.status === "proposed").at(-1);
+  assert.ok(suggestion, "复测失败应产生调整建议");
+  assert.ok(
+    suggestion!.reason.includes("复测未通过"),
+    `reason 应含复测未通过：${suggestion!.reason}`,
+  );
+});
+
+test("新建议产生后：同节点旧 proposed 被 superseded", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "短。" });
+  let ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, ev.id);
+  const ws1 = await service.getWorkspace(OWNER);
+  const first = ws1.adjustments.filter((a) => a.adjustmentType === "activity_replan" && a.status === "proposed").at(-1)!;
+  assert.ok(first, "第一次失败应有 activity_replan 建议");
+  // 第二次失败 → 新建议 → 旧 proposed 应被 superseded
+  await service.submitEvidence(OWNER, activity.id, { content: "模型很厉害。" });
+  ev = (await service.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === activity.id).at(-1)!;
+  const ws2 = await service.reviewEvidence(OWNER, ev.id).then((r) => r.workspace);
+  const second = ws2.adjustments.filter((a) => a.adjustmentType === "activity_replan" && a.status === "proposed").at(-1)!;
+  assert.ok(second, "第二次失败应有新 activity_replan 建议");
+  assert.notEqual(second.id, first.id, "新旧建议 id 应不同");
+  assert.equal(
+    ws2.adjustments.find((a) => a.id === first.id)!.status,
+    "superseded",
+    "同节点旧 proposed 应被取代",
+  );
+  assert.equal(
+    ws2.adjustments.find((a) => a.id === second.id)!.status,
+    "proposed",
+    "新建议保持待确认",
+  );
+});
+
+test("accepted/rejected 旧建议不被 supersede", async () => {
+  // accepted 路径
+  const serviceA = createService();
+  await serviceA.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await serviceA.confirmProposal(OWNER);
+  const wsA0 = await serviceA.getWorkspace(OWNER);
+  const activityA = wsA0.activities.find((a) => a.status === "planned")!;
+  await serviceA.startActivity(OWNER, activityA.id);
+  await serviceA.submitEvidence(OWNER, activityA.id, { content: "短。" });
+  let evA = (await serviceA.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activityA.id)!;
+  await serviceA.reviewEvidence(OWNER, evA.id);
+  const wsA1 = await serviceA.getWorkspace(OWNER);
+  const firstA = wsA1.adjustments.filter((a) => a.adjustmentType === "activity_replan" && a.status === "proposed").at(-1)!;
+  await serviceA.confirmAdjustment(OWNER, firstA.id);
+  await serviceA.submitEvidence(OWNER, activityA.id, { content: "模型很厉害。" });
+  evA = (await serviceA.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === activityA.id).at(-1)!;
+  const wsA2 = await serviceA.reviewEvidence(OWNER, evA.id).then((r) => r.workspace);
+  assert.equal(
+    wsA2.adjustments.find((a) => a.id === firstA.id)!.status,
+    "accepted",
+    "accepted 旧建议不应被 supersede",
+  );
+
+  // rejected 路径
+  const serviceB = createService();
+  await serviceB.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await serviceB.confirmProposal(OWNER);
+  const wsB0 = await serviceB.getWorkspace(OWNER);
+  const activityB = wsB0.activities.find((a) => a.status === "planned")!;
+  await serviceB.startActivity(OWNER, activityB.id);
+  await serviceB.submitEvidence(OWNER, activityB.id, { content: "短。" });
+  let evB = (await serviceB.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activityB.id)!;
+  await serviceB.reviewEvidence(OWNER, evB.id);
+  const wsB1 = await serviceB.getWorkspace(OWNER);
+  const firstB = wsB1.adjustments.filter((a) => a.adjustmentType === "activity_replan" && a.status === "proposed").at(-1)!;
+  await serviceB.rejectAdjustment(OWNER, firstB.id);
+  await serviceB.submitEvidence(OWNER, activityB.id, { content: "模型很厉害。" });
+  evB = (await serviceB.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === activityB.id).at(-1)!;
+  const wsB2 = await serviceB.reviewEvidence(OWNER, evB.id).then((r) => r.workspace);
+  assert.equal(
+    wsB2.adjustments.find((a) => a.id === firstB.id)!.status,
+    "rejected",
+    "rejected 旧建议不应被 supersede",
+  );
 });

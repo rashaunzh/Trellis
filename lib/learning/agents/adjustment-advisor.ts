@@ -5,10 +5,11 @@ import type { AdjustmentAdvisorPort, AdjustmentInput, AdjustmentSuggestion } fro
 
 export class RuleAdjustmentAdvisor implements AdjustmentAdvisorPort {
   suggestAdjustment(input: AdjustmentInput): AdjustmentSuggestion {
-    // 1. 证据被退回 → 轻量调整：补复习/修订活动
+    // 1. 证据被退回 → 调整建议（按优先级：前置缺口 > 复测失败 > 重复失败 > 普通退回）
     if (input.evidenceVerdict === "needs_revision") {
       // 缺口文案：优先用 Evidence Review 的具体信号（无结构化信号时回退旧文案）
       const gapText = buildGapText(input);
+      // 1a. 前置缺口（最高优先：先补基础再回来）
       if (input.prerequisiteGaps.length > 0) {
         return {
           adjustmentType: "activity_replan",
@@ -33,6 +34,59 @@ export class RuleAdjustmentAdvisor implements AdjustmentAdvisorPort {
           severity: "high",
         };
       }
+      // 1b. 复测失败：能力被证伪，节点已降级回成长中
+      if (input.isRetestFailure === true) {
+        const gap = gapPhrase(input);
+        return {
+          adjustmentType: "activity_replan",
+          reason: gap
+            ? `节点「${input.nodeTitle}」复测未通过，已降级回成长中。${gap}。`
+            : `节点「${input.nodeTitle}」复测未通过，已降级回成长中。`,
+          summary: gap
+            ? `复测未通过，节点已回到成长中。${gap}。建议补充练习并重新提交证据。`
+            : `复测未通过，节点已回到成长中；建议补充练习并重新提交证据。`,
+          actions: [
+            {
+              action: "insert_activity",
+              targetNodeId: input.nodeId,
+              description: "插入补强活动：复测未通过，重新积累证据后再验证。",
+            },
+            {
+              action: "revise",
+              targetNodeId: input.nodeId,
+              description: "修订证据并重新提交。",
+            },
+          ],
+          severity: "high",
+        };
+      }
+      // 1c. 同一节点重复失败（≥2 次）：升级为 high，标注次数与反复缺失信号
+      if ((input.failureCount ?? 0) >= 2) {
+        const gap = gapPhrase(input);
+        const repeated = repeatedSignals(input);
+        const repeatedText = repeated.length > 0
+          ? `反复缺失：${repeated.slice(0, 4).join("、")}。`
+          : "";
+        return {
+          adjustmentType: "activity_replan",
+          reason: `节点「${input.nodeTitle}」第 ${input.failureCount} 次未通过。${gap ? `${gap}。` : ""}${repeatedText}`,
+          summary: `同一节点多次未通过（第 ${input.failureCount} 次），建议针对性补强后再提交。${repeatedText}`,
+          actions: [
+            {
+              action: "insert_activity",
+              targetNodeId: input.nodeId,
+              description: `插入补强活动：第 ${input.failureCount} 次未通过，针对性补充练习。`,
+            },
+            {
+              action: "revise",
+              targetNodeId: input.nodeId,
+              description: "按评估反馈修订证据并重新提交。",
+            },
+          ],
+          severity: "high",
+        };
+      }
+      // 1d. 普通退回
       return {
         adjustmentType: "activity_replan",
         reason: gapText
@@ -107,6 +161,23 @@ export class RuleAdjustmentAdvisor implements AdjustmentAdvisorPort {
       severity: "low",
     };
   }
+}
+
+// 缺口信号短语（不含前缀文案），供复测失败/重复失败分支拼入 reason/summary。
+function gapPhrase(input: AdjustmentInput): string {
+  const parts: string[] = [];
+  const missing = (input.missingSignals ?? []).filter(Boolean);
+  const partial = (input.partialSignals ?? []).filter(Boolean);
+  if (missing.length > 0) parts.push(`缺少能力信号：${missing.slice(0, 4).join("、")}`);
+  if (partial.length > 0) parts.push(`部分信号需补强：${partial.slice(0, 3).join("、")}`);
+  return parts.join("；");
+}
+
+// 本轮缺失信号 ∩ 上一轮缺失信号：判定"反复缺失同一能力信号"。
+function repeatedSignals(input: AdjustmentInput): string[] {
+  const missing = (input.missingSignals ?? []).filter(Boolean);
+  const last = (input.lastMissingSignals ?? []).filter(Boolean);
+  return missing.filter((label) => last.includes(label));
 }
 
 // 由 Evidence Review 缺口生成建议文案；无结构化信号时返回 null（调用方回退旧文案）。

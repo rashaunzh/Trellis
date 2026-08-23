@@ -188,6 +188,10 @@ export interface AdjustmentInput {
   partialSignals?: string[]; // 部分覆盖需补强的能力信号（status === "partial"）
   reviewRationale?: string; // 评估结论摘要（assessment.rationale）
   evidenceNextAction?: string; // 评估给出的下一步（assessment.nextAction）
+  // 服务层运行时推导的 transient context，不落库
+  failureCount?: number; // 该节点累计证据未通过次数（needs_revision 次数）
+  isRetestFailure?: boolean; // 本次是否为复测活动证据未通过
+  lastMissingSignals?: string[]; // 上一次未通过时的缺失信号（用于反复缺失判定）
 }
 
 export interface AdjustmentSuggestion {

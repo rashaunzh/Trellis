@@ -570,3 +570,110 @@ test("adjustmentAdvisor：跳过节点时建议安排验证活动（每节点一
     "跳过节点动作应指向节点并说明验证活动",
   );
 });
+
+// ── Proposal / Adjustment Engine：beta transient context 分支 ──────────
+// 新增输入字段（failureCount / isRetestFailure / lastMissingSignals）由服务层
+// 运行时推导，不落库；此处覆盖三条新分支与两条防误判/优先级约束。
+
+test("adjustmentAdvisor：复测失败 → high + 复测未通过/降级回成长中文案", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+    isRetestFailure: true,
+    missingSignals: ["幻觉风险识别"],
+  });
+  assert.equal(suggestion.adjustmentType, "activity_replan");
+  assert.equal(suggestion.severity, "high");
+  assert.ok(suggestion.reason.includes("复测未通过"), `reason 应含复测未通过：${suggestion.reason}`);
+  assert.ok(suggestion.reason.includes("降级回成长中"), `reason 应含降级回成长中：${suggestion.reason}`);
+  // 缺口文案保留
+  assert.ok(suggestion.reason.includes("幻觉风险识别"));
+  // 补强动作指向本节点 + 修订
+  const insert = suggestion.actions.find((a) => a.action === "insert_activity");
+  assert.equal(insert?.targetNodeId, "ai-literacy.mechanism");
+  assert.ok(suggestion.actions.some((a) => a.action === "revise"));
+});
+
+test("adjustmentAdvisor：同一节点重复失败（failureCount=2）→ high + 第 2 次未通过", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+    failureCount: 2,
+  });
+  assert.equal(suggestion.adjustmentType, "activity_replan");
+  assert.equal(suggestion.severity, "high");
+  assert.ok(suggestion.reason.includes("第 2 次未通过"), suggestion.reason);
+});
+
+test("adjustmentAdvisor：反复缺失同一信号 → reason 含反复缺失与信号名", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: [],
+    routeId: "ai-literacy",
+    failureCount: 2,
+    missingSignals: ["概念解释", "边界判断"],
+    lastMissingSignals: ["概念解释"],
+  });
+  assert.equal(suggestion.severity, "high");
+  assert.ok(suggestion.reason.includes("反复缺失"), suggestion.reason);
+  assert.ok(suggestion.reason.includes("概念解释"), `交集信号应出现在 reason：${suggestion.reason}`);
+});
+
+test("adjustmentAdvisor：普通退回不误判（failureCount 未传或为 1 → medium）", () => {
+  const base = {
+    nodeId: "ai-literacy.mechanism",
+    nodeTitle: "机制与边界",
+    evidenceVerdict: "needs_revision" as const,
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [] as string[],
+    prerequisiteGaps: [] as string[],
+    routeId: "ai-literacy",
+  };
+  // 未传 failureCount（既有调用方）与 failureCount=1 均不得升级 high
+  assert.equal(agents.adjustmentAdvisor.suggestAdjustment(base).severity, "medium");
+  assert.equal(agents.adjustmentAdvisor.suggestAdjustment({ ...base, failureCount: 1 }).severity, "medium");
+  assert.equal(
+    agents.adjustmentAdvisor.suggestAdjustment({ ...base, failureCount: 1, isRetestFailure: false }).severity,
+    "medium",
+  );
+});
+
+test("adjustmentAdvisor：前置缺口优先于复测失败/重复失败", () => {
+  const suggestion = agents.adjustmentAdvisor.suggestAdjustment({
+    nodeId: "ai-literacy.fit",
+    nodeTitle: "神经网络与深度学习",
+    evidenceVerdict: "needs_revision",
+    activityStatus: "evidence_submitted",
+    completionRate: 1,
+    skippedNodeIds: [],
+    prerequisiteGaps: ["ai-literacy.mechanism"],
+    routeId: "ai-literacy",
+    isRetestFailure: true,
+    failureCount: 3,
+    missingSignals: ["边界判断"],
+    lastMissingSignals: ["边界判断"],
+  });
+  assert.equal(suggestion.severity, "high");
+  assert.ok(suggestion.reason.includes("前置缺口"), suggestion.reason);
+  const insert = suggestion.actions.find((a) => a.action === "insert_activity");
+  assert.equal(insert?.targetNodeId, "ai-literacy.mechanism", "应插入前置节点活动");
+  assert.ok(insert?.description.startsWith("插入前置节点活动："));
+});

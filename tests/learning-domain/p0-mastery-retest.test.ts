@@ -76,10 +76,59 @@ test("confirmMastery corrected → 节点回 growing + 降级 + 补强建议", a
     ws2.adjustments.some((a) => a.adjustmentType === "mastery_confirm" && a.status === "rejected"),
     "应写入 mastery_confirm(rejected)",
   );
+  const boost = ws2.adjustments.find((a) => {
+    if (a.adjustmentType !== "weekly_light" || a.status !== "proposed") return false;
+    const actions = JSON.parse(a.actionJson);
+    return Array.isArray(actions) && actions.some((action) => action.action === "insert_activity");
+  });
+  assert.ok(boost, "应生成补强建议（weekly_light proposed）");
+  // 补强建议可执行：actionJson 含 insert_activity，指向被纠正节点
+  const boostActions = JSON.parse(boost!.actionJson);
+  assert.ok(Array.isArray(boostActions) && boostActions.length === 1, "actionJson 应可解析且含 1 个动作");
+  assert.equal(boostActions[0].action, "insert_activity");
+  assert.equal(boostActions[0].targetNodeId, task.nodeId);
   assert.ok(
     ws2.adjustments.some((a) => a.adjustmentType === "weekly_light" && a.status === "proposed"),
     "应生成补强建议",
   );
+});
+
+test("采纳补强建议：confirmAdjustment(boost) 后插入补强活动", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const task = ws.activities.find((a) => a.activityType === "integrated_task")!;
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  await service.confirmMastery(OWNER, task.nodeId, { decision: "corrected", note: "还没完全懂" });
+  const ws2 = await service.getWorkspace(OWNER);
+  const boost = ws2.adjustments.find((a) => {
+    if (a.adjustmentType !== "weekly_light" || a.status !== "proposed") return false;
+    const actions = JSON.parse(a.actionJson);
+    return Array.isArray(actions) && actions.some((action) => action.action === "insert_activity");
+  })!;
+  assert.ok(boost, "应生成 weekly_light proposed 补强建议");
+  // mastery_confirm rejected 记录保持存在，不被采纳流程破坏
+  assert.ok(
+    ws2.adjustments.some((a) => a.adjustmentType === "mastery_confirm" && a.status === "rejected"),
+    "mastery_confirm(rejected) 应仍在",
+  );
+
+  const beforeCount = ws2.activities.length;
+  await service.confirmAdjustment(OWNER, boost.id);
+  const ws3 = await service.getWorkspace(OWNER);
+  // 采纳后活动数 +1，新活动指向原节点且为非核心补强活动
+  assert.equal(ws3.activities.length, beforeCount + 1, "确认后应插入 1 个补强活动");
+  const inserted = ws3.activities.find((a) => !ws2.activities.some((b) => b.id === a.id))!;
+  assert.ok(inserted, "应找到新插入的活动");
+  assert.ok(inserted.title.startsWith("补强活动："), `标题应以补强活动开头：${inserted.title}`);
+  assert.equal(inserted.nodeId, task.nodeId, "补强活动应指向被纠正节点");
+  assert.equal(inserted.isCore, false, "补强活动不计入核心承诺");
+  assert.equal(inserted.activityType, "independent_practice");
+  // 调整记录状态流转为已采纳
+  const acceptedBoost = ws3.adjustments.find((a) => a.id === boost.id);
+  assert.equal(acceptedBoost?.status, "accepted");
 });
 
 test("普通活动证据 accepted 仍自动验证（不要求确认）", async () => {
@@ -160,9 +209,14 @@ test("复测失败：节点回 growing + 熟练等级降级", async () => {
   const ev2 = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === retest.id)!;
   const before = (await service.getWorkspace(OWNER)).nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
   await service.reviewEvidence(OWNER, ev2.id);
-  const np = (await service.getWorkspace(OWNER)).nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
+  const ws3 = await service.getWorkspace(OWNER);
+  const np = ws3.nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
   assert.equal(np.status, "growing", "复测失败回成长中");
   assert.ok(np.confidence <= before.confidence, "熟练等级不升反降");
+  const adjustment = ws3.adjustments.find((a) => a.adjustmentType === "activity_replan" && a.status === "proposed");
+  assert.ok(adjustment, "复测失败应生成调整建议");
+  assert.ok(adjustment!.reason.includes("复测未通过"), adjustment!.reason);
+  assert.ok(adjustment!.reason.includes("降级回成长中"), adjustment!.reason);
 });
 
 test("已验证节点再完成综合任务 → 再次待确认（强证据需用户确认）", async () => {

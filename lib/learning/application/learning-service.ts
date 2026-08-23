@@ -69,6 +69,24 @@ function parseSignalSegment(reason: string, marker: string): string[] {
   return segment.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
 }
 
+// 最近一条历史失败证据（非本次、needs_revision、reviewJson 可解析）的缺失信号。
+// 无时间字段时以 listEvidenceByNode 返回顺序末尾为最近；解析失败返回 []，不抛错。
+function lastMissingSignalsFrom(history: Evidence[], currentEvidenceId: string): string[] {
+  const prev = history
+    .filter((e) => e.id !== currentEvidenceId && e.status === "needs_revision")
+    .at(-1);
+  if (!prev) return [];
+  try {
+    const parsed = JSON.parse(prev.reviewJson) as Partial<EvidenceAssessment>;
+    if (!Array.isArray(parsed.signalReviews)) return [];
+    return parsed.signalReviews
+      .filter((s) => s.status === "missing")
+      .map((s) => s.label);
+  } catch {
+    return [];
+  }
+}
+
 // ── 当前周键（ISO 周）───────────────────────────────────
 export function currentWeekKey(now = new Date()): string {
   const date = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
@@ -589,7 +607,12 @@ export class LearningApplicationService {
     const prerequisiteGaps = assessment.nextAction === "insert_prerequisite"
       ? getPrerequisiteNodeIds(evidence.nodeId, learningContentPack)
       : [];
-    const suggestion = this.agents.adjustmentAdvisor.suggestAdjustment({
+    const routeId = (await this.store.getProfile(ownerId))?.activeRouteId ?? "";
+    // v0.3-beta：历史失败上下文推导
+    // 评审结果已落库（本次 needs_revision 计入 failureCount）；无时间字段时
+    // 以 listEvidenceByNode 返回顺序末尾为最近一条历史失败证据。
+    const nodeEvidenceHistory = await this.store.listEvidenceByNode(evidence.nodeId);
+    const adjustmentInput = {
       nodeId: evidence.nodeId,
       nodeTitle: node.title,
       evidenceVerdict: assessment.verdict,
@@ -597,7 +620,7 @@ export class LearningApplicationService {
       completionRate,
       skippedNodeIds: skipped,
       prerequisiteGaps,
-      routeId: (await this.store.getProfile(ownerId))?.activeRouteId ?? "",
+      routeId,
       // Evidence Review → Adjustment 缺口回流：建议文案能指出具体缺失的能力信号
       missingSignals: assessment.signalReviews
         .filter((signal) => signal.status === "missing")
@@ -607,12 +630,31 @@ export class LearningApplicationService {
         .map((signal) => signal.label),
       reviewRationale: assessment.rationale,
       evidenceNextAction: assessment.nextAction,
-    });
+      // beta：同一节点历史失败次数（含本次），仅在 needs_revision 场景被 advisor 消费
+      failureCount: nodeEvidenceHistory.filter((e) => e.status === "needs_revision").length,
+      isRetestFailure: activity.activityType === "retest" && assessment.verdict === "needs_revision",
+      lastMissingSignals: lastMissingSignalsFrom(nodeEvidenceHistory, evidence.id),
+    };
+    const suggestion = this.agents.adjustmentAdvisor.suggestAdjustment(adjustmentInput);
     if (suggestion.severity !== "low") {
+      // 保守 supersede：只取代 actionJson targetNodeId === 当前节点 的旧 proposed。
+      // 前置缺口建议 target 为前置节点、weekly_light 无 target，均不在本策略内（避免误伤）。
+      const proposals = await this.store.listAdjustments(ownerId);
+      for (const old of proposals) {
+        if (
+          old.status === "proposed"
+          && old.routeId === routeId
+          && parseAdjustmentActions(old.actionJson)
+            .some((x) => x.action === "insert_activity" && x.targetNodeId === evidence.nodeId)
+        ) {
+          old.status = "superseded";
+          await this.store.saveAdjustment(old);
+        }
+      }
       const adjustment: AdjustmentRecord = {
         id: stableId("adjustment", `${evidenceId}:${suggestion.adjustmentType}`),
         ownerId,
-        routeId: (await this.store.getProfile(ownerId))?.activeRouteId ?? "",
+        routeId,
         weeklyPlanId: activity.weeklyPlanId,
         adjustmentType: suggestion.adjustmentType,
         reason: suggestion.reason,
@@ -719,7 +761,14 @@ export class LearningApplicationService {
         reason: "掌握确认被纠正，需要补强",
         status: "proposed",
         summary: `为「${node?.title ?? nodeId}」安排复习/补强活动，重新积累证据后再次验证。`,
-        actionJson: "[]",
+        // 补强建议可执行：采纳后由 executeAdjustmentActions 插入 independent_practice 补强活动
+        actionJson: JSON.stringify([
+          {
+            action: "insert_activity",
+            targetNodeId: nodeId,
+            description: `为「${node?.title ?? nodeId}」安排一次补强活动，重新积累证据。`,
+          },
+        ]),
       };
       await this.store.saveAdjustment(boost);
     }
