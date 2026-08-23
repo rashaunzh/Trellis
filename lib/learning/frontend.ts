@@ -283,6 +283,13 @@ export async function confirmAdjustment(adjustmentId: string): Promise<Workspace
   return data.workspace;
 }
 
+export async function rejectAdjustment(adjustmentId: string): Promise<Workspace> {
+  const data = await readJson<{ workspace: Workspace }>(
+    await apiFetch(`/api/learning/adjustments/${adjustmentId}/reject`, { method: "POST" }),
+  );
+  return data.workspace;
+}
+
 export async function proposeAdjustment(input: {
   adjustmentType: WorkspaceAdjustment["adjustmentType"];
   reason: string;

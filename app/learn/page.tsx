@@ -13,12 +13,15 @@ import {
   submitEvidence,
   reviewEvidence,
   confirmAdjustment,
+  rejectAdjustment,
   resetLearner,
   replanCurrentWeek,
   retestNode,
+  ADJUSTMENT_TYPE_TEXT,
   type AssessmentResult,
   type Workspace,
   type WorkspaceActivity,
+  type WorkspaceAdjustment,
 } from "../../lib/learning/frontend";
 
 const WEEKLY_TIME_OPTIONS = [
@@ -31,6 +34,45 @@ const WEEKLY_TIME_OPTIONS = [
   [1200, "20 小时"],
 ] as const;
 const CUSTOM_TIME = "custom";
+
+const ADJUSTMENT_STATUS_TEXT: Record<WorkspaceAdjustment["status"], string> = {
+  proposed: "待确认",
+  accepted: "已采纳",
+  rejected: "已忽略",
+  superseded: "已被新建议取代",
+};
+
+function extractAdjustmentSignals(reason: string): string[] {
+  const labels = new Set<string>();
+  for (const marker of ["缺少能力信号：", "部分信号需补强："]) {
+    const segment = reason.split(marker)[1]?.split(/[。；;]/)[0];
+    if (!segment) continue;
+    for (const label of segment.split(/[、,，]/).map((item) => item.trim()).filter(Boolean)) {
+      labels.add(label);
+    }
+  }
+  return Array.from(labels);
+}
+
+function describeAdjustmentAction(adjustment: WorkspaceAdjustment): string {
+  const reason = adjustment.reason;
+  if (adjustment.adjustmentType === "activity_replan" && reason.includes("前置")) {
+    return "建议先补一个前置活动，补齐基础后再回来重新提交证据。";
+  }
+  if (adjustment.adjustmentType === "activity_replan") {
+    return "建议按缺口补充可复核证据，采纳后系统会插入一次补强活动。";
+  }
+  if (adjustment.adjustmentType === "weekly_light" && reason.includes("跳过")) {
+    return "建议为跳过节点安排一次验证活动，提交证据后再确认掌握。";
+  }
+  if (adjustment.adjustmentType === "weekly_light") {
+    return "建议本周降低新增压力，保留核心活动，其余顺延。";
+  }
+  if (adjustment.adjustmentType === "mastery_confirm") {
+    return "建议处理掌握确认结果，并按确认或纠正后的状态继续学习。";
+  }
+  return "建议根据这次证据反馈更新后续学习路线。";
+}
 
 export default function LearnPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
@@ -345,23 +387,42 @@ export default function LearnPage() {
         <div className="t2-adjust-list">
           {ws.adjustments.map((a) => (
             <div key={a.id} className={`t2-adjust ${a.status === "proposed" ? "proposed" : ""}`}>
-              <b>{a.adjustmentType}</b>
-              <p>{a.summary}</p>
+              <div className="t2-adjust-main">
+                <div className="t2-adjust-title">
+                  <b>{ADJUSTMENT_TYPE_TEXT[a.adjustmentType]}</b>
+                  <em className={`t2-adjust-status ${a.status}`}>{ADJUSTMENT_STATUS_TEXT[a.status]}</em>
+                </div>
+                <p><span>为什么：</span>{a.reason}</p>
+                {extractAdjustmentSignals(a.reason).length > 0 && (
+                  <div className="t2-adjust-signals" aria-label="缺口信号">
+                    {extractAdjustmentSignals(a.reason).map((signal) => <span key={signal}>{signal}</span>)}
+                  </div>
+                )}
+                <p><span>做什么：</span>{describeAdjustmentAction(a)}</p>
+              </div>
               <div className="t2-adjust-meta">
-                <em>{a.status === "proposed" ? "待确认" : a.status === "accepted" ? "已确认" : a.status}</em>
                 {a.status === "proposed" && (
-                  <button
-                    className="t2-mini"
-                    disabled={busy}
-                    onClick={() => void run(() => confirmAdjustment(a.id), "调整已确认")}
-                  >
-                    确认
-                  </button>
+                  <>
+                    <button
+                      className="t2-mini"
+                      disabled={busy}
+                      onClick={() => void run(() => confirmAdjustment(a.id), "已采纳，继续按建议学习")}
+                    >
+                      采纳建议
+                    </button>
+                    <button
+                      className="t2-mini subtle"
+                      disabled={busy}
+                      onClick={() => void run(() => rejectAdjustment(a.id), "已忽略，本周计划保持不变")}
+                    >
+                      先不调整
+                    </button>
+                  </>
                 )}
               </div>
             </div>
           ))}
-          {ws.adjustments.length === 0 && <p className="t2-empty">暂无调整记录。</p>}
+          {ws.adjustments.length === 0 && <p className="t2-empty">暂无调整建议。证据被退回或计划偏离时，这里会给出具体建议。</p>}
         </div>
       </section>
 

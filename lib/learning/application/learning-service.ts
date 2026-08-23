@@ -625,6 +625,20 @@ export class LearningApplicationService {
     return this.getWorkspace(ownerId);
   }
 
+  // ── POST /api/learning/adjustments/:id/reject ───────
+  async rejectAdjustment(ownerId: string, adjustmentId: string): Promise<Workspace> {
+    const adjustment = await this.store.getAdjustment(adjustmentId);
+    if (!adjustment || adjustment.ownerId !== ownerId) {
+      throw new LearningError("调整建议不存在", 404);
+    }
+    if (adjustment.status !== "proposed") {
+      throw new LearningError(`调整建议状态 ${adjustment.status} 不允许忽略`, 400);
+    }
+    adjustment.status = "rejected";
+    await this.store.saveAdjustment(adjustment);
+    return this.getWorkspace(ownerId);
+  }
+
   // ── GET /api/learning/resources/inbox ─────────────────
   // 收集箱独立于学习状态（无 profile 也能读），不走 getWorkspace（profile null 会早退）。
   async listInboxResources(ownerId: string): Promise<UserResource[]> {

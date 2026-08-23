@@ -202,6 +202,35 @@ test("调整建议确认：proposed → accepted", async () => {
   );
 });
 
+test("调整建议忽略：proposed → rejected，且不执行补强动作", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const ws0 = await service.getWorkspace(OWNER);
+  const activity = ws0.activities.find((a) => a.status === "planned")!;
+
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "短。" });
+  const ev = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, ev.id);
+
+  const ws1 = await service.getWorkspace(OWNER);
+  const adjustment = ws1.adjustments.find((a) => a.status === "proposed");
+  assert.ok(adjustment, "应有待忽略的调整建议");
+  const beforeActivityCount = ws1.activities.length;
+
+  const ws2 = await service.rejectAdjustment(OWNER, adjustment!.id);
+  assert.equal(
+    ws2.adjustments.find((a) => a.id === adjustment!.id)!.status,
+    "rejected",
+  );
+  assert.equal(
+    ws2.activities.length,
+    beforeActivityCount,
+    "忽略调整建议不应插入补强活动",
+  );
+});
+
 test("重复提交证据：同一活动第二次提交仍合法（新证据）", async () => {
   const service = createService();
   await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
