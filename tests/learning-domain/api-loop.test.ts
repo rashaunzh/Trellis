@@ -552,8 +552,9 @@ test("复测证据退回：新建议 reason 含「复测未通过」", async () 
   await service.submitEvidence(OWNER, retestActivity.id, { content: "短。" });
   ev = (await service.getWorkspace(OWNER)).evidence.filter((e) => e.activityId === retestActivity.id).at(-1)!;
   const ws2 = await service.reviewEvidence(OWNER, ev.id).then((r) => r.workspace);
-  const suggestion = ws2.adjustments.filter((a) => a.status === "proposed").at(-1);
-  assert.ok(suggestion, "复测失败应产生调整建议");
+  // 完成率低会额外产生 weekly_light，需精确匹配复测失败对应的 activity_replan
+  const suggestion = ws2.adjustments.filter((a) => a.adjustmentType === "activity_replan" && a.status === "proposed").at(-1);
+  assert.ok(suggestion, "复测失败应产生 activity_replan 调整建议");
   assert.ok(
     suggestion!.reason.includes("复测未通过"),
     `reason 应含复测未通过：${suggestion!.reason}`,
