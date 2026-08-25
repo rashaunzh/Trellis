@@ -15,6 +15,7 @@ import RuleAdjustmentAdvisor from "./adjustment-advisor.ts";
 import RuleCapabilityMapper from "./capability-mapper.ts";
 import RuleGoalAnalyzer from "./goal-analyzer.ts";
 import RuleCourseMaterialAnalyzer from "./course-analyzer.ts";
+import RuleMaterialReviewer from "./material-reviewer.ts";
 import { RuleAdaptiveRoutePlanner } from "./adaptive-planner.ts";
 import RuleLearningDecisionPolicy from "./learning-decision-policy.ts";
 
@@ -24,6 +25,7 @@ export function createRuleAgents(): AgentRegistry {
   return {
     goalAnalyzer: new RuleGoalAnalyzer(),
     courseAnalyzer: new RuleCourseMaterialAnalyzer(),
+    materialReviewer: new RuleMaterialReviewer(),
     capabilityMapper: new RuleCapabilityMapper(),
     planner: new RulePlanner(),
     activityComposer: new RuleActivityComposer(),

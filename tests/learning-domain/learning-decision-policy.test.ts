@@ -42,6 +42,70 @@ test("资料不可靠：先 review_material，而不是盲目当主线", () => {
   assert.ok(decision.expectedOutcome.includes("core/reference/supplement/not_recommended"));
 });
 
+test("MaterialReview 为 not_recommended：DecisionPolicy 优先 route_correction", () => {
+  const decision = policy.decideNextMove({
+    goalText: "系统学习 AIPM，并在 14 天内产出一个作品集项目",
+    materialReviews: [{
+      materialId: "course.bad",
+      title: "7 天速成 AI PM",
+      verdict: "not_recommended",
+      qualityScore: 30,
+      personalFitScore: 25,
+      scores: {
+        sourceCredibility: 35,
+        structureClarity: 30,
+        practiceDensity: 20,
+        assessmentClarity: 20,
+        projectRelevance: 20,
+        freshness: 55,
+        marketingRisk: 90,
+        beginnerFit: 40,
+        goalFit: 35,
+        timeFit: 30,
+      },
+      strengths: [],
+      risks: ["存在过度承诺或营销风险"],
+      missingAreas: ["缺少评估标准"],
+      rationale: "当前阶段不建议使用：质量 30/100，个人适配 25/100。",
+    }],
+  });
+  assert.equal(decision.primaryNeed, "route_correction");
+  assert.equal(decision.recommendedMode, "rubric_review");
+  assert.ok(decision.toolCalls.includes("materialReviewer"));
+});
+
+test("MaterialReview 为 supplement：DecisionPolicy 优先 review_material", () => {
+  const decision = policy.decideNextMove({
+    goalText: "系统学习 AIPM，并在 14 天内产出一个作品集项目",
+    materialReviews: [{
+      materialId: "course.supplement",
+      title: "AIPM 入门概念课",
+      verdict: "supplement",
+      qualityScore: 55,
+      personalFitScore: 50,
+      scores: {
+        sourceCredibility: 55,
+        structureClarity: 70,
+        practiceDensity: 30,
+        assessmentClarity: 30,
+        projectRelevance: 25,
+        freshness: 55,
+        marketingRisk: 20,
+        beginnerFit: 75,
+        goalFit: 55,
+        timeFit: 35,
+      },
+      strengths: ["结构较清晰"],
+      risks: [],
+      missingAreas: ["缺少阶段产出或项目连接"],
+      rationale: "可用但需要补充材料或练习：质量 55/100，个人适配 50/100。",
+    }],
+  });
+  assert.equal(decision.primaryNeed, "review_material");
+  assert.equal(decision.evidencePolicy, "soft_signal");
+  assert.ok(decision.nextAction.includes("补齐"));
+});
+
 test("小白基础阶段：优先 build_understanding，用软信号观察理解", () => {
   const decision = policy.decideNextMove({
     goalText: "系统学习 AIPM，并能解释 AI 产品的基本判断逻辑",

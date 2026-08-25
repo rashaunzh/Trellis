@@ -324,6 +324,49 @@ export interface CourseMaterialAnalyzerPort {
   analyzeMaterials(input: CourseMaterialAnalyzerInput): CourseMaterialAnalysis[];
 }
 
+// ── materialReviewer：资料质量 + 个人适配判断 ───────────
+// 判断材料是否适合作为"当前用户/目标/阶段"的学习主线。课程本身的影响力不等于
+// 个人适配；高影响但缺练习/项目的材料只能作为 reference 或 supplement。
+
+export type MaterialReviewVerdict = "core" | "reference" | "supplement" | "not_recommended";
+
+export interface MaterialReviewScore {
+  sourceCredibility: number;
+  structureClarity: number;
+  practiceDensity: number;
+  assessmentClarity: number;
+  projectRelevance: number;
+  freshness: number;
+  marketingRisk: number;
+  beginnerFit: number;
+  goalFit: number;
+  timeFit: number;
+}
+
+export interface MaterialReview {
+  materialId: string;
+  title: string;
+  verdict: MaterialReviewVerdict;
+  qualityScore: number;
+  personalFitScore: number;
+  scores: MaterialReviewScore;
+  strengths: string[];
+  risks: string[];
+  missingAreas: string[];
+  rationale: string;
+}
+
+export interface MaterialReviewerInput {
+  goalAnalysis: GoalAnalysis;
+  materials: CourseMaterialAnalysis[];
+  situation?: Pick<LearningSituation, "learnerLevel" | "timePressure" | "currentStage">;
+  weeksRemaining?: number;
+}
+
+export interface MaterialReviewerPort {
+  reviewMaterials(input: MaterialReviewerInput): MaterialReview[];
+}
+
 // ── capabilityMapper：目标+材料分析 → 能力结构（管线前半段）────────
 // 把学习目标与课程/材料分析转换成 Domain / Capability / Signal /
 // Evidence Requirement 能力结构，供 planner 编排与 Evidence Review 消费。
@@ -405,6 +448,7 @@ export interface LearningSituationInput {
   goalText: string;
   goalAnalysis?: GoalAnalysis;
   courseMaterials?: CourseMaterialAnalysis[];
+  materialReviews?: MaterialReview[];
   capabilityMap?: CapabilityMap;
   hasRoute?: boolean;
   hasActiveActivities?: boolean;
@@ -461,6 +505,7 @@ export interface LearningDecisionPolicyPort {
 export interface AgentRegistry {
   goalAnalyzer: GoalAnalyzerPort;
   courseAnalyzer: CourseMaterialAnalyzerPort;
+  materialReviewer: MaterialReviewerPort;
   capabilityMapper: CapabilityMapperPort;
   planner: PlannerPort;
   activityComposer: ActivityComposerPort;

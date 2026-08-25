@@ -28,6 +28,13 @@ function goalClarity(goalText: string): LearningSituation["goalClarity"] {
 }
 
 function materialStatus(input: LearningSituationInput): LearningSituation["materialStatus"] {
+  const reviews = input.materialReviews ?? [];
+  if (reviews.some((review) => review.verdict === "not_recommended" || review.verdict === "supplement")) {
+    return "risky";
+  }
+  if (reviews.length > 0 && reviews.every((review) => review.verdict === "core" || review.verdict === "reference")) {
+    return "usable";
+  }
   const materials = input.courseMaterials ?? [];
   if (materials.length === 0) return "none";
   const hasRisk = materials.some((m) => (m.credibilityLevel ?? 2) <= 1 || !m.coveredCapabilityIds?.length);
@@ -157,6 +164,26 @@ export class RuleLearningDecisionPolicy implements LearningDecisionPolicyPort {
         "soft_signal",
         ["soft_signal"],
         ["goalAnalyzer"],
+      );
+    }
+    const blockingReview = (input.materialReviews ?? []).find((review) =>
+      review.verdict === "not_recommended" || review.verdict === "supplement"
+    );
+    if (blockingReview) {
+      const need: LearningNeed = blockingReview.verdict === "not_recommended" ? "route_correction" : "review_material";
+      return makeDecision(
+        situation,
+        need,
+        "rubric_review",
+        blockingReview.verdict === "not_recommended"
+          ? "先不要把这份资料当主线，改用更可靠材料或内置内容包校准路线。"
+          : "先补齐这份资料缺少的练习、评估标准或项目产出，再进入正式学习计划。",
+        blockingReview.rationale,
+        "明确这份资料在当前阶段的定位，避免把参考材料误当主线。",
+        "soft_signal",
+        ["soft_signal"],
+        ["materialReviewer", "courseAnalyzer", "capabilityMapper"],
+        blockingReview.verdict === "not_recommended" ? 0.86 : 0.78,
       );
     }
     if (situation.materialStatus === "risky" || situation.materialStatus === "unreviewed") {
