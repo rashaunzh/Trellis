@@ -389,13 +389,15 @@ export interface CapabilityMapperPort {
 // （learning_diagnostics.answers_json），confirmProposal 据此决定计划来源。
 export type PlannerMode = "legacy" | "adaptive_preview" | "adaptive_existing_content";
 
-// ── 学习分析：runDiagnostic 前半段流水线的瞬态产物（Full Chain Phase 2）──
-// 由 goalAnalyzer → courseAnalyzer → capabilityMapper → adaptiveRoutePlanner
+// ── 学习分析：runDiagnostic 前半段流水线的瞬态产物（Full Chain Phase 2+）──
+// 由 goalAnalyzer → courseAnalyzer → materialReviewer → capabilityMapper → learningDecisionPolicy → adaptiveRoutePlanner
 // 组合而成，仅作为 workspace.analysis 返回（不落库、不进入证据评审闭环）。
 export interface LearningAnalysis {
   goalAnalysis: GoalAnalysis;
   courseMaterials: CourseMaterialAnalysis[];
+  materialReviews: MaterialReview[];
   capabilityMap: CapabilityMap;
+  learningDecision: LearningDecision;
   adaptivePlan: AdaptivePlan;
   /** 本次诊断请求的规划模式（默认 "legacy"；adaptive 是否可驱动正式计划） */
   plannerMode: PlannerMode;

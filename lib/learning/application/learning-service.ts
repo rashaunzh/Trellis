@@ -1146,9 +1146,9 @@ export class LearningApplicationService {
     return this.getWorkspace(ownerId);
   }
 
-  // ── Full Chain Phase 2：analysis pipeline（transient，不落库）────────
-  // 完整链路：goalAnalyzer → courseAnalyzer → capabilityMapper →
-  // adaptiveRoutePlanner，产物用于 runDiagnostic 响应的可观察预览，以及
+  // ── Full Chain Phase 2+：analysis pipeline（transient，不落库）────────
+  // 完整链路：goalAnalyzer → courseAnalyzer → materialReviewer →
+  // capabilityMapper → learningDecisionPolicy → adaptiveRoutePlanner，产物用于 runDiagnostic 响应的可观察预览，以及
   // confirmProposal 的受控 adaptive 激活（Phase 3）。
   // 默认学习流程（legacy planner、profile、nodeProgress、confirmProposal/
   // replan、Evidence Review、Adjustment）默认不读取本产物；generic fallback
@@ -1170,6 +1170,11 @@ export class LearningApplicationService {
       goalAnalysis,
       materialIds: input.materialIds,
     });
+    const materialReviews = this.agents.materialReviewer.reviewMaterials({
+      goalAnalysis,
+      materials: courseMaterials,
+      weeksRemaining: 2,
+    });
     const capabilityMap = this.agents.capabilityMapper.mapCapabilities({
       goalAnalysis,
       materials: courseMaterials,
@@ -1185,11 +1190,24 @@ export class LearningApplicationService {
       selfReport: input.selfReport,
       weekKey: currentWeekKey(),
     });
+    const learningDecision = this.agents.learningDecisionPolicy.decideNextMove({
+      goalText: input.goal,
+      goalAnalysis: goalAnalysisForPlan,
+      courseMaterials,
+      materialReviews,
+      capabilityMap,
+      hasRoute: capabilityMap.capabilities.length > 0,
+      hasActiveActivities: adaptivePlan.weeklyPlan.activities.length > 0,
+      weeksRemaining: 2,
+      capabilityLevelById: input.selfReport,
+    });
     return {
       // analysis 暴露 planner 实际消费的 goalAnalysis（含回填的目标能力 id）
       goalAnalysis: goalAnalysisForPlan,
       courseMaterials,
+      materialReviews,
       capabilityMap,
+      learningDecision,
       adaptivePlan,
       plannerMode: input.plannerMode,
       mode: "rule",

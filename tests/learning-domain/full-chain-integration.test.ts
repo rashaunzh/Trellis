@@ -35,6 +35,8 @@ test("runDiagnostic 后 workspace.analysis 存在，goal 等于输入原文，�
   assert.equal(ws.analysis!.plannerMode, "legacy", "Phase 2 不切换默认 planner");
   assert.equal(ws.analysis!.mode, "rule");
   assert.ok(ws.analysis!.capabilityMap.capabilities.length >= 1);
+  assert.deepEqual(ws.analysis!.materialReviews, [], "无材料时资料评审为空");
+  assert.ok(ws.analysis!.learningDecision.primaryNeed, "应给出下一步学习决策");
   assert.ok(ws.analysis!.adaptivePlan.weeklyPlan.activities.length >= 1, "应有 adaptivePlan 预览");
 });
 
@@ -108,6 +110,28 @@ test("materialIds 非空：courseMaterials 输出覆盖关系（resourceMappings
     ws.analysis!.courseMaterials[0].coveredCapabilityIds!.includes("ai-literacy.mechanism"),
     "材料覆盖应来自 resourceMappings",
   );
+  assert.equal(ws.analysis!.materialReviews.length, 1, "有材料时应产出资料评审");
+  assert.equal(ws.analysis!.materialReviews[0].materialId, "res.gml-crash-course");
+  assert.ok(["core", "reference", "supplement", "not_recommended"].includes(ws.analysis!.materialReviews[0].verdict));
+  assert.ok(ws.analysis!.learningDecision.toolCalls.length >= 1, "诊断应附带下一步决策需要的 agent/tool 线索");
+});
+
+test("MaterialReview 会影响 runDiagnostic 的 learningDecision", async () => {
+  const service = createService();
+  const ws = await service.runDiagnostic({
+    ownerId: OWNER,
+    goal: "系统学习 AIPM，并在 14 天内产出作品集项目",
+    weeklyMinutes: 180,
+    materialIds: ["res.gml-crash-course"],
+  });
+  assert.ok(ws.analysis!.materialReviews.length >= 1);
+  if (ws.analysis!.materialReviews.some((review) => review.verdict === "supplement" || review.verdict === "not_recommended")) {
+    assert.ok(
+      ["review_material", "route_correction"].includes(ws.analysis!.learningDecision.primaryNeed),
+      "不适合当前阶段的资料应先触发资料评审或路线修正",
+    );
+    assert.ok(ws.analysis!.learningDecision.toolCalls.includes("materialReviewer"));
+  }
 });
 
 test("confirmProposal 后 weeklyPlan 仍是 legacy 生成，不被 adaptivePlan 替换", async () => {
