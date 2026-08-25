@@ -35,11 +35,49 @@ const WEEKLY_TIME_OPTIONS = [
 ] as const;
 const CUSTOM_TIME = "custom";
 
+const MATERIAL_OPTIONS = [
+  {
+    id: "res.gml-crash-course",
+    title: "Machine Learning Crash Course",
+    description: "Google 官方 ML 入门，适合建立 AI 基础概念。",
+  },
+  {
+    id: "res.openai-evals",
+    title: "OpenAI Evals Guide",
+    description: "评测集设计与失败样例，适合 AI 产品评估任务。",
+  },
+  {
+    id: "res.nist-ai-rmf",
+    title: "NIST AI Risk Management Framework",
+    description: "AI 风险管理标准，适合判断可靠性与治理边界。",
+  },
+] as const;
+
 const ADJUSTMENT_STATUS_TEXT: Record<WorkspaceAdjustment["status"], string> = {
   proposed: "待确认",
   accepted: "已采纳",
   rejected: "已忽略",
   superseded: "已被新建议取代",
+};
+
+const MATERIAL_VERDICT_TEXT: Record<string, string> = {
+  core: "可作主线",
+  reference: "适合参考",
+  supplement: "需要补充",
+  not_recommended: "暂不建议",
+};
+
+const LEARNING_NEED_TEXT: Record<string, string> = {
+  clarify_goal: "先把目标说清楚",
+  review_material: "先评估资料是否适合",
+  build_understanding: "先建立理解",
+  practice_skill: "进入练习",
+  produce_artifact: "开始产出作品",
+  repair_gap: "修复能力缺口",
+  spaced_review: "安排复习",
+  motivation_support: "降低范围，恢复节奏",
+  route_correction: "修正学习路线",
+  package_portfolio: "包装阶段成果",
 };
 
 function extractAdjustmentSignals(reason: string): string[] {
@@ -129,6 +167,7 @@ export default function LearnPage() {
   const [weeklyMinutes, setWeeklyMinutes] = useState(300); // 默认 5 小时
   const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
   const [preference, setPreference] = useState<"breadth_first" | "build_first">("breadth_first");
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   // 活动抽屉
   const [activeActivity, setActiveActivity] = useState<WorkspaceActivity | null>(null);
   const [evidenceDraft, setEvidenceDraft] = useState("");
@@ -246,11 +285,34 @@ export default function LearnPage() {
                 </select>
               </label>
             </div>
+            <fieldset className="t2-material-picker">
+              <legend>已有参考资料（可选）</legend>
+              <p>你可以先带一份资料进来。Trellis 会判断它适不适合当当前主线，而不是默认全都照单全收。</p>
+              {MATERIAL_OPTIONS.map((material) => (
+                <label key={material.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedMaterialIds.includes(material.id)}
+                    onChange={(e) => {
+                      setSelectedMaterialIds((prev) =>
+                        e.target.checked
+                          ? [...prev, material.id]
+                          : prev.filter((id) => id !== material.id),
+                      );
+                    }}
+                  />
+                  <span>
+                    <b>{material.title}</b>
+                    <small>{material.description}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
             <button
               className="t2-primary"
               disabled={busy || !goal.trim()}
               onClick={() => void run(
-                () => postDiagnostic({ goal, weeklyMinutes, preference }),
+                () => postDiagnostic({ goal, weeklyMinutes, preference, materialIds: selectedMaterialIds }),
               )}
             >
               生成我的学习地图
@@ -267,6 +329,7 @@ export default function LearnPage() {
   if (ws.profile.status !== "confirmed") {
     const firstNode = ws.nodeProgress[0];
     const growingCount = ws.nodeProgress.filter((p) => p.status !== "unstarted").length;
+    const analysis = ws.analysis;
     return (
       <Shell>
         <div className="t2-topbar">
@@ -292,6 +355,56 @@ export default function LearnPage() {
               </div>
             )}
           </div>
+          {analysis && (
+            <div className="t2-analysis-panel">
+              <section>
+                <p className="t2-kicker">Trellis 当前判断</p>
+                <h3>{LEARNING_NEED_TEXT[analysis.learningDecision.primaryNeed] ?? analysis.learningDecision.primaryNeed}</h3>
+                <p>{analysis.learningDecision.reason}</p>
+                <div className="t2-analysis-next">
+                  <b>下一步</b>
+                  <span>{analysis.learningDecision.nextAction}</span>
+                </div>
+              </section>
+
+              <section>
+                <p className="t2-kicker">资料是否适合现在的你</p>
+                {analysis.materialReviews.length > 0 ? (
+                  <div className="t2-material-review-list">
+                    {analysis.materialReviews.map((review) => (
+                      <article key={review.materialId}>
+                        <header>
+                          <b>{review.title}</b>
+                          <em className={`t2-material-verdict ${review.verdict}`}>
+                            {MATERIAL_VERDICT_TEXT[review.verdict]}
+                          </em>
+                        </header>
+                        <p>{review.rationale}</p>
+                        <div>
+                          <span>资料质量 {review.qualityScore}</span>
+                          <span>个人适配 {review.personalFitScore}</span>
+                        </div>
+                        {review.missingAreas.length > 0 && (
+                          <small>需要补：{review.missingAreas.join("、")}</small>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="t2-muted">这次没有选择资料。系统会先按目标拆能力，后续可在工作台加入课程、文章或项目链接再评估。</p>
+                )}
+              </section>
+
+              <section>
+                <p className="t2-kicker">能力拆解预览</p>
+                <div className="t2-analysis-caps">
+                  {analysis.capabilityMap.capabilities.slice(0, 4).map((capability) => (
+                    <span key={capability.id}>{capability.title}</span>
+                  ))}
+                </div>
+              </section>
+            </div>
+          )}
           <div className="t2-proposal-actions">
             <p className="t2-hint">确认后生成首周计划与具体学习活动；之后可在成长页随时调整。</p>
             <button

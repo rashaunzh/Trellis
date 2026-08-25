@@ -251,6 +251,45 @@
   gap: 12px;
 }
 
+.t2-material-picker {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 16px 0 0;
+  border: 0;
+  border-top: 1px solid var(--t2-line);
+}
+
+.t2-material-picker legend {
+  padding: 0;
+  color: #37423c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.t2-material-picker > p {
+  margin: 0;
+  color: var(--t2-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.t2-material-picker label {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e7ebe8;
+  border-radius: 9px;
+  background: #fbfcfa;
+  font-weight: 500;
+}
+
+.t2-material-picker input { margin-top: 3px; }
+.t2-material-picker b,
+.t2-material-picker small { display: block; }
+.t2-material-picker small { margin-top: 3px; color: var(--t2-muted); font-size: 10px; line-height: 1.45; }
+
 /* ── 学习页：提案 ───────────────────────────────────── */
 .t2-proposal { max-width: 1040px; margin: auto; padding-top: 40px; }
 
@@ -301,6 +340,100 @@
   border: 1px solid var(--t2-line);
   border-radius: 12px;
   background: var(--t2-panel);
+}
+
+.t2-analysis-panel {
+  display: grid;
+  grid-template-columns: 1.1fr 1.3fr .9fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.t2-analysis-panel > section {
+  padding: 20px;
+  border: 1px solid var(--t2-line);
+  border-radius: 12px;
+  background: var(--t2-panel);
+}
+
+.t2-analysis-panel h3 {
+  margin: 8px 0 9px;
+  font-size: 19px;
+  letter-spacing: -.02em;
+}
+
+.t2-analysis-panel p:not(.t2-kicker) {
+  margin: 0;
+  color: var(--t2-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.t2-analysis-next {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #e7ebe8;
+}
+
+.t2-analysis-next b,
+.t2-analysis-next span { display: block; }
+.t2-analysis-next b { color: var(--t2-green); font-size: 10px; }
+.t2-analysis-next span { margin-top: 5px; font-size: 12px; line-height: 1.55; }
+
+.t2-material-review-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.t2-material-review-list article {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 9px;
+  background: var(--t2-soft);
+}
+
+.t2-material-review-list header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.t2-material-review-list b { font-size: 12px; }
+.t2-material-review-list div { display: flex; flex-wrap: wrap; gap: 7px; }
+.t2-material-review-list span,
+.t2-material-review-list small { color: var(--t2-muted); font-size: 10px; line-height: 1.45; }
+
+.t2-material-verdict {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 99px;
+  background: #fff;
+  color: var(--t2-green);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.t2-material-verdict.supplement { color: #8a6100; }
+.t2-material-verdict.not_recommended { color: #8a1f1f; }
+
+.t2-analysis-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.t2-analysis-caps span {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--t2-soft);
+  color: var(--t2-green);
+  font-size: 10px;
+  font-weight: 800;
 }
 
 /* ── 学习页：周计划 ─────────────────────────────────── */
@@ -1238,6 +1371,7 @@
   .t2-sidebar nav a small { display: none; }
   .t2-sidebar-note { display: none; }
   .t2-main { padding: 0 18px 50px; }
+  .t2-analysis-panel { grid-template-columns: 1fr; }
   .t2-tool-grid { grid-template-columns: 1fr 1fr; }
 }
 
