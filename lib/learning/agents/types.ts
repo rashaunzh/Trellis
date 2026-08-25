@@ -360,6 +360,102 @@ export interface LearningAnalysis {
   mode: "rule";
 }
 
+// ── learningDecisionPolicy：学习处境 → 下一步学习决策 ─────────
+// 这层不是路线生成器，而是动态学习伙伴的"判断入口"：根据目标清晰度、材料状态、
+// 完成模式、证据反馈、复测窗口和阶段目标，判断当前最该澄清、理解、练习、产出、
+// 修复、复习还是包装成果。先用规则版，未来可替换为 LLM 增强但不能直接写状态。
+
+export type LearningStage =
+  | "orientation"
+  | "foundation"
+  | "guided_practice"
+  | "independent_practice"
+  | "artifact_building"
+  | "review_and_repair"
+  | "consolidation"
+  | "portfolio_packaging";
+
+export type LearningNeed =
+  | "clarify_goal"
+  | "review_material"
+  | "build_understanding"
+  | "practice_skill"
+  | "produce_artifact"
+  | "repair_gap"
+  | "spaced_review"
+  | "motivation_support"
+  | "route_correction"
+  | "package_portfolio";
+
+export type LearningMode =
+  | "explain"
+  | "feynman"
+  | "case_compare"
+  | "guided_practice"
+  | "independent_practice"
+  | "project_build"
+  | "spaced_review"
+  | "rubric_review"
+  | "portfolio_packaging";
+
+export type LearningSignalType = "hard_evidence" | "soft_signal" | "behavior_signal";
+export type EvidencePolicy = "none" | "soft_signal" | "hard_evidence" | "behavior_signal";
+
+export interface LearningSituationInput {
+  goalText: string;
+  goalAnalysis?: GoalAnalysis;
+  courseMaterials?: CourseMaterialAnalysis[];
+  capabilityMap?: CapabilityMap;
+  hasRoute?: boolean;
+  hasActiveActivities?: boolean;
+  latestReviewVerdict?: EvidenceVerdict;
+  missingSignals?: string[];
+  repeatedGaps?: string[];
+  dueReviewCount?: number;
+  completionRate?: number; // 0-1
+  skippedActivities?: number;
+  weeksRemaining?: number;
+  recentHardEvidenceCount?: number;
+  recentSoftSignalCount?: number;
+  capabilityLevelById?: Record<string, number>; // 细粒度能力水平；总体 learnerLevel 只作粗粒度推断
+}
+
+export interface LearningSituation {
+  goalClarity: "vague" | "usable" | "clear";
+  materialStatus: "none" | "unreviewed" | "usable" | "risky";
+  learnerLevel: "newcomer" | "beginner" | "intermediate" | "advanced";
+  currentStage: LearningStage;
+  motivationState: "steady" | "fragile" | "blocked";
+  timePressure: "low" | "medium" | "high";
+  recentPattern: {
+    completionRate: number;
+    repeatedGaps: string[];
+    skippedActivities: number;
+  };
+  activeRisks: string[];
+}
+
+export interface LearningDecision {
+  situation: LearningSituation;
+  primaryNeed: LearningNeed;
+  recommendedMode: LearningMode;
+  nextAction: string;
+  reason: string;
+  expectedOutcome: string;
+  evidencePolicy: EvidencePolicy;
+  signalTypes: LearningSignalType[];
+  tolerance: {
+    canReorder: boolean;
+    reason: string;
+  };
+  toolCalls: string[];
+  confidence: number; // 0-1
+}
+
+export interface LearningDecisionPolicyPort {
+  decideNextMove(input: LearningSituationInput): LearningDecision;
+}
+
 // ── 组合：agent 注册表 ────────────────────────────────
 
 export interface AgentRegistry {
@@ -371,6 +467,7 @@ export interface AgentRegistry {
   evidenceEvaluator: EvidenceEvaluatorPort;
   adjustmentAdvisor: AdjustmentAdvisorPort;
   adaptiveRoutePlanner: AdaptivePlannerPort;
+  learningDecisionPolicy: LearningDecisionPolicyPort;
 }
 
 // ── 辅助类型：agent 使用内容包 ─────────────────────────

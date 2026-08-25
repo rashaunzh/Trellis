@@ -16,6 +16,7 @@ import RuleCapabilityMapper from "./capability-mapper.ts";
 import RuleGoalAnalyzer from "./goal-analyzer.ts";
 import RuleCourseMaterialAnalyzer from "./course-analyzer.ts";
 import { RuleAdaptiveRoutePlanner } from "./adaptive-planner.ts";
+import RuleLearningDecisionPolicy from "./learning-decision-policy.ts";
 
 export * from "./types.ts";
 
@@ -31,6 +32,7 @@ export function createRuleAgents(): AgentRegistry {
     evidenceEvaluator: new LLMEvidenceEvaluator(),
     adjustmentAdvisor: new RuleAdjustmentAdvisor(),
     adaptiveRoutePlanner: new RuleAdaptiveRoutePlanner(),
+    learningDecisionPolicy: new RuleLearningDecisionPolicy(),
   };
 }
 
