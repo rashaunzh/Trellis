@@ -9,10 +9,11 @@ import type {
   NodeProgress,
   WeeklyPlan,
 } from "../domain/types.ts";
-import type { LearningStore, LearnerProfile, ApiConfig } from "./store.ts";
+import type { LearningStore, LearnerProfile, ApiConfig, DiagnosticSnapshot } from "./store.ts";
 
 export class InMemoryLearningStore implements LearningStore {
   private profiles = new Map<string, LearnerProfile>();
+  private diagnostics = new Map<string, DiagnosticSnapshot>();
   private weeklyPlans = new Map<string, WeeklyPlan>();
   private activities = new Map<string, LearningActivity>();
   private evidence = new Map<string, Evidence>();
@@ -30,6 +31,17 @@ export class InMemoryLearningStore implements LearningStore {
 
   async saveProfile(profile: LearnerProfile): Promise<void> {
     this.profiles.set(profile.id, { ...profile });
+  }
+
+  async getDiagnostic(ownerId: string): Promise<DiagnosticSnapshot | null> {
+    for (const d of Array.from(this.diagnostics.values())) {
+      if (d.ownerId === ownerId) return { ...d };
+    }
+    return null;
+  }
+
+  async saveDiagnostic(snapshot: DiagnosticSnapshot): Promise<void> {
+    this.diagnostics.set(snapshot.id, { ...snapshot });
   }
 
   async getWeeklyPlanByWeek(ownerId: string, routeId: string, weekKey: string): Promise<WeeklyPlan | null> {
@@ -134,7 +146,7 @@ export class InMemoryLearningStore implements LearningStore {
   }
 
 async resetLearner(ownerId: string): Promise<void> {
-    for (const map of [this.profiles, this.weeklyPlans, this.activities, this.nodeProgress, this.evidence, this.adjustments]) {
+    for (const map of [this.profiles, this.diagnostics, this.weeklyPlans, this.activities, this.nodeProgress, this.evidence, this.adjustments]) {
       for (const [key, value] of map) {
         if (value.ownerId === ownerId) map.delete(key);
       }

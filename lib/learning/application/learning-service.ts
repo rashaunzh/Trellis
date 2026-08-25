@@ -25,10 +25,19 @@ import type {
   NodeStatus,
   WeeklyPlan,
 } from "../domain/types.ts";
-import type { AgentRegistry, ActivityDraft, AdjustmentSuggestion, EvidenceAssessment } from "../agents/types.ts";
+import type {
+  AgentRegistry,
+  ActivityDraft,
+  AdjustmentSuggestion,
+  EvidenceAssessment,
+  LearningAnalysis,
+  PlannerMode,
+} from "../agents/types.ts";
+import type { AdaptivePlan } from "../agents/adaptive-types.ts";
 import type { LearningStore, LearnerProfile } from "../persistence/store.ts";
 import { InMemoryLearningStore } from "../persistence/in-memory.ts";
 import { createRuleAgents } from "../agents/index.ts";
+import { adaptiveDraftToActivity } from "../agents/adapters.ts";
 
 // ── 稳定 ID（与 V0.1 learning-server 同算法，前缀区分）────────
 function stableId(prefix: string, value: string): string {
@@ -39,6 +48,9 @@ function stableId(prefix: string, value: string): string {
   }
   return `${prefix}-${(hash >>> 0).toString(16)}`;
 }
+
+// 学习内容包标识（learning_diagnostics.content_pack_id；内容包本身无 id 字段）
+const LEARNING_PACK_ID = "trellis-learning-pack-v0.2";
 
 type AdjustmentAction = AdjustmentSuggestion["actions"][number];
 
@@ -67,6 +79,44 @@ function parseSignalSegment(reason: string, marker: string): string[] {
   const segment = reason.split(marker)[1]?.split(/[。；;]/)[0];
   if (!segment) return [];
   return segment.split(/[、,，]/).map((item) => item.trim()).filter(Boolean);
+}
+
+// ── 诊断快照 JSON 解析（Full Chain Phase 3；容错，解析失败回默认值）──
+function parseJsonStringArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonNumberRecord(value: string): Record<string, number> {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, number>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseAnswersJson(value: string): {
+  plannerMode: PlannerMode;
+  preference: "breadth_first" | "build_first";
+} {
+  try {
+    const parsed = JSON.parse(value || "{}") as Partial<{ plannerMode: unknown; preference: unknown }>;
+    const plannerMode: PlannerMode =
+      parsed.plannerMode === "adaptive_preview" || parsed.plannerMode === "adaptive_existing_content"
+        ? parsed.plannerMode
+        : "legacy";
+    const preference = parsed.preference === "build_first" ? "build_first" : "breadth_first";
+    return { plannerMode, preference };
+  } catch {
+    return { plannerMode: "legacy", preference: "breadth_first" };
+  }
 }
 
 // 最近一条历史失败证据（非本次、needs_revision、reviewJson 可解析）的缺失信号。
@@ -155,6 +205,9 @@ export interface Workspace {
       activityContext: string;
     }>;
   };
+  // Full Chain Phase 2：前半段智能链路瞬态产物（不落库）。
+  // 仅在 runDiagnostic 响应上附带；getWorkspace 与其他端点返回 null。
+  analysis: LearningAnalysis | null;
 }
 
 export class LearningApplicationService {
@@ -183,6 +236,7 @@ export class LearningApplicationService {
         userResources: [],
         dueReviews: [],
         workbench: { resources: [], tools: [] },
+        analysis: null,
       };
     }
 
@@ -297,6 +351,8 @@ export class LearningApplicationService {
       userResources,
       dueReviews,
       workbench: { resources, tools },
+      // Full Chain Phase 2：analysis 仅在 runDiagnostic 响应上附带（见 buildAnalysis）
+      analysis: null,
     };
   }
 
@@ -308,7 +364,10 @@ export class LearningApplicationService {
     materialIds?: string[];
     selfReport?: Record<string, number>;
     preference?: "breadth_first" | "build_first";
+    // Full Chain Phase 3：受控 adaptive 激活（默认 legacy，不改变既有行为）
+    plannerMode?: PlannerMode;
   }): Promise<Workspace> {
+    const plannerMode = input.plannerMode ?? "legacy";
     const proposal = this.agents.planner.planLearningRoute({
       goal: input.goal,
       weeklyMinutes: input.weeklyMinutes,
@@ -349,10 +408,43 @@ export class LearningApplicationService {
       }
     }
 
-    return this.getWorkspace(input.ownerId);
+    // Full Chain Phase 3：持久化诊断输入快照（learning_diagnostics，无 schema 变更）。
+    // 保存 goal/weeklyMinutes/selfReport/materials/preference/plannerMode，使
+    // confirmProposal 能按诊断时的模式与输入重建 analysis / adaptivePlan。
+    await this.store.saveDiagnostic({
+      id: stableId("diagnostic", `${input.ownerId}:${LEARNING_PACK_ID}:${learningContentPack.version}`),
+      ownerId: input.ownerId,
+      contentPackId: LEARNING_PACK_ID,
+      contentPackVersion: learningContentPack.version,
+      goal: input.goal,
+      weeklyMinutes: input.weeklyMinutes,
+      selfReportJson: JSON.stringify(input.selfReport ?? {}),
+      materialsJson: JSON.stringify(input.materialIds ?? []),
+      answersJson: JSON.stringify({ plannerMode, preference: input.preference ?? "breadth_first" }),
+      status: "submitted",
+    });
+
+    // Full Chain Phase 2：前半段智能链路（goalAnalyzer → courseAnalyzer →
+    // capabilityMapper → adaptiveRoutePlanner）产物作为 transient analysis 返回。
+    // 不落库、不改变默认流程：profile.activeRouteId 仍为 legacy route，
+    // confirmProposal / replanCurrentWeek 不读取本产物（legacy 行为不变）。
+    const analysis = this.buildAnalysis({
+      goal: input.goal,
+      weeklyMinutes: input.weeklyMinutes,
+      materialIds: input.materialIds ?? [],
+      selfReport: input.selfReport ?? {},
+      preference: input.preference ?? "breadth_first",
+      plannerMode,
+    });
+    const workspace = await this.getWorkspace(input.ownerId);
+    workspace.analysis = analysis;
+    return workspace;
   }
 
   // ── POST /api/learning/proposal/confirm ─────────────
+  // Full Chain Phase 3：受控 adaptive 激活。默认 legacy（行为与既有实现一致）；
+  // 仅当诊断快照请求 adaptive_existing_content 且重建分析命中 existing_content
+  // 时，才用 adaptivePlan 驱动本周计划；否则回退 legacy 并在 rationale 标记。
   async confirmProposal(ownerId: string): Promise<Workspace> {
     const profile = await this.store.getProfile(ownerId);
     if (!profile) throw new LearningError("尚未完成诊断", 404);
@@ -361,8 +453,61 @@ export class LearningApplicationService {
     profile.status = "confirmed";
     await this.store.saveProfile(profile);
 
-    // 生成首周计划（确定性，同 seed 同输出）
     const weekKey = currentWeekKey();
+    const snapshot = await this.store.getDiagnostic(ownerId);
+    const requestedMode = snapshot ? parseAnswersJson(snapshot.answersJson).plannerMode : "legacy";
+
+    if (requestedMode === "adaptive_existing_content") {
+      const answers = parseAnswersJson(snapshot!.answersJson);
+      const analysis = this.buildAnalysis({
+        goal: snapshot!.goal || profile.goal,
+        weeklyMinutes: snapshot!.weeklyMinutes ?? profile.weeklyMinutes,
+        materialIds: parseJsonStringArray(snapshot!.materialsJson),
+        selfReport: parseJsonNumberRecord(snapshot!.selfReportJson),
+        preference: answers.preference,
+        plannerMode: "adaptive_existing_content",
+      });
+      const items = analysis.adaptivePlan.weeklyPlan.activities;
+      const canDriveAdaptive =
+        analysis.capabilityMap.strategy === "existing_content"
+        && items.length > 0
+        && analysis.adaptivePlan.activities.length === items.length;
+      if (canDriveAdaptive) {
+        const weeklyPlan: WeeklyPlan = {
+          id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${weekKey}`),
+          ownerId,
+          routeId: profile.activeRouteId,
+          weekKey,
+          capacityMinutes: profile.weeklyMinutes,
+          status: "confirmed",
+          rationale: analysis.adaptivePlan.weeklyPlan.rationale,
+        };
+        await this.store.saveWeeklyPlan(weeklyPlan);
+        await this.createAdaptiveActivities(ownerId, weeklyPlan, analysis.adaptivePlan);
+        return this.getWorkspace(ownerId);
+      }
+      // adaptive 不可用（generic fallback / 空计划）：回退 legacy 并标记，不崩
+      await this.confirmLegacyWeeklyPlan(
+        ownerId,
+        profile,
+        weekKey,
+        "adaptive 计划不可用（目标未命中内容包或计划为空），已回退 legacy 编排。",
+      );
+      return this.getWorkspace(ownerId);
+    }
+
+    // legacy 默认路径（行为与既有实现完全一致）
+    await this.confirmLegacyWeeklyPlan(ownerId, profile, weekKey);
+    return this.getWorkspace(ownerId);
+  }
+
+  // legacy 首周计划（确定性，seed 42；从 confirmProposal 抽出，行为不变）
+  private async confirmLegacyWeeklyPlan(
+    ownerId: string,
+    profile: LearnerProfile,
+    weekKey: string,
+    fallbackNote?: string,
+  ): Promise<void> {
     const nodeStatusById: Record<string, NodeStatus> = {};
     for (const p of await this.store.listNodeProgress(ownerId)) {
       nodeStatusById[p.nodeId] = p.status;
@@ -385,13 +530,11 @@ export class LearningApplicationService {
       weekKey,
       capacityMinutes: profile.weeklyMinutes,
       status: "confirmed",
-      rationale: planDraft.rationale,
+      rationale: fallbackNote ? `${planDraft.rationale} ${fallbackNote}` : planDraft.rationale,
     };
     await this.store.saveWeeklyPlan(weeklyPlan);
 
     await this.createActivitiesFromPlanDraft(ownerId, weeklyPlan, planDraft.activities, 0);
-
-    return this.getWorkspace(ownerId);
   }
 
   // ── POST /api/learning/replan ──────────────────────
@@ -1001,6 +1144,84 @@ export class LearningApplicationService {
     await this.store.saveActivity(activity);
 
     return this.getWorkspace(ownerId);
+  }
+
+  // ── Full Chain Phase 2：analysis pipeline（transient，不落库）────────
+  // 完整链路：goalAnalyzer → courseAnalyzer → capabilityMapper →
+  // adaptiveRoutePlanner，产物用于 runDiagnostic 响应的可观察预览，以及
+  // confirmProposal 的受控 adaptive 激活（Phase 3）。
+  // 默认学习流程（legacy planner、profile、nodeProgress、confirmProposal/
+  // replan、Evidence Review、Adjustment）默认不读取本产物；generic fallback
+  // 的能力 id（cap.generic.*）也绝不进入 activities/nodeProgress/evidence。
+  private buildAnalysis(input: {
+    goal: string;
+    weeklyMinutes: number;
+    materialIds: string[];
+    selfReport: Record<string, number>;
+    preference: "breadth_first" | "build_first";
+    plannerMode: PlannerMode;
+  }): LearningAnalysis {
+    const goalAnalysis = this.agents.goalAnalyzer.analyzeGoal({
+      goal: input.goal,
+      preference: input.preference,
+      selfReport: input.selfReport,
+    });
+    const courseMaterials = this.agents.courseAnalyzer.analyzeMaterials({
+      goalAnalysis,
+      materialIds: input.materialIds,
+    });
+    const capabilityMap = this.agents.capabilityMapper.mapCapabilities({
+      goalAnalysis,
+      materials: courseMaterials,
+    });
+    // 目标能力 id 回填：existing_content 用命中节点；generic 为空 = 覆盖整图
+    const targetCapabilityIds = (capabilityMap.matchedContent ?? []).map((item) => item.nodeId);
+    const goalAnalysisForPlan = { ...goalAnalysis, targetCapabilityIds };
+    const adaptivePlan = this.agents.adaptiveRoutePlanner.plan({
+      goalAnalysis: goalAnalysisForPlan,
+      capabilityMap,
+      weeklyMinutes: input.weeklyMinutes,
+      preference: input.preference,
+      selfReport: input.selfReport,
+      weekKey: currentWeekKey(),
+    });
+    return {
+      // analysis 暴露 planner 实际消费的 goalAnalysis（含回填的目标能力 id）
+      goalAnalysis: goalAnalysisForPlan,
+      courseMaterials,
+      capabilityMap,
+      adaptivePlan,
+      plannerMode: input.plannerMode,
+      mode: "rule",
+    };
+  }
+
+  // Full Chain Phase 3：adaptive 活动落库。adaptivePlan.weeklyPlan.activities 与
+  // adaptivePlan.activities 一一对应（planner 内部按同一顺序生成）；经
+  // adaptiveDraftToActivity 适配为 LearningActivity（确定性 id，刷新不重排）。
+  // existing_content 模式下 capabilityId = content pack nodeId（证据评审可解析）。
+  private async createAdaptiveActivities(
+    ownerId: string,
+    weeklyPlan: WeeklyPlan,
+    adaptivePlan: AdaptivePlan,
+  ): Promise<void> {
+    const items = adaptivePlan.weeklyPlan.activities;
+    const drafts = adaptivePlan.activities;
+    let sequence = 0;
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i]!;
+      const draft = drafts[i]!;
+      const activity = adaptiveDraftToActivity(draft, {
+        ownerId,
+        weeklyPlanId: weeklyPlan.id,
+        nodeId: item.capabilityId,
+        isCore: item.isCore,
+        sequence,
+        whyNow: item.whyNow,
+      });
+      await this.store.saveActivity(activity);
+      sequence += 1;
+    }
   }
 
   // ── 内部辅助 ────────────────────────────────────────

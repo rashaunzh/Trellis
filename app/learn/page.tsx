@@ -197,13 +197,13 @@ export default function LearnPage() {
             所有判断都能回到证据，所有调整都会留下记录。
           </p>
           <div className="t2-onboard-card">
-            <span>01 · 学习诉求</span>
+            <span>01 · 学习主题与目标</span>
             <label>
-              你希望学会后能完成什么？
+              你想学习什么主题，学完后希望能完成什么？
               <textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="例如：能独立完成一个 AI 知识问答应用的方案与实现"
+                placeholder="例如：系统学习 AIPM，并能完成一个 AI 知识问答应用方案；或系统学习 Python、英语口语、考试科目等"
               />
             </label>
             <div className="t2-form-row">
@@ -340,7 +340,7 @@ export default function LearnPage() {
     <Shell>
       <div className="t2-topbar">
         <div>
-          <p className="t2-kicker">学习 · 第 {ws.weeklyPlan?.weekKey.replace("2026-W", "") ?? "?"} 周</p>
+          <p className="t2-kicker">学习主题 · 第 {ws.weeklyPlan?.weekKey.replace("2026-W", "") ?? "?"} 周</p>
           <h1>{ws.profile.goal}</h1>
         </div>
         <div className="t2-topbar-actions">

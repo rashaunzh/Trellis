@@ -13,7 +13,7 @@ import type {
   WeeklyPlan,
 } from "../domain/types.ts";
 import { learningContentPack } from "../domain/content.ts";
-import type { ApiConfig, LearningStore, LearnerProfile } from "./store.ts";
+import type { ApiConfig, DiagnosticSnapshot, LearningStore, LearnerProfile } from "./store.ts";
 
 // D1 实例类型：D1Database 全局类型依赖未安装的 @miniflare/d1，
 // 这里用 any 桥接（仓库 pre-existing 问题，worker/index.ts 同样受影响）。
@@ -177,6 +177,62 @@ export class D1LearningStore implements LearningStore {
         profile.activeRouteId,
         profile.weeklyMinutes,
         profile.status,
+        now,
+      )
+      .run();
+  }
+
+  // ── 诊断输入快照（V0.1 遗留表 learning_diagnostics，无 schema 变更）──
+  async getDiagnostic(ownerId: string): Promise<DiagnosticSnapshot | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_diagnostics WHERE owner_id = ? LIMIT 1")
+      .bind(ownerId)
+      .first();
+    return row
+      ? {
+          id: String(row.id),
+          ownerId: String(row.owner_id),
+          contentPackId: String(row.content_pack_id),
+          contentPackVersion: String(row.content_pack_version),
+          goal: String(row.goal ?? ""),
+          weeklyMinutes: Number(row.weekly_minutes ?? 180),
+          selfReportJson: String(row.self_report_json ?? "{}"),
+          materialsJson: String(row.materials_json ?? "[]"),
+          answersJson: String(row.answers_json ?? "{}"),
+          status: (row.status as DiagnosticSnapshot["status"]) ?? "submitted",
+        }
+      : null;
+  }
+
+  async saveDiagnostic(snapshot: DiagnosticSnapshot): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_diagnostics
+           (id, owner_id, content_pack_id, content_pack_version, goal, weekly_minutes,
+            self_report_json, materials_json, answers_json, scores_json, status,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           goal = excluded.goal,
+           weekly_minutes = excluded.weekly_minutes,
+           self_report_json = excluded.self_report_json,
+           materials_json = excluded.materials_json,
+           answers_json = excluded.answers_json,
+           status = excluded.status,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        snapshot.id,
+        snapshot.ownerId,
+        snapshot.contentPackId,
+        snapshot.contentPackVersion,
+        snapshot.goal,
+        snapshot.weeklyMinutes,
+        snapshot.selfReportJson,
+        snapshot.materialsJson,
+        snapshot.answersJson,
+        snapshot.status,
         now,
       )
       .run();
@@ -549,6 +605,7 @@ async resetLearner(ownerId: string): Promise<void> {
       this.db.prepare("DELETE FROM learning_node_progress WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_weekly_plans WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_profiles WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_diagnostics WHERE owner_id = ?").bind(ownerId),
     ]);
   }
 }

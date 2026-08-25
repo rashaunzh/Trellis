@@ -1,6 +1,10 @@
 // V0.2 前端共享：Workspace 类型 + API client
 // 前端只围绕一个 workspace 渲染，只调新闭环 API。
 
+// Full Chain Phase 2：analysis 为 runDiagnostic 响应的瞬态字段（type-only 引用，
+// 运行期无依赖；前端当前不消费，仅保持类型与 API 响应一致）。
+import type { LearningAnalysis } from "./agents/types.ts";
+
 export interface WorkspaceProfile {
   id: string;
   ownerId: string;
@@ -136,6 +140,8 @@ export interface Workspace {
   userResources: WorkspaceUserResource[];
   dueReviews: Array<{ nodeId: string; title: string; daysSinceValidated: number; nextReviewAt: string | null }>;
   workbench: { resources: WorkbenchResource[]; tools: WorkbenchTool[] };
+  // 瞬态分析（仅 runDiagnostic 响应携带；其他端点/刷新为 null）
+  analysis: LearningAnalysis | null;
 }
 
 // 当前路线的边（前置关系），成长页树状图使用

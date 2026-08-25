@@ -677,3 +677,73 @@ test("adjustmentAdvisor：前置缺口优先于复测失败/重复失败", () =>
   assert.equal(insert?.targetNodeId, "ai-literacy.mechanism", "应插入前置节点活动");
   assert.ok(insert?.description.startsWith("插入前置节点活动："));
 });
+
+// ── Capability Mapper：注册表 / 契约测试 ──────────────────
+// 只测注册与输出结构契约，完整算法行为见 capability-mapper.test.ts。
+
+test("agent 注册表包含 capabilityMapper（管线前半段接口）", () => {
+  const registry = createRuleAgents();
+  assert.equal(typeof registry.capabilityMapper.mapCapabilities, "function");
+});
+
+test("capabilityMapper.mapCapabilities 输出契约：domain/capabilities/signals/evidenceRequirement", () => {
+  const map = createRuleAgents().capabilityMapper.mapCapabilities({
+    goalAnalysis: { goal: "学习 RAG 应用", topicKeywords: ["RAG"] },
+    materials: [],
+  });
+  assert.ok(map.domain!.length > 0);
+  assert.ok(map.capabilities.length >= 1);
+  for (const capability of map.capabilities) {
+    assert.ok(capability.id.length > 0);
+    assert.ok(capability.title.length > 0);
+    assert.ok(capability.description.length > 0);
+    assert.ok(["foundation", "core", "advanced", "optional"].includes(capability.level!));
+    assert.ok(["existing_content", "inferred"].includes(capability.source!));
+    assert.ok(Array.isArray(capability.prerequisites));
+    // 短语视图（Evidence Review capabilitySignals 同语义）
+    assert.ok(capability.signals.length >= 2);
+    assert.ok(capability.signals.every((label) => label.length >= 2), "短语信号不能太抽象");
+    // 完整信号规格（Evidence Requirement）与短语视图一一对应
+    assert.ok(
+      Array.isArray(capability.signalSpecs) && capability.signalSpecs.length === capability.signals.length,
+      "signalSpecs 应与 signals 一一对应",
+    );
+    for (const signal of capability.signalSpecs!) {
+      assert.ok(signal.id.length > 0);
+      assert.ok(signal.label.length > 0);
+      assert.ok(signal.description.length > 0);
+      assert.ok(signal.evidenceRequirement.length > 0);
+      assert.ok(signal.weight > 0 && signal.weight <= 1);
+    }
+  }
+});
+
+// ── Full Chain Phase 1：goalAnalyzer / courseAnalyzer / adaptiveRoutePlanner 注册 ──
+// 只测注册与输出结构契约；完整行为见 goal-analyzer.test.ts / course-analyzer.test.ts。
+
+test("agent 注册表包含 goalAnalyzer / courseAnalyzer / adaptiveRoutePlanner", () => {
+  const registry = createRuleAgents();
+  assert.equal(typeof registry.goalAnalyzer.analyzeGoal, "function");
+  assert.equal(typeof registry.courseAnalyzer.analyzeMaterials, "function");
+  assert.equal(typeof registry.adaptiveRoutePlanner.plan, "function");
+});
+
+test("goalAnalyzer.analyzeGoal 输出契约：goal/topicKeywords/domain/depth", () => {
+  const analysis = createRuleAgents().goalAnalyzer.analyzeGoal({ goal: "系统学习 AIPM" });
+  assert.equal(analysis.goal, "系统学习 AIPM");
+  assert.ok(Array.isArray(analysis.topicKeywords) && analysis.topicKeywords.length > 0);
+  assert.ok(analysis.domain && analysis.domain.length > 0);
+  assert.ok([1, 2, 3].includes(analysis.depth!), "depth 应为 1|2|3");
+  assert.ok(Array.isArray(analysis.targetCapabilityIds));
+});
+
+test("courseAnalyzer.analyzeMaterials 输出契约：coveredCapabilityIds/topicKeywords", () => {
+  const materials = createRuleAgents().courseAnalyzer.analyzeMaterials({
+    goalAnalysis: { goal: "系统学习 AIPM" },
+    materialIds: ["res.gml-crash-course"],
+  });
+  assert.equal(materials.length, 1);
+  assert.equal(materials[0].materialId, "res.gml-crash-course");
+  assert.ok(materials[0].topicKeywords!.length > 0, "应从资源标题/摘要派生主题关键词");
+  assert.ok(Array.isArray(materials[0].coveredCapabilityIds));
+});

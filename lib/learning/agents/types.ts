@@ -1,6 +1,7 @@
 // V0.2 learning agents — 接口契约（可替换层）
-// MVP 只保留四类接口，不建设内嵌自研 agent runtime。
-// 所有输入输出必须为结构化 schema，不能只是一段自然语言。
+// 管线：capabilityMapper（目标+材料 → 能力结构）→ planner → activityComposer
+//       → evidenceEvaluator → adjustmentAdvisor。
+// 五类接口均为结构化 schema 输入输出，不建设内嵌自研 agent runtime。
 // 未来替换成内嵌自研 agent 时，只替换实现，不改产品主流程。
 
 import type {
@@ -10,7 +11,11 @@ import type {
   EvidenceType,
   LearningContentPack,
   NodeStatus,
+  SourceRef,
 } from "../domain/types.ts";
+// AdaptivePlannerPort / AdaptivePlan 定义于 adaptive-types.ts（自适应专属契约），
+// 此处仅类型引用。该文件对 types.ts 只有类型级 import，运行期无循环依赖。
+import type { AdaptivePlan, AdaptivePlannerPort } from "./adaptive-types.ts";
 
 // ── planner：路线规划与周计划编排 ──────────────────────
 
@@ -211,13 +216,161 @@ export interface AdjustmentAdvisorPort {
   suggestAdjustment(input: AdjustmentInput): AdjustmentSuggestion;
 }
 
+// ── 前半段契约：goalAnalyzer / courseAnalyzer / capabilityMapper ──
+// Full Chain Phase 1：GoalAnalysis / CourseMaterialAnalysis / CapabilityMap 的
+// 单一契约统一在本文件（adaptive-types.ts 不再维护同名冲突类型，直接复用）。
+// 约定：goalAnalyzer / courseAnalyzer / capabilityMapper 的输出填全字段；
+// 作为输入消费时，缺失字段由消费方确定性兜底（如 capabilityMapper 对
+// topicKeywords 缺失时从原文派生，adaptiveRoutePlanner 对 targetCapabilityIds
+// 缺失时覆盖整图）。
+
+/** 目标深度意图：1 理解 / 2 应用 / 3 迁移（对齐熟练等级 0-3） */
+export type GoalTargetDepth = 1 | 2 | 3;
+
+/** 学习目标分析：Goal Analyzer 输出，Capability Mapper / Adaptive Route Planner 的输入 */
+export interface GoalAnalysis {
+  goal: string; // 学习目标原文（自然语言）
+  domain?: string; // 推断领域，如 "AI" / "AIPM"（可选）
+  topicKeywords?: string[]; // 主题关键词（匹配现有内容包的主要依据）
+  depth?: GoalTargetDepth; // 目标深度意图（可选，用于后续编排倾向）
+  context?: string; // 应用场景或约束（可选，进入 rationale 与活动措辞）
+  targetCapabilityIds?: string[]; // 目标能力 id（服务层在映射后回填；空/缺省 = 覆盖整图）
+}
+
+/** 课程/材料分析：每个学习材料一条，判断是否命中现有内容包 */
+export interface CourseMaterialAnalysis {
+  materialId: string;
+  title: string;
+  description?: string;
+  topicKeywords?: string[]; // 材料主题关键词
+  coveredCapabilityIds?: string[]; // 覆盖的能力 id（courseAnalyzer 产出，planner 用于 inputRefs）
+  sourceType?: string;
+  credibilityLevel?: number;
+  url?: string;
+}
+
+/** 能力层级 */
+export type CapabilityLevel = "foundation" | "core" | "advanced" | "optional";
+/** 能力来源 */
+export type CapabilitySource = "existing_content" | "inferred";
+
+/** 能力信号规格：可被 Evidence Review 消费的信号定义 */
+export interface CapabilitySignalSpec {
+  id: string;
+  label: string; // 短语级信号（Evidence Review 按 label 匹配证据文本，不能太抽象）
+  description: string;
+  evidenceRequirement: string; // 证据要求（以 label 开头 + 操作性说明）
+  weight: number; // 0-1 信号权重（保留字段，Evidence Review 当前未加权）
+}
+
+/** 能力边：能力图的关系（前置/支持/相关） */
+export interface CapabilityEdge {
+  from: string;
+  to: string;
+  relationType: EdgeType;
+}
+
+/** 能力节点：CapabilityMap 的基本单元（统一契约；mapper 输出填全，planner 消费子集） */
+export interface Capability {
+  id: string;
+  title: string;
+  description: string;
+  // 短语信号（运行时契约：Evidence Review 的 capabilitySignals 与 planner 文案均消费 label）
+  signals: string[];
+  // 建议熟练等级 0-3 与里程碑标记（planner 消费）
+  targetLevel: number;
+  isMilestone: boolean;
+  activityTemplates?: ActivityType[]; // 允许的活动类型（缺省用自适应默认活动链）
+  sourceRefs?: SourceRef[]; // 来源引用
+  // mapper 审计字段
+  level?: CapabilityLevel;
+  source?: CapabilitySource;
+  prerequisites?: string[]; // 前置能力 id（引用本图内 capability id）
+  // 完整信号规格（Evidence Requirement；mapper 输出，Evidence Review 文案消费）
+  signalSpecs?: CapabilitySignalSpec[];
+}
+
+/** Capability Mapper 输出：Domain / Capability / Signal / Evidence Requirement */
+export interface CapabilityMap {
+  version: string; // 能力图版本（内容包版本或 fallback 版本）
+  source?: "content_pack" | "generic"; // 能力图来源（planner 消费）
+  domain?: string;
+  capabilities: Capability[];
+  edges: CapabilityEdge[];
+  strategy?: "existing_content" | "generic_fallback"; // 本次映射采用哪条规则路径
+  matchedContent?: Array<{ nodeId: string; score: number }>; // 命中审计（fallback 为空）
+  rationale?: string;
+}
+
+// ── goalAnalyzer：目标解析 → GoalAnalysis ──────────────
+export interface GoalAnalyzerInput {
+  goal: string; // 学习目标原文
+  preference?: "breadth_first" | "build_first";
+  selfReport?: Record<string, number>; // 自评：nodeId → 0-3 熟练等级
+}
+
+export interface GoalAnalyzerPort {
+  analyzeGoal(input: GoalAnalyzerInput): GoalAnalysis;
+}
+
+// ── courseAnalyzer：材料解析 → CourseMaterialAnalysis[] ──
+export interface CourseMaterialAnalyzerInput {
+  goalAnalysis: GoalAnalysis;
+  materialIds: string[]; // 用户已有材料 id（内容包资源或自由 id）
+  contentPack?: LearningContentPack; // 默认 learningContentPack
+}
+
+export interface CourseMaterialAnalyzerPort {
+  analyzeMaterials(input: CourseMaterialAnalyzerInput): CourseMaterialAnalysis[];
+}
+
+// ── capabilityMapper：目标+材料分析 → 能力结构（管线前半段）────────
+// 把学习目标与课程/材料分析转换成 Domain / Capability / Signal /
+// Evidence Requirement 能力结构，供 planner 编排与 Evidence Review 消费。
+// 规则版实现见 capability-mapper.ts：命中现有内容包时复用 content.ts /
+// signals.ts 的节点与信号；未命中时生成 generic fallback，保证不崩。
+
+export interface CapabilityMapperInput {
+  goalAnalysis: GoalAnalysis;
+  materials: CourseMaterialAnalysis[];
+  contentPack?: LearningContentPack; // 默认 learningContentPack
+  minMatchScore?: number; // 命中阈值（默认 0.5）
+}
+
+export interface CapabilityMapperPort {
+  mapCapabilities(input: CapabilityMapperInput): CapabilityMap;
+}
+
+// ── 规划模式：受控 adaptive 激活（Full Chain Phase 3）──
+// runDiagnostic 可选指定；默认 "legacy"。plannerMode 随诊断输入快照持久化
+// （learning_diagnostics.answers_json），confirmProposal 据此决定计划来源。
+export type PlannerMode = "legacy" | "adaptive_preview" | "adaptive_existing_content";
+
+// ── 学习分析：runDiagnostic 前半段流水线的瞬态产物（Full Chain Phase 2）──
+// 由 goalAnalyzer → courseAnalyzer → capabilityMapper → adaptiveRoutePlanner
+// 组合而成，仅作为 workspace.analysis 返回（不落库、不进入证据评审闭环）。
+export interface LearningAnalysis {
+  goalAnalysis: GoalAnalysis;
+  courseMaterials: CourseMaterialAnalysis[];
+  capabilityMap: CapabilityMap;
+  adaptivePlan: AdaptivePlan;
+  /** 本次诊断请求的规划模式（默认 "legacy"；adaptive 是否可驱动正式计划） */
+  plannerMode: PlannerMode;
+  /** 实现模式：Phase 3 仍为 "rule"（全部规则实现） */
+  mode: "rule";
+}
+
 // ── 组合：agent 注册表 ────────────────────────────────
 
 export interface AgentRegistry {
+  goalAnalyzer: GoalAnalyzerPort;
+  courseAnalyzer: CourseMaterialAnalyzerPort;
+  capabilityMapper: CapabilityMapperPort;
   planner: PlannerPort;
   activityComposer: ActivityComposerPort;
   evidenceEvaluator: EvidenceEvaluatorPort;
   adjustmentAdvisor: AdjustmentAdvisorPort;
+  adaptiveRoutePlanner: AdaptivePlannerPort;
 }
 
 // ── 辅助类型：agent 使用内容包 ─────────────────────────

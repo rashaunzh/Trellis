@@ -30,10 +30,30 @@ export interface ApiConfig {
   enabled: boolean;
 }
 
+// 诊断输入快照（Full Chain Phase 3）：复用 V0.1 遗留表 learning_diagnostics
+// （无 schema 变更）。persist runDiagnostic 的原始输入（goal/weeklyMinutes/
+// selfReport/materials/preference/plannerMode），使 confirmProposal 能按诊断时
+// 的模式与输入重建 analysis / adaptivePlan（避免 preference/materials 丢失漂移）。
+export interface DiagnosticSnapshot {
+  id: string;
+  ownerId: string;
+  contentPackId: string;
+  contentPackVersion: string;
+  goal: string;
+  weeklyMinutes: number;
+  selfReportJson: string; // Record<string, number>（nodeId → 0-3）
+  materialsJson: string; // string[]（materialIds）
+  answersJson: string; // { plannerMode, preference }
+  status: "submitted";
+}
+
 export interface LearningStore {
   // 学习者画像
   getProfile(ownerId: string): Promise<LearnerProfile | null>;
   saveProfile(profile: LearnerProfile): Promise<void>;
+  // 诊断输入快照（learning_diagnostics，每 owner 每内容包版本一条）
+  getDiagnostic(ownerId: string): Promise<DiagnosticSnapshot | null>;
+  saveDiagnostic(snapshot: DiagnosticSnapshot): Promise<void>;
   // 周计划
   getWeeklyPlanByWeek(ownerId: string, routeId: string, weekKey: string): Promise<WeeklyPlan | null>;
   saveWeeklyPlan(plan: WeeklyPlan): Promise<void>;
