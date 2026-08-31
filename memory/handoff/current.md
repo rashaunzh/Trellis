@@ -54,6 +54,14 @@ Trellis 负责把用户目标和已有课程转化为有限课程组合、准确
 
 公开发布仍未完成：完整账号授权、candidate 内部评审界面、远程 D1 0013/0014、线上部署和 production smoke 仍是阻塞项。
 
+## 2026-08-31 仓库整理
+
+- 已创建 `codex/trellis-production-remediation`，相对 `origin/main` 拆成三笔可审阅提交：运行时、产品界面、交付证据。
+- 本地工作树干净；`npm run check`、`acceptance:course-intelligence` 和 `delivery:precheck` 全部通过。
+- `.agents/`、`AGENTS.local.md`、`skills-lock.json` 与旧生成截图已隔离为本地工具/产物，不进入 Trellis 产品提交。
+- GitHub push 尚未执行：提交包含 `memory/` 私有记录，需要用户明确确认远端 `rashaunzh/AI-Learning-OS` 为私有且允许同步这些记录。
+- 不自动合并 `main`，也不删除本地旧分支；`feat/evidence-review-engine-v03` 是当前唯一已并入 main 且远端已删除的清理候选。
+
 ## 2026-08-30 全工程审计
 
 - 已按用户要求安装并完整盘点 `mattpocock/skills` 的 37 个 skill；这些 skill 只用于 Trellis 工程分析，不作为产品功能灵感。
