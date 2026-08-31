@@ -1,8 +1,9 @@
-import { getLearningService, ownerOf, jsonError } from "../../../_shared";
+import { getLearningService, ownerOf, jsonError, requireLegacyRuntime } from "../../../_shared";
 
 // POST /api/learning/activities/:id/evidence — 提交证据
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    await requireLegacyRuntime(request);
     const ownerId = await ownerOf(request);
     const { id } = await context.params;
     const payload = (await request.json()) as Record<string, unknown>;

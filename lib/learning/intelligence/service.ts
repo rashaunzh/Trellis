@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { LearningActivity, NodeProgress, WeeklyPlan } from "../domain/types.ts";
 import type { LearnerProfile, LearningStore } from "../persistence/store.ts";
 import {
-  curriculumAssemblySchema,
   evaluatePublishedCourse,
   evaluateCurriculumAssembly,
   learningIntakeSchema,
@@ -10,7 +9,6 @@ import {
   publishedCourseSchema,
   type CanonicalKnowledgeState,
   type CourseGenome,
-  type CurriculumAssembly,
   type CurriculumRecord,
   type DomainGraph,
   type LearningIntake,
@@ -21,6 +19,8 @@ import {
 import { CourseIntelligenceModelGateway, hashInput, type ModelGatewayStatus } from "./model-gateway.ts";
 import type { CourseIntelligenceRepository, WorkflowRunRecord } from "./repository.ts";
 import { fetchPublicSource } from "./source-fetcher.ts";
+import { deriveTargetNodeIds, solveCurriculum } from "./curriculum-solver.ts";
+import { interpretLearningSignal, transitionDecision, type DecisionRecord, type LearningInterpretation } from "./decision-kernel.ts";
 
 const capacityMinutes = { light: 120, steady: 240, focused: 360, intensive: 540 } as const;
 
@@ -50,11 +50,11 @@ export interface CurrentLearningState {
   activities: LearningActivity[];
   knowledgeStates: CanonicalKnowledgeState[];
   workflow: WorkflowRunRecord | null;
+  pendingDecisions: DecisionRecord[];
 }
 
 const intentRefinementSchema = z.object({
   summary: z.string().trim().min(1).max(500),
-  profile: z.enum(["literacy", "product", "builder"]),
   targetNodeIds: z.array(z.string()).min(1).max(14),
   outOfScope: z.array(z.string()).max(8).default([]),
 });
@@ -66,27 +66,6 @@ const materialCandidateSchema = z.object({
   prerequisites: z.array(z.string().trim().min(1)).max(12),
   units: z.array(z.object({ title: z.string().trim().min(1).max(200) })).min(1).max(80),
 });
-
-const targetNodes: Record<IntentProfile, string[]> = {
-  literacy: [
-    "ai.scope", "ai.genai-llm", "ai.capability-boundary", "ai.responsible-use",
-    "use.delegation", "use.description", "use.discernment", "use.diligence",
-  ],
-  product: [
-    "ai.genai-llm", "ai.capability-boundary", "use.discernment", "pm.problem-framing",
-    "pm.use-case-fit", "pm.capability-design", "pm.interaction-fallback", "pm.eval-design",
-  ],
-  builder: [
-    "ai.genai-llm", "ai.capability-boundary", "app.prompting", "app.rag",
-    "app.tools", "app.agents", "app.eval-observability", "app.security",
-  ],
-};
-
-const preferredCourses: Record<IntentProfile, string[]> = {
-  literacy: ["anthropic.ai-fluency", "ms.ai-concepts", "dlai.genai-for-everyone", "dlai.ai-for-everyone", "nist.ai-rmf"],
-  product: ["anthropic.ai-fluency", "dlai.ai-for-everyone", "dlai.genai-for-everyone", "duke.ai-product", "book.ai-product-manager", "nist.ai-rmf", "langchain.langsmith", "dlai.agentic-ai"],
-  builder: ["ms.ai-concepts", "dlai.prompt-engineering", "langchain.intro", "dlai.langchain-dev", "dlai.agentic-ai", "langchain.langsmith", "ms.genai-apps"],
-};
 
 function inferProfile(goal: string): IntentProfile {
   const normalized = goal.toLowerCase();
@@ -133,145 +112,22 @@ function matchingCourse(material: LearningIntake["materials"][number], courses: 
   ) ?? null;
 }
 
-function catalogProviderFor(material: LearningIntake["materials"][number]): string | null {
+function providerFromUrl(value: string): string {
   try {
-    const url = new URL(material.url);
-    const host = url.hostname.replace(/^www\./, "").toLowerCase();
-    const path = url.pathname.replace(/\/$/, "").toLowerCase();
-    if (host === "deeplearning.ai" && (path === "/courses" || path === "/short-courses")) return "DeepLearning.AI";
-    if (host === "learn.microsoft.com" && path.includes("/training")) return "Microsoft Learn";
-    if (host === "academy.langchain.com") return "LangChain Academy";
-    if (host === "anthropic.com" && path.includes("/learn")) return "Anthropic";
+    return new URL(value).hostname.replace(/^www\./, "");
   } catch {
-    return null;
+    return "用户提供材料";
   }
-  return null;
 }
 
-function describeProfile(profile: IntentProfile): string {
-  if (profile === "product") return "形成 AI 产品场景、能力边界、交互兜底与评测决策能力";
-  if (profile === "builder") return "理解并实现生成式 AI 应用的核心系统能力";
-  return "建立 AI 与生成式 AI 的共同基础，并形成可靠使用和辨别能力";
-}
-
-function buildAssembly(input: {
-  intake: LearningIntake;
-  courses: PublishedCourse[];
-  graph: DomainGraph;
-  profile: IntentProfile;
-  interpretedGoal: string;
-  targetNodeIds: string[];
-}): CurriculumAssembly {
-  const preferred = preferredCourses[input.profile];
-  const courseRank = new Map(preferred.map((id, index) => [id, index]));
-  const supplied = new Set(input.intake.materials.map((material) => matchingCourse(material, input.courses)?.genome.id).filter(Boolean));
-  const catalogProviders = new Set(input.intake.materials.map(catalogProviderFor).filter((provider): provider is string => Boolean(provider)));
-  const allMappings = input.courses.flatMap((course) => course.mappings);
-  const selectedUnits = new Map<string, Set<string>>();
-
-  for (const nodeId of input.targetNodeIds) {
-    const mappedCandidates = allMappings.filter((mapping) => mapping.nodeId === nodeId);
-    const scopedCandidates = catalogProviders.size > 0
-      ? mappedCandidates.filter((mapping) => {
-          const course = input.courses.find((item) => item.genome.id === mapping.courseId);
-          return course ? catalogProviders.has(course.genome.provider) : false;
-        })
-      : mappedCandidates;
-    const candidates = scopedCandidates
-      .sort((a, b) => {
-        const suppliedDelta = Number(supplied.has(b.courseId)) - Number(supplied.has(a.courseId));
-        if (suppliedDelta) return suppliedDelta;
-        return (courseRank.get(a.courseId) ?? 999) - (courseRank.get(b.courseId) ?? 999);
-      });
-    const chosen = candidates[0];
-    if (!chosen) continue;
-    const unitIds = selectedUnits.get(chosen.courseId) ?? new Set<string>();
-    unitIds.add(chosen.unitId);
-    selectedUnits.set(chosen.courseId, unitIds);
-  }
-
-  const activeCourseIds = Array.from(selectedUnits.keys()).sort((a, b) =>
-    (courseRank.get(a) ?? 999) - (courseRank.get(b) ?? 999),
-  );
-  const activeSet = new Set(activeCourseIds);
-  const anchorId = activeCourseIds[0];
-  const decisions = input.courses.map((item) => {
-    const units = Array.from(selectedUnits.get(item.genome.id) ?? []);
-    const preferredIndex = courseRank.get(item.genome.id);
-    const role = item.genome.id === anchorId
-      ? "anchor" as const
-      : activeSet.has(item.genome.id)
-        ? "selected_units" as const
-        : preferredIndex !== undefined
-          ? "defer" as const
-          : "exclude" as const;
-    const selectedTitles = item.genome.units.filter((unit) => units.includes(unit.id)).map((unit) => unit.title);
-    return {
-      courseId: item.genome.id,
-      role,
-      selectedUnitIds: units,
-      rationale: role === "anchor"
-        ? `作为当前主线，优先承担：${selectedTitles.join("、")}。`
-        : role === "selected_units"
-          ? `只采用与目标直接相关的章节：${selectedTitles.join("、")}；其余内容暂不增加负担。`
-          : role === "defer"
-            ? "内容有价值，但不是当前阶段最短路径，保留为后续补充。"
-            : item.tags.includes("ml-engineering")
-              ? "偏模型训练与工程实现，当前目标没有证据表明需要把它作为前置。"
-              : "与当前目标节点重合较少，本轮不纳入。",
-      confidence: role === "exclude" ? 0.82 : 0.9,
-      exitCriteria: activeSet.has(item.genome.id) ? [`能用自己的场景解释并应用所选章节，不要求完成整门课程`] : [],
-      sourceCitations: item.genome.sourceCitations,
-    };
-  });
-
-  const selectedRefs = activeCourseIds.flatMap((courseId) => {
-    const genome = input.courses.find((item) => item.genome.id === courseId)!.genome;
-    return genome.units
-      .filter((unit) => selectedUnits.get(courseId)?.has(unit.id))
-      .map((unit) => ({ courseId, unitId: unit.id }));
-  });
-  const mappingKey = new Set(selectedRefs.map((ref) => `${ref.courseId}/${ref.unitId}`));
-  const mappings = allMappings.filter((mapping) => mappingKey.has(`${mapping.courseId}/${mapping.unitId}`));
-  const nodeCategory = new Map(input.graph.nodes.map((node) => [node.id, node.categoryId]));
-  const stageBuckets = new Map<string, typeof selectedRefs>();
-  for (const ref of selectedRefs) {
-    const primaryMapping = mappings.find((mapping) => mapping.courseId === ref.courseId && mapping.unitId === ref.unitId);
-    const category = primaryMapping ? nodeCategory.get(primaryMapping.nodeId) ?? "foundation" : "foundation";
-    const bucket = stageBuckets.get(category) ?? [];
-    bucket.push(ref);
-    stageBuckets.set(category, bucket);
-  }
-  const categoryById = new Map(input.graph.categories.map((category) => [category.id, category]));
-  const stages = Array.from(stageBuckets.entries()).map(([categoryId, refs], index) => ({
-    id: `stage.${index + 1}.${categoryId}`,
-    title: categoryById.get(categoryId)?.title ?? "目标能力",
-    objective: categoryById.get(categoryId)?.description ?? "形成目标所需判断。",
-    unitRefs: refs,
-    exitCriteria: [`能用一个真实场景说明这一阶段的关键判断，并指出仍不确定的部分`],
-  }));
-  const covered = new Set(mappings.map((mapping) => mapping.nodeId));
-  const missingTargets = input.targetNodeIds.filter((nodeId) => !covered.has(nodeId));
-  const profileGap = input.profile === "product"
-    ? "真实用户研究、公司数据和业务约束需要在具体产品场景中补充"
-    : input.profile === "builder"
-      ? "具体框架与云平台实现需按最终技术栈补充"
-      : "专业分支将在目标明确后展开，不在共同基础阶段提前堆叠";
-
-  return curriculumAssemblySchema.parse({
-    schemaVersion: 1,
-    id: `curriculum.${crypto.randomUUID()}`,
-    learnerIntent: input.interpretedGoal,
-    targetNodeIds: input.targetNodeIds,
-    decisions,
-    mappings,
-    stages,
-    unresolvedGaps: [...missingTargets.map((nodeId) => `尚无可信课程覆盖：${nodeId}`), profileGap],
-    rationale: catalogProviders.size > 0
-      ? `优先在 ${Array.from(catalogProviders).join("、")} 的已发布目录中压缩出 ${activeCourseIds.length} 个当前采用来源；无法覆盖的目标保持为缺口，不由外部材料静默补齐。`
-      : `从 ${input.courses.length} 个代表课程与参考中压缩出 ${activeCourseIds.length} 个当前采用来源；课程只承担其最合适的章节，不要求按平台目录完整通关。`,
-    generatedAt: new Date().toISOString(),
-  });
+function bestCandidateNode(title: string, graph: DomainGraph): string {
+  const terms = title.toLowerCase().split(/[\s、，：:()（）/\-_]+/).filter((term) => term.length > 1);
+  const ranked = graph.nodes.map((node) => {
+    const haystack = `${node.title} ${node.description} ${node.outcomes.join(" ")}`.toLowerCase();
+    const score = terms.reduce((sum, term) => sum + Number(haystack.includes(term)), 0);
+    return { id: node.id, score };
+  }).sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  return ranked[0]?.id ?? graph.nodes[0]!.id;
 }
 
 export class CourseIntelligenceService {
@@ -300,6 +156,12 @@ export class CourseIntelligenceService {
     return { catalogCount: courses.length, catalog: courses.map((item) => item.genome), sourceCount: sources.length, model: this.modelGateway.status(), graph, curriculum };
   }
 
+  async resetCurrentLearning(ownerId: string): Promise<CurrentLearningState> {
+    await this.repository.resetOwnerState(ownerId);
+    if (this.learningStore) await this.learningStore.resetLearner(ownerId);
+    return this.getCurrentLearning(ownerId);
+  }
+
   async analyzeMaterial(ownerId: string, raw: unknown): Promise<MaterialAnalysisResult> {
     const intake = learningIntakeSchema.parse({ goal: "评估用户材料", weeklyCapacity: "light", materials: [raw] });
     const material = intake.materials[0]!;
@@ -324,6 +186,51 @@ export class CourseIntelligenceService {
     }
     const now = new Date().toISOString();
     const candidateId = `candidate.${crypto.randomUUID()}`;
+    const graph = await this.repository.getPublishedGraph();
+    const courseId = `candidate-course.${(await hashInput({ url: material.url, title: candidate.title })).slice(0, 16)}`;
+    const sourceUrl = material.url || `https://trellis.invalid/material/${encodeURIComponent(candidateId)}`;
+    const citation = {
+      title: candidate.title,
+      url: sourceUrl,
+      sourceClass: "current_signal" as const,
+      retrievedAt: now,
+    };
+    const units = candidate.units.map((unit, index) => ({
+      id: `${courseId}.unit.${index + 1}`,
+      title: unit.title,
+      order: index,
+      prerequisites: [],
+      learningOutcomes: [unit.title],
+      formats: [] as Array<"video" | "reading" | "quiz" | "lab" | "project" | "discussion">,
+    }));
+    const mappings = units.map((unit) => ({
+      courseId,
+      unitId: unit.id,
+      nodeId: bestCandidateNode(unit.title, graph),
+      depth: candidate.level === "advanced" ? 3 as const : candidate.level === "intermediate" ? 2 as const : 1 as const,
+      relation: "core" as const,
+      confidence: 0.6,
+      sourceCitations: [citation],
+    }));
+    const candidateCourse: PublishedCourse = {
+      genome: {
+        schemaVersion: 1,
+        id: courseId,
+        title: candidate.title,
+        provider: providerFromUrl(sourceUrl),
+        url: sourceUrl,
+        version: now.slice(0, 10),
+        level: candidate.level,
+        audiences: candidate.audiences,
+        prerequisites: candidate.prerequisites,
+        learningOutcomes: units.map((unit) => unit.title),
+        units,
+        sourceCitations: [citation],
+      },
+      tags: ["candidate"],
+      mappings,
+    };
+    const evalIssues = evaluatePublishedCourse(candidateCourse, graph);
     await this.repository.saveCourseCandidate({
       id: candidateId,
       ownerId,
@@ -331,6 +238,10 @@ export class CourseIntelligenceService {
       sourceUrl: material.url,
       outline: lines,
       analysisJson: JSON.stringify(candidate),
+      candidateJson: JSON.stringify(candidateCourse),
+      evalJson: JSON.stringify({ passed: evalIssues.length === 0, issues: evalIssues }),
+      impactJson: JSON.stringify({ affectedCurricula: [], reason: "new-course-candidate" }),
+      workflowRunId: null,
       status: "candidate",
       createdAt: now,
       updatedAt: now,
@@ -340,25 +251,22 @@ export class CourseIntelligenceService {
 
   async createCurriculum(ownerId: string, raw: unknown): Promise<CurriculumRecord> {
     const intake = learningIntakeSchema.parse(raw);
-    const [courses, graph] = await Promise.all([this.repository.listCourses(), this.repository.getPublishedGraph()]);
-    const fallbackProfile = inferProfile(intake.goal);
+    const [courses, graph, previous] = await Promise.all([
+      this.repository.listCourses(), this.repository.getPublishedGraph(), this.repository.getLatestCurriculum(ownerId),
+    ]);
     const refined = await this.modelGateway.structured({
       ownerId,
       kind: "learning-intent",
-      system: "解释学习目标并选择有限目标节点。profile 表示目标重心，不是让用户选择的专业分类。只能使用给定节点 ID。",
+      system: "解释学习目标并提出有限目标节点。只能使用给定节点 ID，不得选择与目标无关的机器学习工程前置。",
       data: { goal: intake.goal, availableNodes: graph.nodes.map((node) => ({ id: node.id, title: node.title })) },
       schema: intentRefinementSchema,
     });
-    const validNodeIds = new Set(graph.nodes.map((node) => node.id));
-    const profile = refined?.profile ?? fallbackProfile;
-    const refinedTargets = refined?.targetNodeIds.filter((id) => validNodeIds.has(id)) ?? [];
-    const chosenTargets = refinedTargets.length >= 4 ? refinedTargets : targetNodes[profile];
-    const assembly = buildAssembly({
+    const chosenTargets = deriveTargetNodeIds(intake.goal, graph, refined?.targetNodeIds ?? []);
+    const assembly = solveCurriculum({
       intake,
       courses,
       graph,
-      profile,
-      interpretedGoal: refined?.summary ?? `${describeProfile(profile)}；用户原始目标：${intake.goal}`,
+      interpretedGoal: refined?.summary ?? `用户希望获得的能力：${intake.goal}`,
       targetNodeIds: chosenTargets,
     });
     const evalReport = evaluateCurriculumAssembly({ courses: courses.map((item) => item.genome), assembly });
@@ -370,6 +278,9 @@ export class CourseIntelligenceService {
       status: "draft",
       activationStatus: "inactive",
       activationError: "",
+      parentCurriculumId: previous?.id ?? null,
+      graphVersionId: graph.id,
+      revision: (previous?.revision ?? 0) + 1,
       intake,
       assembly,
       createdAt: now,
@@ -386,7 +297,7 @@ export class CourseIntelligenceService {
     if (candidate.status !== "validated") {
       throw Object.assign(new Error("课程候选必须先通过内部评审才能发布"), { status: 409 });
     }
-    const course = publishedCourseSchema.parse(raw);
+    const course = publishedCourseSchema.parse(raw ?? JSON.parse(candidate.candidateJson || "null"));
     const graph = await this.repository.getPublishedGraph();
     const issues = evaluatePublishedCourse(course, graph);
     if (issues.length) {
@@ -402,6 +313,25 @@ export class CourseIntelligenceService {
       reviewJson: JSON.stringify({ courseId: course.genome.id, version: course.genome.version }),
       createdAt: now,
     });
+    const affected = await this.repository.listCurriculaUsingCourse(course.genome.id);
+    for (const curriculum of affected) {
+      const decision: DecisionRecord = {
+        id: `decision.${crypto.randomUUID()}`, ownerId: curriculum.ownerId,
+        decisionType: "route_migration", aggregateType: "curriculum", aggregateId: curriculum.id,
+        workflowRunId: candidate.workflowRunId ?? null, riskLevel: "high", status: "proposed",
+        inputHash: await hashInput({ curriculumId: curriculum.id, courseId: course.genome.id, version: course.genome.version }),
+        proposal: { courseId: course.genome.id, newVersion: course.genome.version, keepCurrentUntilAccepted: true },
+        rationale: { summary: "课程发布了新版本；当前路线继续使用原版本，是否迁移由用户确认。" },
+        citations: course.genome.sourceCitations, confidence: 1,
+        evalReport: { historyPreserved: true }, modelRoute: { mode: "version-impact" },
+        createdAt: now, updatedAt: now, appliedAt: null,
+      };
+      await this.repository.saveDecision(decision, {
+        id: `decision-event.${crypto.randomUUID()}`, decisionId: decision.id, fromStatus: null,
+        toStatus: "proposed", actorType: "system", actorOwnerId: curriculum.ownerId,
+        detail: { candidateId }, createdAt: now,
+      });
+    }
     return course;
   }
 
@@ -409,22 +339,52 @@ export class CourseIntelligenceService {
     return this.repository.listCourseCandidates(status);
   }
 
+  async updateCourseCandidateDraft(candidateId: string, raw: unknown) {
+    const candidate = await this.repository.getCourseCandidate(candidateId);
+    if (!candidate) throw Object.assign(new Error("课程候选不存在"), { status: 404 });
+    if (!["candidate", "validated"].includes(candidate.status)) {
+      throw Object.assign(new Error("该课程候选当前不可编辑"), { status: 409 });
+    }
+    const course = publishedCourseSchema.parse(raw);
+    const graph = await this.repository.getPublishedGraph();
+    const issues = evaluatePublishedCourse(course, graph);
+    const updated = {
+      ...candidate,
+      candidateJson: JSON.stringify(course),
+      evalJson: JSON.stringify({ passed: issues.length === 0, issues }),
+      status: "candidate" as const,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.repository.saveCourseCandidate(updated);
+    return updated;
+  }
+
   async refreshSource(sourceId: string) {
     const source = (await this.repository.listSources()).find((item) => item.id === sourceId);
     if (!source) throw Object.assign(new Error("课程来源不存在"), { status: 404 });
-    const snapshot = await fetchPublicSource(source.url);
-    const contentHash = await hashInput(snapshot.body);
-    return this.repository.saveSourceUpdateCandidate({
-      id: `snapshot.${sourceId}.${contentHash.slice(0, 16)}`,
-      sourceId,
-      contentHash,
-      retrievedAt: snapshot.retrievedAt,
-      contentJson: JSON.stringify({
-        finalUrl: snapshot.finalUrl,
-        contentType: snapshot.contentType,
-        byteLength: new TextEncoder().encode(snapshot.body).byteLength,
-      }),
-    });
+    try {
+      const snapshot = await fetchPublicSource(source.url);
+      const contentHash = await hashInput(snapshot.body);
+      return this.repository.saveSourceUpdateCandidate({
+        id: `snapshot.${sourceId}.${contentHash.slice(0, 16)}`,
+        sourceId,
+        contentHash,
+        retrievedAt: snapshot.retrievedAt,
+        contentJson: JSON.stringify({
+          finalUrl: snapshot.finalUrl,
+          contentType: snapshot.contentType,
+          byteLength: new TextEncoder().encode(snapshot.body).byteLength,
+        }),
+      });
+    } catch (error) {
+      const checkedAt = new Date().toISOString();
+      await this.repository.markSourceCheckFailed(
+        sourceId,
+        error instanceof Error ? error.message : "来源检查失败",
+        checkedAt,
+      );
+      throw error;
+    }
   }
 
   async reviewCourseCandidate(input: {
@@ -437,6 +397,12 @@ export class CourseIntelligenceService {
     if (!candidate) throw Object.assign(new Error("课程候选不存在"), { status: 404 });
     if (!["candidate", "validated"].includes(candidate.status)) {
       throw Object.assign(new Error("该课程候选当前不可评审"), { status: 409 });
+    }
+    if (input.decision === "validated") {
+      const evalReport = JSON.parse(candidate.evalJson || "{}") as { passed?: boolean; issues?: unknown[] };
+      if (!candidate.candidateJson || evalReport.passed !== true) {
+        throw Object.assign(new Error("课程候选仍有阻断问题，需先修正章节映射和置信度。"), { status: 409 });
+      }
     }
     const reason = z.string().trim().min(3).max(1200).parse(input.reason);
     await this.repository.reviewCourseCandidate(input.candidateId, {
@@ -455,20 +421,53 @@ export class CourseIntelligenceService {
     return this.repository.getCurriculum(id, ownerId);
   }
 
+  async getDecision(ownerId: string, id: string): Promise<DecisionRecord | null> {
+    return this.repository.getDecision(id, ownerId);
+  }
+
+  async rejectDecision(ownerId: string, id: string): Promise<DecisionRecord> {
+    const decision = await this.repository.getDecision(id, ownerId);
+    if (!decision) throw Object.assign(new Error("决策不存在"), { status: 404 });
+    const changed = transitionDecision({ decision, toStatus: "rejected", actorType: "user", actorOwnerId: ownerId });
+    await this.repository.saveDecision(changed.decision, changed.event);
+    return changed.decision;
+  }
+
+  async acceptDecision(ownerId: string, id: string): Promise<DecisionRecord> {
+    const decision = await this.repository.getDecision(id, ownerId);
+    if (!decision) throw Object.assign(new Error("决策不存在"), { status: 404 });
+    const changed = transitionDecision({ decision, toStatus: "accepted", actorType: "user", actorOwnerId: ownerId });
+    await this.repository.saveDecision(changed.decision, changed.event);
+    return changed.decision;
+  }
+
+  async applyDecision(ownerId: string, id: string, detail: Record<string, unknown> = {}): Promise<DecisionRecord> {
+    const decision = await this.repository.getDecision(id, ownerId);
+    if (!decision) throw Object.assign(new Error("决策不存在"), { status: 404 });
+    const changed = transitionDecision({ decision, toStatus: "applied", actorType: "workflow", actorOwnerId: ownerId, detail });
+    await this.repository.saveDecision(changed.decision, changed.event);
+    return changed.decision;
+  }
+
+  async getWorkflow(ownerId: string, id: string): Promise<WorkflowRunRecord | null> {
+    return this.repository.getWorkflowRun(id, ownerId);
+  }
+
   async getCurrentLearning(ownerId: string): Promise<CurrentLearningState> {
     const curriculum = await this.repository.getLatestCurriculum(ownerId);
     const knowledgeStates = await this.repository.listKnowledgeStates(ownerId);
     const workflow = curriculum
       ? await this.repository.getWorkflowRunByAggregate(ownerId, curriculum.id)
       : null;
+    const pendingDecisions = await this.repository.listDecisions(ownerId, ["proposed", "needs_review", "accepted"]);
     if (!this.learningStore || !curriculum || curriculum.status !== "confirmed") {
-      return { curriculum, weeklyPlan: null, activities: [], knowledgeStates, workflow };
+      return { curriculum, weeklyPlan: null, activities: [], knowledgeStates, workflow, pendingDecisions };
     }
     const profile = await this.learningStore.getProfile(ownerId);
-    if (!profile) return { curriculum, weeklyPlan: null, activities: [], knowledgeStates, workflow };
+    if (!profile) return { curriculum, weeklyPlan: null, activities: [], knowledgeStates, workflow, pendingDecisions };
     const weeklyPlan = await this.learningStore.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, isoWeekKey(new Date()));
     const activities = weeklyPlan ? await this.learningStore.listActivitiesByPlan(weeklyPlan.id) : [];
-    return { curriculum, weeklyPlan, activities, knowledgeStates, workflow };
+    return { curriculum, weeklyPlan, activities, knowledgeStates, workflow, pendingDecisions };
   }
 
   async confirmCurriculum(ownerId: string, id: string): Promise<CurriculumRecord> {
@@ -502,7 +501,13 @@ export class CourseIntelligenceService {
     return record;
   }
 
-  async recordLearningSignal(ownerId: string, activityId: string, raw: unknown): Promise<{ signal: LearningSignal; state: CanonicalKnowledgeState }> {
+  async recordLearningSignal(ownerId: string, activityId: string, raw: unknown): Promise<{
+    signal: LearningSignal;
+    state: CanonicalKnowledgeState;
+    interpretation: LearningInterpretation;
+    decision: DecisionRecord;
+    nextAction: string;
+  }> {
     if (!this.learningStore) throw new Error("学习运行时不可用");
     const input: LearningSignalInput = learningSignalInputSchema.parse(raw);
     const activity = await this.learningStore.getActivity(activityId);
@@ -522,21 +527,64 @@ export class CourseIntelligenceService {
       note: input.note,
       createdAt: now,
     };
-    const positive = input.type === "quiz_result"
-      ? typeof input.value === "number" && input.value >= 70
-      : input.type !== "stuck" && input.value !== false;
+    const interpretation = interpretLearningSignal(input);
     const state: CanonicalKnowledgeState = {
       ownerId,
       nodeId: activity.canonicalNodeId,
-      status: "has_signal",
-      confidence: positive ? 2 : 1,
+      status: interpretation.keepsActivityOpen ? "learning" : "has_signal",
+      confidence: interpretation.outcome === "advance" ? 2 : 1,
       latestSignalId: signal.id,
       updatedAt: now,
     };
     await this.repository.saveLearningSignal(signal, state);
-    activity.status = "completed";
+    activity.status = interpretation.keepsActivityOpen ? "in_progress" : "completed";
     await this.learningStore.saveActivity(activity);
-    return { signal, state };
+    let decision: DecisionRecord = {
+      id: `decision.${crypto.randomUUID()}`,
+      ownerId,
+      decisionType: "learning_adaptation",
+      aggregateType: "learning_activity",
+      aggregateId: activity.id,
+      workflowRunId: null,
+      riskLevel: interpretation.riskLevel,
+      status: "generated",
+      inputHash: await hashInput({ signalType: signal.type, value: signal.value, note: signal.note, activityId }),
+      proposal: { outcome: interpretation.outcome, keepsActivityOpen: interpretation.keepsActivityOpen },
+      rationale: { summary: interpretation.rationale },
+      citations: [],
+      confidence: interpretation.confidence,
+      evalReport: { valid: true },
+      modelRoute: { mode: "deterministic" },
+      createdAt: now,
+      updatedAt: now,
+      appliedAt: null,
+    };
+    await this.repository.saveDecision(decision, {
+      id: `decision-event.${crypto.randomUUID()}`, decisionId: decision.id, fromStatus: null,
+      toStatus: "generated", actorType: "system", actorOwnerId: ownerId,
+      detail: { signalId: signal.id }, createdAt: now,
+    });
+    let transition = transitionDecision({ decision, toStatus: "proposed", actorType: "workflow", actorOwnerId: ownerId });
+    decision = transition.decision;
+    await this.repository.saveDecision(decision, transition.event);
+    if (interpretation.riskLevel === "low") {
+      transition = transitionDecision({ decision, toStatus: "accepted", actorType: "system", detail: { policy: "low-risk-auto" } });
+      decision = transition.decision;
+      await this.repository.saveDecision(decision, transition.event);
+      transition = transitionDecision({ decision, toStatus: "applied", actorType: "workflow" });
+      decision = transition.decision;
+      await this.repository.saveDecision(decision, transition.event);
+    }
+    const nextAction = interpretation.outcome === "advance"
+      ? "继续已确认路线中的下一准确章节。"
+      : interpretation.outcome === "repair_prerequisite"
+        ? "先补当前节点的必要前置，再返回这一节。"
+        : interpretation.outcome === "reduce_scope"
+          ? "把当前范围缩小到一个概念或一个示例。"
+          : interpretation.outcome === "replan"
+            ? "查看并确认路线调整提案。"
+            : "回看当前章节并补一个更具体的判断。";
+    return { signal, state, interpretation, decision, nextAction };
   }
 
   private async activateLearningRuntime(record: CurriculumRecord): Promise<void> {

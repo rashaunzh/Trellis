@@ -40,6 +40,12 @@ async function read(path, expectJson = false) {
   }
 }
 
+async function readWithHeaders(path, headers) {
+  const response = await fetch(`${root}${path}`, { headers: { "user-agent": userAgent, ...headers }, redirect: "manual" });
+  const text = await response.text();
+  try { return { response, json: JSON.parse(text), text }; } catch { return { response, json: null, text }; }
+}
+
 async function write(path, body) {
   const response = await fetch(`${root}${path}`, {
     method: "POST",
@@ -70,12 +76,20 @@ check("/workbench reachable", workbench.response.status === 200, String(workbenc
 const workspace = await read("/api/learning/workspace", true);
 check("unauthenticated production API is protected", authEmail || workspace.response.status === 401, String(workspace.response.status));
 
+const forgedOwner = await readWithHeaders("/api/learning/current", { "x-trellis-owner-id": "forged-production-owner" });
+check("forged anonymous owner is rejected", forgedOwner.response.status === 401, String(forgedOwner.response.status));
+
+if (!authEmail) {
+  const forgedEmail = await readWithHeaders("/api/learning/current", { "oai-authenticated-user-email": "forged@example.com" });
+  check("forged managed email is rejected by ingress", forgedEmail.response.status === 401, String(forgedEmail.response.status));
+}
+
 const review = await read("/api/learning/week-review", true);
 check("week-review auth behavior", authEmail ? [200, 400].includes(review.response.status) : review.response.status === 401, String(review.response.status));
 
 const runtime = await read("/api/learning/mastra-runtime", true);
 check("formal Mastra runtime registered", runtime.response.status === 200
-  && runtime.json?.runtime?.spec?.id === "course-intelligence-learning-loop");
+  && runtime.json?.runtime?.spec?.ids?.length === 4);
 
 if (authEmail) {
   const intelligence = await read("/api/learning/intelligence/state", true);
@@ -105,6 +119,8 @@ if (authEmail) {
     && current.json?.current
     && "workflow" in current.json.current
     && Array.isArray(current.json.current.activities));
+  const workflow = await read(`/api/learning/workflows/${encodeURIComponent(intake.json?.workflowRunId ?? "missing")}`, true);
+  check("workflow public status is readable by owner", workflow.response.status === 200 && workflow.json?.workflow?.id === intake.json?.workflowRunId);
 } else {
   console.log("SKIP authenticated course loop: TRELLIS_AUTH_EMAIL is not set");
 }

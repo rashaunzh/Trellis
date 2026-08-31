@@ -4,11 +4,13 @@
 
 ## 部署前置清单
 
-- [ ] 代码已 commit + push（分支 `docs/trellis-v02-adaptive-learning-prd`）
+- [ ] 当前交付分支已 commit + push
 - [ ] 全量验证绿：test:domain / eslint / build / node --test / 验收脚本
 - [ ] wrangler 已登录（`npx wrangler whoami`，OAuth 有效）
-- [ ] 远程 D1 迁移已应用到 `0015`（见下）
+- [ ] 远程 D1 迁移已应用到 `0016`（见下）
 - [ ] `TRELLIS_ADMIN_EMAILS` 已配置为课程内容评审管理员邮箱
+- [ ] `TRELLIS_IDENTITY_MODE=chatgpt-hosted` 且 `TRELLIS_TRUSTED_HOSTS` 只列托管域名
+- [ ] `workers.dev` 已关闭；每周来源 Cron `0 18 * * sun` 已注册
 - [ ] 网络走 Clash 代理（`export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890`）
 
 ## 远程 D1 迁移
@@ -27,9 +29,10 @@ npx wrangler d1 execute <your-d1-database-name> --remote --command "SELECT name 
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0013_course_intelligence.sql
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0014_canonical_learning_runtime.sql
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0015_production_control_plane.sql
+npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0016_agentic_decision_kernel.sql
 ```
 
-若启用内置模型，在服务端配置 `TRELLIS_AI_API_KEY`、`TRELLIS_AI_MODEL` 和可选 `TRELLIS_AI_BASE_URL`；不要把 Key 写入仓库。未配置模型时生产环境仍应通过已发布基线 smoke。
+若启用内置模型，在服务端配置 `TRELLIS_AI_PRIMARY_*` 与 `TRELLIS_AI_FALLBACK_*`；不要把 Key 写入仓库。未配置模型时生产环境仍应通过已发布基线 smoke，但带模型的正式发布必须让两槽分别通过 benchmark。
 
 ## 构建与部署
 
@@ -63,7 +66,8 @@ TRELLIS_BASE=<your deployed URL> TRELLIS_AUTH_EMAIL=<smoke-user-email> npm run s
 
 - `/`→307（→/learn）、`/product /learn /grow /workbench`→200
 - 未带 ChatGPT 托管身份的学习 API → 401
-- `/api/learning/mastra-runtime` → 正式 `course-intelligence-learning-loop`
+- `/api/learning/mastra-runtime` → 课程分析、课程组合、学习调整、来源演进四条正式工作流
+- 客户端伪造 `x-trellis-owner-id` 或托管邮箱 header → 401
 - 远程库为空 = 全新起点（onboarding 态）
 
 ## 交付前固定检查

@@ -1,4 +1,6 @@
 import { existsSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import { resolve } from "node:path";
 
 export const BASE = process.env.TRELLIS_BASE ?? "http://127.0.0.1:5174";
@@ -11,16 +13,29 @@ export function check(name, condition, detail = "") {
 }
 
 export async function apiPost(path, body = {}, ownerId) {
-  const response = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(ownerId ? { "x-trellis-owner-id": ownerId } : {}),
-    },
-    body: JSON.stringify(body),
+  const payload = JSON.stringify(body);
+  const url = new URL(path, BASE);
+  const transport = url.protocol === "https:" ? https : http;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const request = transport.request(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload), "Connection": "close",
+        ...(ownerId ? { "x-trellis-owner-id": ownerId } : {}),
+      },
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        if ((response.statusCode ?? 500) >= 400) return rejectPromise(new Error(`${path} -> ${response.statusCode}: ${text}`));
+        try { resolvePromise(text ? JSON.parse(text) : {}); } catch (error) { rejectPromise(error); }
+      });
+    });
+    request.setTimeout(30_000, () => request.destroy(new Error(`${path} timed out`)));
+    request.on("error", rejectPromise);
+    request.end(payload);
   });
-  if (!response.ok) throw new Error(`${path} -> ${response.status}: ${await response.text()}`);
-  return response.json();
 }
 
 export function findChrome() {

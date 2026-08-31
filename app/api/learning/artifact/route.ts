@@ -1,4 +1,4 @@
-import { getLearningService, ownerOf, jsonError } from "../_shared";
+import { getLearningService, ownerOf, jsonError, requireLegacyRuntime } from "../_shared";
 
 // GET /api/learning/artifact — 读取当前作品迭代状态与版本历史
 export async function GET(request: Request) {
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
 // POST /api/learning/artifact — 生成作品任务，正式进入活动/证据/掌握确认闭环
 export async function POST(request: Request) {
   try {
+    await requireLegacyRuntime(request);
     const ownerId = await ownerOf(request);
     const workspace = await (await getLearningService()).createPortfolioArtifactActivity(ownerId);
     return Response.json({ workspace });

@@ -29,7 +29,7 @@ const post = (path, body = {}) => apiPost(path, body, OWNER_ID);
 
 async function get(path) {
   const response = await fetch(`${BASE}${path}`, {
-    headers: { "x-trellis-owner-id": OWNER_ID },
+    headers: { "x-trellis-owner-id": OWNER_ID, "Connection": "close" },
   });
   if (!response.ok) throw new Error(`${path} -> ${response.status}: ${await response.text()}`);
   return response.json();

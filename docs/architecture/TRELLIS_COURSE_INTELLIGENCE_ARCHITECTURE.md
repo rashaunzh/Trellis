@@ -22,13 +22,13 @@ flowchart LR
 ```mermaid
 flowchart TB
   UI[/learn · /grow · /workbench] --> API[Learning API]
-  API --> WF[Mastra 正式工作流]
+  API --> WF[Mastra 四工作流: 课程分析 / 课程组合 / 学习调整 / 来源演进]
   WF --> CIS[CourseIntelligenceService]
   CIS --> RULES[确定性编排与发布检查]
   CIS --> GW[Model Gateway]
-  GW --> LLM[内置 OpenAI-compatible provider]
+  GW --> LLM[主备 OpenAI-compatible provider]
   CIS --> CIR[Course Intelligence Repository]
-  CIR --> D1[(D1: source / snapshot / graph / course / mapping / curriculum / run)]
+  CIR --> D1[(D1: content / curriculum / DecisionRecord / append-only event)]
   CIS --> BRIDGE[Learning Runtime Bridge]
   BRIDGE --> STORE[现有 plan / activity / evidence / progress store]
   WF --> MS[(Mastra D1Store: snapshot / resume)]
@@ -41,7 +41,10 @@ flowchart TB
 - 用户确认课程组合后，runtime bridge 才创建正式周计划和活动。
 - Mastra 负责流程位置、暂停、恢复和重试；D1 业务表始终是课程、路线、行动和学习状态的唯一事实来源。
 - `intake` 创建工作流并暂停在课程确认；确认接口恢复同一 run，激活写入通过 D1 batch 原子完成。
+- 陌生课程分析和来源变化分别暂停在内部评审；低置信、无来源或未映射章节不能发布。
+- 学习反馈先形成 `LearningInterpretation` 与 `DecisionRecord`；低风险调整自动应用，高风险路线变化等待用户确认。
 - 课程更新创建新版本及影响报告；已确认路线继续引用原判断，迁移需要用户确认。
+- 模型主备使用完全相同的结构合同与确定性 Eval；规则失败不能由备用模型绕过。
 - 未配置模型时，网关返回 baseline 模式；已发布数据可读，陌生材料保持 `needs_analysis`。
 
 ## 迁移关系

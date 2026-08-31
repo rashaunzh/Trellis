@@ -16,6 +16,7 @@
     "0012_week_reviews.sql",
     "0013_course_intelligence.sql",
     "0014_canonical_learning_runtime.sql",
-    "0015_production_control_plane.sql"
+    "0015_production_control_plane.sql",
+    "0016_agentic_decision_kernel.sql"
   ]
 }

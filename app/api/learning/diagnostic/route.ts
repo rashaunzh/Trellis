@@ -1,8 +1,9 @@
-import { getLearningService, ownerOf, jsonError } from "../_shared";
+import { getLearningService, ownerOf, jsonError, requireLegacyRuntime } from "../_shared";
 
 // POST /api/learning/diagnostic — 目标 + 每周时间 + 材料 + 自评 → 初始画像 + 推荐路线
 export async function POST(request: Request) {
   try {
+    await requireLegacyRuntime(request);
     const ownerId = await ownerOf(request);
     const payload = (await request.json()) as Record<string, unknown>;
     if (!String(payload.goal ?? "").trim()) {

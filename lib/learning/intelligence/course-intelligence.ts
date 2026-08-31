@@ -131,10 +131,13 @@ export const curriculumStageSchema = z.object({
   objective: nonEmpty,
   unitRefs: z.array(z.object({ courseId: nonEmpty, unitId: nonEmpty })).min(1),
   exitCriteria: z.array(nonEmpty).min(1),
+  anchorCourseId: nonEmpty.optional(),
+  supplementCourseIds: z.array(nonEmpty).optional(),
+  stopAfterUnitId: nonEmpty.optional(),
 });
 
 export const curriculumAssemblySchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   id: nonEmpty,
   learnerIntent: nonEmpty,
   targetNodeIds: z.array(nonEmpty).min(1),
@@ -171,6 +174,10 @@ export interface CourseCandidateRecord {
   sourceUrl: string;
   outline: string[];
   analysisJson: string;
+  candidateJson?: string;
+  evalJson?: string;
+  impactJson?: string;
+  workflowRunId?: string | null;
   status: "candidate" | "validated" | "rejected" | "published";
   createdAt: string;
   updatedAt: string;
@@ -211,6 +218,9 @@ export interface CurriculumRecord {
   status: z.infer<typeof curriculumRecordStatusSchema>;
   activationStatus: "inactive" | "activating" | "active" | "failed";
   activationError: string;
+  parentCurriculumId?: string | null;
+  graphVersionId?: string;
+  revision?: number;
   intake: LearningIntake;
   assembly: CurriculumAssembly;
   createdAt: string;
@@ -372,7 +382,7 @@ export function evaluateCurriculumAssembly(input: {
   if (decisionsByCourse.size !== assembly.decisions.length) {
     issues.push({ severity: "blocking", code: "duplicate_course_decision", message: "同一课程不能出现多个取舍结论。" });
   }
-  if (assembly.decisions.filter((decision) => decision.role === "anchor").length > 1) {
+  if (assembly.schemaVersion === 1 && assembly.decisions.filter((decision) => decision.role === "anchor").length > 1) {
     issues.push({ severity: "blocking", code: "multiple_anchors", message: "一个阶段最多只能有一门主课。" });
   }
   if (activeDecisions.length === 0) {
@@ -409,6 +419,10 @@ export function evaluateCurriculumAssembly(input: {
   }
 
   for (const stage of assembly.stages) {
+    if (assembly.schemaVersion === 2 && stage.anchorCourseId
+      && !stage.unitRefs.some((ref) => ref.courseId === stage.anchorCourseId)) {
+      issues.push({ severity: "blocking", code: "stage_anchor_missing", message: `${stage.title} 的主线课程没有进入本阶段章节。` });
+    }
     for (const ref of stage.unitRefs) {
       const decision = decisionsByCourse.get(ref.courseId);
       if (!decision || !activeRoles.has(decision.role)) {
@@ -422,8 +436,8 @@ export function evaluateCurriculumAssembly(input: {
 
   const coveredNodeIds = new Set(assembly.mappings.map((mapping) => mapping.nodeId));
   const targetCoverage = assembly.targetNodeIds.filter((nodeId) => coveredNodeIds.has(nodeId)).length / assembly.targetNodeIds.length;
-  if (targetCoverage < 1) {
-    issues.push({ severity: "blocking", code: "target_gap", message: "当前组合没有覆盖全部目标知识节点。" });
+  if (targetCoverage < 1 && assembly.unresolvedGaps.length === 0) {
+    issues.push({ severity: "blocking", code: "undeclared_target_gap", message: "当前组合没有覆盖全部目标知识节点，也没有声明路线缺口。" });
   }
 
   const decisionTraceability = assembly.decisions.filter((decision) => decision.sourceCitations.length > 0).length / assembly.decisions.length;

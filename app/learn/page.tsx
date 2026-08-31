@@ -308,7 +308,12 @@ function CurriculumProposal({ state, curriculum, activeDecisions, deferredDecisi
   return (
     <div className="ci-proposal">
       <section className="ci-goal-brief">
-        <div><p className="t2-kicker">Trellis 对目标的理解</p><h2>{curriculum.assembly.learnerIntent}</h2><p>{curriculum.assembly.rationale}</p></div>
+        <div>
+          <p className="t2-kicker">Trellis 对目标的理解</p>
+          <h2>{curriculum.assembly.learnerIntent}</h2>
+          <p>用户原始目标：{curriculum.intake.goal}</p>
+          <p>{curriculum.assembly.rationale}</p>
+        </div>
         <button className="t2-secondary" onClick={onEdit}>修改目标或材料</button>
       </section>
       <CurriculumDetails state={state} curriculum={curriculum} activeDecisions={activeDecisions} deferredDecisions={deferredDecisions} />

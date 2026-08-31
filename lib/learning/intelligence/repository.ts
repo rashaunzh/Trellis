@@ -20,6 +20,13 @@ import {
   publishedDomainGraph,
   trustedSources,
 } from "./baseline.ts";
+import {
+  decisionEventSchema,
+  decisionRecordSchema,
+  type DecisionEvent,
+  type DecisionRecord,
+  type DecisionStatus,
+} from "./decision-kernel.ts";
 
 export interface AnalysisRunRecord {
   id: string;
@@ -41,7 +48,7 @@ export interface WorkflowRunRecord {
   id: string;
   ownerId: string;
   workflowId: string;
-  aggregateType: "curriculum";
+  aggregateType: "curriculum" | "course_candidate" | "learning_activity" | "source";
   aggregateId: string;
   status: "running" | "suspended" | "completed" | "failed" | "cancelled";
   currentStep: string;
@@ -83,11 +90,14 @@ export interface SourceUpdateJobRecord {
 export interface CourseIntelligenceRepository {
   seedPublishedBaseline(): Promise<void>;
   listSources(): Promise<TrustedSource[]>;
+  listSourcesDue(limit: number, now: string): Promise<TrustedSource[]>;
+  markSourceCheckFailed(sourceId: string, error: string, checkedAt: string): Promise<void>;
   saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord>;
   listCourses(): Promise<PublishedCourse[]>;
   getPublishedGraph(): Promise<DomainGraph>;
   getCurriculum(id: string, ownerId: string): Promise<CurriculumRecord | null>;
   getLatestCurriculum(ownerId: string): Promise<CurriculumRecord | null>;
+  listCurriculaUsingCourse(courseId: string): Promise<CurriculumRecord[]>;
   saveCurriculum(record: CurriculumRecord): Promise<void>;
   saveCourseCandidate(candidate: CourseCandidateRecord): Promise<void>;
   getCourseCandidate(id: string): Promise<CourseCandidateRecord | null>;
@@ -96,6 +106,12 @@ export interface CourseIntelligenceRepository {
   publishCourseCandidate(candidateId: string, course: PublishedCourse, review?: CandidateReviewRecord): Promise<void>;
   saveWorkflowRun(run: WorkflowRunRecord): Promise<void>;
   getWorkflowRunByAggregate(ownerId: string, aggregateId: string): Promise<WorkflowRunRecord | null>;
+  getWorkflowRun(id: string, ownerId: string): Promise<WorkflowRunRecord | null>;
+  saveDecision(decision: DecisionRecord, event?: DecisionEvent): Promise<void>;
+  getDecision(id: string, ownerId: string): Promise<DecisionRecord | null>;
+  listDecisions(ownerId: string, statuses?: DecisionStatus[]): Promise<DecisionRecord[]>;
+  listDecisionEvents(decisionId: string): Promise<DecisionEvent[]>;
+  resetOwnerState(ownerId: string): Promise<void>;
   supersedeCurricula(ownerId: string, exceptId: string, includeConfirmed?: boolean): Promise<void>;
   saveLearningSignal(signal: LearningSignal, state: CanonicalKnowledgeState): Promise<void>;
   listKnowledgeStates(ownerId: string): Promise<CanonicalKnowledgeState[]>;
@@ -114,9 +130,13 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
   private workflowRuns = new Map<string, WorkflowRunRecord>();
   private candidateReviews = new Map<string, CandidateReviewRecord>();
   private sourceSnapshots = new Map<string, SourceSnapshotCandidate>();
+  private decisions = new Map<string, DecisionRecord>();
+  private decisionEvents = new Map<string, DecisionEvent>();
 
   async seedPublishedBaseline() {}
   async listSources() { return structuredClone(trustedSources); }
+  async listSourcesDue(limit: number) { return structuredClone(trustedSources.slice(0, limit)); }
+  async markSourceCheckFailed() {}
   async saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord> {
     const previous = Array.from(this.sourceSnapshots.values())
       .filter((item) => item.sourceId === snapshot.sourceId)
@@ -152,6 +172,10 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
     return Array.from(this.curricula.values())
       .filter((item) => item.ownerId === ownerId && item.status !== "superseded")
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
+  }
+  async listCurriculaUsingCourse(courseId: string) {
+    return Array.from(this.curricula.values()).filter((record) =>
+      record.status === "confirmed" && record.assembly.decisions.some((decision) => decision.courseId === courseId));
   }
   async saveCurriculum(record: CurriculumRecord) { this.curricula.set(record.id, structuredClone(record)); }
   async saveCourseCandidate(candidate: CourseCandidateRecord) { this.candidates.set(candidate.id, structuredClone(candidate)); }
@@ -211,6 +235,39 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
       run.ownerId === ownerId && run.aggregateId === aggregateId,
     ) ?? null);
   }
+  async getWorkflowRun(id: string, ownerId: string) {
+    const run = this.workflowRuns.get(id);
+    return run?.ownerId === ownerId ? structuredClone(run) : null;
+  }
+  async saveDecision(decision: DecisionRecord, event?: DecisionEvent) {
+    this.decisions.set(decision.id, structuredClone(decision));
+    if (event) this.decisionEvents.set(event.id, structuredClone(event));
+  }
+  async getDecision(id: string, ownerId: string) {
+    const decision = this.decisions.get(id);
+    return decision?.ownerId === ownerId ? structuredClone(decision) : null;
+  }
+  async listDecisions(ownerId: string, statuses?: DecisionStatus[]) {
+    return Array.from(this.decisions.values())
+      .filter((item) => item.ownerId === ownerId && (!statuses || statuses.includes(item.status)))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((item) => structuredClone(item));
+  }
+  async listDecisionEvents(decisionId: string) {
+    return Array.from(this.decisionEvents.values())
+      .filter((item) => item.decisionId === decisionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((item) => structuredClone(item));
+  }
+  async resetOwnerState(ownerId: string) {
+    for (const [id, record] of this.curricula) if (record.ownerId === ownerId) this.curricula.delete(id);
+    for (const [id, record] of this.workflowRuns) if (record.ownerId === ownerId) this.workflowRuns.delete(id);
+    const decisionIds = new Set(Array.from(this.decisions.values()).filter((item) => item.ownerId === ownerId).map((item) => item.id));
+    for (const id of decisionIds) this.decisions.delete(id);
+    for (const [id, event] of this.decisionEvents) if (decisionIds.has(event.decisionId)) this.decisionEvents.delete(id);
+    for (const [id, signal] of this.signals) if (signal.ownerId === ownerId) this.signals.delete(id);
+    for (const key of this.knowledgeStates.keys()) if (key.startsWith(`${ownerId}:`)) this.knowledgeStates.delete(key);
+  }
 }
 
 // D1 类型声明不在当前依赖中；边界由接口和结构化解析保证。
@@ -231,11 +288,39 @@ function parseRecord(row: Record<string, unknown>): CurriculumRecord {
     status: curriculumRecordStatusSchema.parse(row.status),
     activationStatus: (row.activation_status ?? "inactive") as CurriculumRecord["activationStatus"],
     activationError: String(row.activation_error ?? ""),
+    parentCurriculumId: row.parent_curriculum_id ? String(row.parent_curriculum_id) : null,
+    graphVersionId: String(row.graph_version_id ?? ""),
+    revision: Number(row.revision ?? 1),
     intake: learningIntakeSchema.parse(JSON.parse(String(row.intake_json))),
     assembly: curriculumAssemblySchema.parse(JSON.parse(String(row.assembly_json))),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
+}
+
+function parseCandidate(row: Record<string, unknown>): CourseCandidateRecord {
+  return {
+    id: String(row.id), ownerId: String(row.owner_id), title: String(row.title),
+    sourceUrl: String(row.source_url), outline: JSON.parse(String(row.outline_json)),
+    analysisJson: String(row.analysis_json), candidateJson: String(row.candidate_json ?? "{}"),
+    evalJson: String(row.eval_json ?? "{}"), impactJson: String(row.impact_json ?? "{}"),
+    workflowRunId: row.workflow_run_id ? String(row.workflow_run_id) : null,
+    status: row.status as CourseCandidateRecord["status"],
+    createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+  };
+}
+
+function parseDecision(row: Record<string, unknown>): DecisionRecord {
+  return decisionRecordSchema.parse({
+    id: row.id, ownerId: row.owner_id ?? null, decisionType: row.decision_type,
+    aggregateType: row.aggregate_type, aggregateId: row.aggregate_id,
+    workflowRunId: row.workflow_run_id ?? null, riskLevel: row.risk_level, status: row.status,
+    inputHash: row.input_hash, proposal: JSON.parse(String(row.proposal_json)),
+    rationale: JSON.parse(String(row.rationale_json)), citations: JSON.parse(String(row.citations_json)),
+    confidence: Number(row.confidence) / 1000, evalReport: JSON.parse(String(row.eval_json)),
+    modelRoute: JSON.parse(String(row.model_route_json)), createdAt: row.created_at,
+    updatedAt: row.updated_at, appliedAt: row.applied_at ?? null,
+  });
 }
 
 export class D1CourseIntelligenceRepository implements CourseIntelligenceRepository {
@@ -311,6 +396,23 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     }));
   }
 
+  async listSourcesDue(limit: number, now: string): Promise<TrustedSource[]> {
+    const rows = await this.db.prepare(`SELECT id,title,url,source_class,purposes_json,provider,status,notes
+      FROM learning_ci_sources WHERE status='published' AND (next_check_at IS NULL OR next_check_at<=?)
+      ORDER BY COALESCE(last_checked_at,'') ASC LIMIT ?`).bind(now, limit).all();
+    return (rows.results as Array<Record<string, unknown>>).map((row) => trustedSourceSchema.parse({
+      id: row.id, title: row.title, url: row.url, sourceClass: row.source_class,
+      purposes: JSON.parse(String(row.purposes_json)), provider: row.provider,
+      status: row.status, notes: row.notes,
+    }));
+  }
+
+  async markSourceCheckFailed(sourceId: string, error: string, checkedAt: string): Promise<void> {
+    const nextCheck = new Date(new Date(checkedAt).getTime() + 86400000).toISOString();
+    await this.db.prepare(`UPDATE learning_ci_sources SET last_checked_at=?,next_check_at=?,last_check_error=?,updated_at=? WHERE id=?`)
+      .bind(checkedAt, nextCheck, error.slice(0, 1200), checkedAt, sourceId).run();
+  }
+
   async saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord> {
     const previous = await this.db.prepare(`SELECT id,content_hash FROM learning_ci_source_snapshots
       WHERE source_id=? ORDER BY created_at DESC LIMIT 1`).bind(snapshot.sourceId).first();
@@ -338,6 +440,9 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
       .bind(job.id, job.sourceId, job.status, job.previousSnapshotId, job.candidateSnapshotId,
         job.impactJson, job.error, job.createdAt, job.updatedAt));
     await this.db.batch(statements);
+    const nextCheck = new Date(new Date(snapshot.retrievedAt).getTime() + 7 * 86400000).toISOString();
+    await this.db.prepare(`UPDATE learning_ci_sources SET last_checked_at=?,next_check_at=?,last_check_error='',updated_at=? WHERE id=?`)
+      .bind(snapshot.retrievedAt, nextCheck, snapshot.retrievedAt, snapshot.sourceId).run();
     return job;
   }
 
@@ -377,55 +482,51 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     return row ? parseRecord(row) : null;
   }
 
+  async listCurriculaUsingCourse(courseId: string): Promise<CurriculumRecord[]> {
+    const rows = await this.db.prepare(`SELECT * FROM learning_ci_curricula
+      WHERE status='confirmed' AND assembly_json LIKE ? ORDER BY updated_at DESC`)
+      .bind(`%\"courseId\":\"${courseId.replace(/["%_]/g, "")}\"%`).all();
+    return (rows.results as Array<Record<string, unknown>>).map(parseRecord);
+  }
+
   async saveCurriculum(record: CurriculumRecord): Promise<void> {
     await this.db.prepare(`INSERT INTO learning_ci_curricula
-      (id,owner_id,status,activation_status,activation_error,intake_json,assembly_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)
+      (id,owner_id,status,activation_status,activation_error,parent_curriculum_id,graph_version_id,revision,intake_json,assembly_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET status=excluded.status,activation_status=excluded.activation_status,
-        activation_error=excluded.activation_error,intake_json=excluded.intake_json,assembly_json=excluded.assembly_json,updated_at=excluded.updated_at`)
-      .bind(record.id, record.ownerId, record.status, record.activationStatus, record.activationError, JSON.stringify(record.intake), JSON.stringify(record.assembly), record.createdAt, record.updatedAt)
+        activation_error=excluded.activation_error,parent_curriculum_id=excluded.parent_curriculum_id,
+        graph_version_id=excluded.graph_version_id,revision=excluded.revision,intake_json=excluded.intake_json,
+        assembly_json=excluded.assembly_json,updated_at=excluded.updated_at`)
+      .bind(record.id, record.ownerId, record.status, record.activationStatus, record.activationError,
+        record.parentCurriculumId ?? null, record.graphVersionId ?? "", record.revision ?? 1,
+        JSON.stringify(record.intake), JSON.stringify(record.assembly), record.createdAt, record.updatedAt)
       .run();
   }
 
   async saveCourseCandidate(candidate: CourseCandidateRecord): Promise<void> {
     await this.db.prepare(`INSERT INTO learning_ci_course_candidates
-      (id,owner_id,title,source_url,outline_json,analysis_json,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)
+      (id,owner_id,title,source_url,outline_json,analysis_json,candidate_json,eval_json,impact_json,workflow_run_id,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET title=excluded.title,source_url=excluded.source_url,
-        outline_json=excluded.outline_json,analysis_json=excluded.analysis_json,status=excluded.status,updated_at=excluded.updated_at`)
-      .bind(candidate.id, candidate.ownerId, candidate.title, candidate.sourceUrl, JSON.stringify(candidate.outline), candidate.analysisJson, candidate.status, candidate.createdAt, candidate.updatedAt)
+        outline_json=excluded.outline_json,analysis_json=excluded.analysis_json,candidate_json=excluded.candidate_json,
+        eval_json=excluded.eval_json,impact_json=excluded.impact_json,workflow_run_id=excluded.workflow_run_id,
+        status=excluded.status,updated_at=excluded.updated_at`)
+      .bind(candidate.id, candidate.ownerId, candidate.title, candidate.sourceUrl, JSON.stringify(candidate.outline),
+        candidate.analysisJson, candidate.candidateJson ?? "{}", candidate.evalJson ?? "{}", candidate.impactJson ?? "{}",
+        candidate.workflowRunId ?? null, candidate.status, candidate.createdAt, candidate.updatedAt)
       .run();
   }
 
   async getCourseCandidate(id: string): Promise<CourseCandidateRecord | null> {
     const row = await this.db.prepare("SELECT * FROM learning_ci_course_candidates WHERE id=? LIMIT 1").bind(id).first();
-    return row ? {
-      id: String(row.id),
-      ownerId: String(row.owner_id),
-      title: String(row.title),
-      sourceUrl: String(row.source_url),
-      outline: JSON.parse(String(row.outline_json)),
-      analysisJson: String(row.analysis_json),
-      status: row.status as CourseCandidateRecord["status"],
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
-    } : null;
+    return row ? parseCandidate(row) : null;
   }
 
   async listCourseCandidates(status?: CourseCandidateRecord["status"]): Promise<CourseCandidateRecord[]> {
     const where = status ? "WHERE status=?" : "";
     const statement = this.db.prepare(`SELECT * FROM learning_ci_course_candidates ${where} ORDER BY updated_at DESC`);
     const rows = status ? await statement.bind(status).all() : await statement.all();
-    return (rows.results as Array<Record<string, unknown>>).map((row) => ({
-      id: String(row.id),
-      ownerId: String(row.owner_id),
-      title: String(row.title),
-      sourceUrl: String(row.source_url),
-      outline: JSON.parse(String(row.outline_json)),
-      analysisJson: String(row.analysis_json),
-      status: row.status as CourseCandidateRecord["status"],
-      createdAt: String(row.created_at),
-      updatedAt: String(row.updated_at),
-    }));
+    return (rows.results as Array<Record<string, unknown>>).map(parseCandidate);
   }
 
   async reviewCourseCandidate(candidateId: string, review: CandidateReviewRecord): Promise<void> {
@@ -540,13 +641,13 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
 
   async getWorkflowRunByAggregate(ownerId: string, aggregateId: string): Promise<WorkflowRunRecord | null> {
     const row = await this.db.prepare(`SELECT * FROM learning_workflow_runs
-      WHERE owner_id=? AND aggregate_type='curriculum' AND aggregate_id=? ORDER BY updated_at DESC LIMIT 1`)
+      WHERE owner_id=? AND aggregate_id=? ORDER BY updated_at DESC LIMIT 1`)
       .bind(ownerId, aggregateId).first();
     return row ? {
       id: String(row.id),
       ownerId: String(row.owner_id),
       workflowId: String(row.workflow_id),
-      aggregateType: "curriculum",
+      aggregateType: row.aggregate_type as WorkflowRunRecord["aggregateType"],
       aggregateId: String(row.aggregate_id),
       status: row.status as WorkflowRunRecord["status"],
       currentStep: String(row.current_step),
@@ -554,5 +655,70 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
     } : null;
+  }
+
+  async getWorkflowRun(id: string, ownerId: string): Promise<WorkflowRunRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM learning_workflow_runs WHERE id=? AND owner_id=? LIMIT 1").bind(id, ownerId).first();
+    return row ? {
+      id: String(row.id), ownerId: String(row.owner_id), workflowId: String(row.workflow_id),
+      aggregateType: row.aggregate_type as WorkflowRunRecord["aggregateType"], aggregateId: String(row.aggregate_id),
+      status: row.status as WorkflowRunRecord["status"], currentStep: String(row.current_step),
+      lastError: String(row.last_error), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+    } : null;
+  }
+
+  async saveDecision(decision: DecisionRecord, event?: DecisionEvent): Promise<void> {
+    const parsed = decisionRecordSchema.parse(decision);
+    const statements = [this.db.prepare(`INSERT INTO learning_decisions
+      (id,owner_id,decision_type,aggregate_type,aggregate_id,workflow_run_id,risk_level,status,input_hash,
+       proposal_json,rationale_json,citations_json,confidence,eval_json,model_route_json,created_at,updated_at,applied_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET workflow_run_id=excluded.workflow_run_id,risk_level=excluded.risk_level,
+       status=excluded.status,proposal_json=excluded.proposal_json,rationale_json=excluded.rationale_json,
+       citations_json=excluded.citations_json,confidence=excluded.confidence,eval_json=excluded.eval_json,
+       model_route_json=excluded.model_route_json,updated_at=excluded.updated_at,applied_at=excluded.applied_at`)
+      .bind(parsed.id, parsed.ownerId, parsed.decisionType, parsed.aggregateType, parsed.aggregateId,
+        parsed.workflowRunId, parsed.riskLevel, parsed.status, parsed.inputHash, JSON.stringify(parsed.proposal),
+        JSON.stringify(parsed.rationale), JSON.stringify(parsed.citations), Math.round(parsed.confidence * 1000),
+        JSON.stringify(parsed.evalReport), JSON.stringify(parsed.modelRoute), parsed.createdAt, parsed.updatedAt, parsed.appliedAt)];
+    if (event) {
+      const parsedEvent = decisionEventSchema.parse(event);
+      statements.push(this.db.prepare(`INSERT INTO learning_decision_events
+        (id,decision_id,from_status,to_status,actor_type,actor_owner_id,detail_json,created_at) VALUES (?,?,?,?,?,?,?,?)`)
+        .bind(parsedEvent.id, parsedEvent.decisionId, parsedEvent.fromStatus, parsedEvent.toStatus,
+          parsedEvent.actorType, parsedEvent.actorOwnerId, JSON.stringify(parsedEvent.detail), parsedEvent.createdAt));
+    }
+    await this.db.batch(statements);
+  }
+
+  async getDecision(id: string, ownerId: string): Promise<DecisionRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM learning_decisions WHERE id=? AND owner_id=? LIMIT 1").bind(id, ownerId).first();
+    return row ? parseDecision(row) : null;
+  }
+
+  async listDecisions(ownerId: string, statuses?: DecisionStatus[]): Promise<DecisionRecord[]> {
+    const rows = await this.db.prepare("SELECT * FROM learning_decisions WHERE owner_id=? ORDER BY updated_at DESC").bind(ownerId).all();
+    return (rows.results as Array<Record<string, unknown>>).map(parseDecision)
+      .filter((item) => !statuses || statuses.includes(item.status));
+  }
+
+  async listDecisionEvents(decisionId: string): Promise<DecisionEvent[]> {
+    const rows = await this.db.prepare("SELECT * FROM learning_decision_events WHERE decision_id=? ORDER BY created_at").bind(decisionId).all();
+    return (rows.results as Array<Record<string, unknown>>).map((row) => decisionEventSchema.parse({
+      id: row.id, decisionId: row.decision_id, fromStatus: row.from_status ?? null,
+      toStatus: row.to_status, actorType: row.actor_type, actorOwnerId: row.actor_owner_id ?? null,
+      detail: JSON.parse(String(row.detail_json)), createdAt: row.created_at,
+    }));
+  }
+
+  async resetOwnerState(ownerId: string): Promise<void> {
+    await this.db.batch([
+      this.db.prepare("DELETE FROM learning_decision_events WHERE decision_id IN (SELECT id FROM learning_decisions WHERE owner_id=?)").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_decisions WHERE owner_id=?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_ci_learning_signals WHERE owner_id=?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_ci_knowledge_states WHERE owner_id=?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_workflow_runs WHERE owner_id=?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_ci_curricula WHERE owner_id=?").bind(ownerId),
+    ]);
   }
 }

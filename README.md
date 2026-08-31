@@ -27,7 +27,9 @@ Trellis 是一个课程智能与学习编排系统。它把用户目标和已有
 - 10 个代表来源、30 门课程或专业参考、36 个 AI 领域节点；
 - DeepLearning.AI、Microsoft Learn、Anthropic、LangChain、Stanford、MIT、Duke、NIST 和专业书籍等公开目录基线；
 - 课程版本、章节、来源快照、映射、分析任务和个人方案的 D1 存储；
-- 内置 OpenAI-compatible 模型网关：结构化输出、Zod 校验、超时、有限重试、缓存和调用记录；
+- 主备 OpenAI-compatible 模型网关：同一结构合同、Zod 校验、超时、有限重试、缓存、用量记录和故障切换；
+- 四条正式 Mastra 工作流：课程分析、课程组合、学习调整和来源演进；业务事实与决策事件仍只写 D1；
+- `DecisionRecord` 统一保存课程、路线、学习调整和版本迁移的理由、置信度、Eval 与确认历史；
 - 无模型 Key 时使用已发布基线，陌生课程明确显示尚未分析；
 - 课程目录范围约束：用户给出 DeepLearning.AI 总目录时，系统先在该目录内取舍，不静默混入其他平台；
 - `/learn` 三态流程：说明目标、检查方案、开始准确章节；
@@ -42,14 +44,19 @@ npm ci
 npm run dev
 ```
 
-Vite 会打印实际地址。首次运行或 schema 更新需按 `drizzle/migration-manifest.json` 应用完整迁移链；Course Intelligence 与 canonical runtime 分别位于 `0013/0014`。详见[本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。
+Vite 会打印实际地址。首次运行或 schema 更新需按 `drizzle/migration-manifest.json` 应用完整迁移链；Agentic 决策内核位于 `0016`。详见[本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。
 
 内置模型为可选增强：
 
 ```bash
-TRELLIS_AI_API_KEY=<server-key>
-TRELLIS_AI_MODEL=<model-name>
-TRELLIS_AI_BASE_URL=<optional-openai-compatible-base-url>
+TRELLIS_AI_PRIMARY_PROVIDER=<provider-label>
+TRELLIS_AI_PRIMARY_API_KEY=<server-key>
+TRELLIS_AI_PRIMARY_MODEL=<model-name>
+TRELLIS_AI_PRIMARY_BASE_URL=<openai-compatible-base-url>
+TRELLIS_AI_FALLBACK_PROVIDER=<provider-label>
+TRELLIS_AI_FALLBACK_API_KEY=<server-key>
+TRELLIS_AI_FALLBACK_MODEL=<model-name>
+TRELLIS_AI_FALLBACK_BASE_URL=<openai-compatible-base-url>
 ```
 
 没有这些变量时，已发布课程和路线仍可使用。BYOK 不解锁基本能力，只用于指定模型、更高额度或未来私有材料分析。
@@ -77,16 +84,20 @@ npm run delivery:precheck
 - `POST /api/learning/materials/analyze`
 - `GET /api/learning/curricula/:id`
 - `POST /api/learning/curricula/:id/confirm`
+- `GET /api/learning/current`
+- `GET /api/learning/workflows/:id`
+- `POST /api/learning/decisions/:id/accept|reject`
+- `POST /api/learning/runs/:activityId/feedback`
 
 抓取、候选图发布和批量更新保持为内部流程，不暴露无鉴权管理 API。
 
 ## 边界
 
-- 当前仍是匿名 owner MVP，不是完整账号与权限系统；
+- 本地仍支持显式测试 owner；生产只接受可信 ChatGPT 托管入口注入的身份；
 - 不复制付费课程正文，只保存公开目录、元数据、映射和来源引用；
 - 首批基线是可审计起点，不代表已经覆盖全部 AI 课程；
 - 课程变化只生成候选版本和影响报告，不自动改写已确认路线；
-- 旧 Mastra、Eval、固定 StagePath 和作品闭环仍保留兼容代码，但不再定义正式产品体验。
+- 旧 Eval、固定 StagePath 和作品闭环仍保留一版只读/本机显式兼容代码，生产 mutation 返回 `410 Gone`。
 
 ## 文档
 

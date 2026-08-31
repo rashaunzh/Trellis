@@ -32,6 +32,7 @@ npm run db:verify
 npm run build
 .\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0014_canonical_learning_runtime.sql
 .\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0015_production_control_plane.sql
+.\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0016_agentic_decision_kernel.sql
 ```
 
 全新环境按 manifest 顺序应用全部 SQL；不要再参考 Drizzle `_journal.json` 推断 0010 之后的顺序。
@@ -56,9 +57,11 @@ TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intellige
 
 该验收覆盖 DeepLearning.AI 目录压缩、路线确认、canonical 章节引用、轻反馈知识状态、`/learn`、`/grow`、`/workbench` 和 390px 基本适配，并保存 `docs/acceptance-course-intelligence-*.png`。
 
-服务端内置模型使用 `TRELLIS_AI_API_KEY`、`TRELLIS_AI_MODEL` 和可选 `TRELLIS_AI_BASE_URL`。不配置时为发布基线模式，不影响已有课程方案。
-配置真实模型后可运行 `npm run benchmark:model`；发布门可设置 `TRELLIS_REQUIRE_MODEL_BENCHMARK=1`，避免无模型时静默跳过。
+服务端模型使用 `TRELLIS_AI_PRIMARY_*` 和 `TRELLIS_AI_FALLBACK_*` 两组变量；旧 `TRELLIS_AI_API_KEY/MODEL/BASE_URL` 仅作为主模型兼容别名。不配置时为发布基线模式，不影响已有课程方案。
+配置真实模型后可运行 `npm run benchmark:model`；发布门设置 `TRELLIS_REQUIRE_MODEL_BENCHMARK=1` 时要求主备两槽都通过固定 benchmark。
 浏览器端 API Key 存储已停用；旧 `learning_api_config` 表只作为迁移兼容保留，正式运行时不读取。
+
+旧运行时 mutation 默认返回 `410`。只做兼容回归时设置 `TRELLIS_ENABLE_LEGACY_RUNTIME=1`，或由验收请求显式发送 `x-trellis-legacy-runtime: true`；不要在生产开启。
 
 ## 常见坑
 

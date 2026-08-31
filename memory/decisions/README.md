@@ -10,5 +10,6 @@
 - `2026-08-13-v0.2-mvp-scope.md`：新版 MVP 不再止于路径确认，默认入口进入自适应学习闭环
 - `2026-08-30-course-intelligence-center.md`：Course Intelligence 成为正式产品中心，课程目录范围、AI 降级和旧链路退出规则
 - `2026-08-31-production-runtime.md`：ChatGPT 托管身份、正式 Mastra 工作流与 D1 业务真相边界
+- `2026-09-01-agentic-decision-kernel.md`：统一决策记录、四条正式工作流、Solver v2、主备模型和旧链退出规则
 
 如两份决策发生冲突，以范围更具体且日期更新的已确认决策为准；V0.1 生产兼容事项仍按基础决策处理。

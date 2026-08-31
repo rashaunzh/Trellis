@@ -2,11 +2,12 @@ import { LearningApplicationService } from "../../../../lib/learning/application
 import { createRuleAgents } from "../../../../lib/learning/agents/index.ts";
 import { evaluatePortfolioReadiness } from "../../../../lib/learning/agents/learning-quality.ts";
 import { InMemoryLearningStore } from "../../../../lib/learning/persistence/in-memory.ts";
-import { jsonError } from "../_shared";
+import { jsonError, requireLegacyRuntime } from "../_shared";
 
 // POST /api/learning/eval — 内置作品级评测（规则版，可无 API key 运行）
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    await requireLegacyRuntime(request);
     const service = new LearningApplicationService(new InMemoryLearningStore(), createRuleAgents());
     const workspace = await service.runDiagnostic({
       ownerId: "portfolio-eval-owner",

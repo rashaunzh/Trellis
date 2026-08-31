@@ -68,6 +68,19 @@ Trellis 负责把用户目标和已有课程转化为有限课程组合、准确
 
 公开发布仍未完成：远程 D1 0013/0014/0015、托管身份联调、真实模型 benchmark、线上部署和 production smoke 仍是阻塞项。
 
+## 2026-09-01 Agentic 决策内核收口
+
+- 新增 `0016_agentic_decision_kernel.sql`，以 `DecisionRecord` 和 append-only 事件统一课程分析、路线确认、学习调整、来源演进和迁移提案。
+- Mastra 正式运行四条可暂停/恢复工作流；D1 继续是唯一业务事实源，普通用户界面不暴露内部 Agent 与模型术语。
+- Curriculum Solver v2 已替换固定 profile/课程偏好主导逻辑，使用发布图、合法章节、前置闭包、阶段单主线、显式缺口和确定性评分。
+- 正式学习反馈会产生继续、保持开放或高风险调整决策；旧 StagePath/Evidence/Adjustment 写接口在 production 返回 410。
+- 模型网关已支持一主一备、同一结构合同、缓存和失败原因记录；无模型时发布目录与确定性链路仍可用。
+- candidate 评审台改为结构化字段和 blocking Eval；Worker 每周扫描最多 20 个到期来源，变化只生成候选和影响报告。
+- 托管身份仅信任配置为 `chatgpt-hosted` 的可信域名，并拒绝原始 workers.dev 入口伪造邮箱。
+- 本地验收：225 项领域测试、6 项构建契约、TypeScript、lint、production build、17 个迁移、秘密扫描、delivery precheck 和 Agentic HTTP 端到端全部通过。
+
+最新外部阻塞：远程 D1 仍需执行 `0013-0016`，ChatGPT 托管身份和线上 smoke 尚未联调；主备模型凭据未配置，真实模型 benchmark 暂未运行。架构收口完成，下一步直接进入“多课程取舍与方案检查”功能优化，不再开启新的底层架构轮。
+
 ## 2026-08-31 仓库整理
 
 - 已创建 `codex/trellis-production-remediation`，相对 `origin/main` 拆成三笔可审阅提交：运行时、产品界面、交付证据。

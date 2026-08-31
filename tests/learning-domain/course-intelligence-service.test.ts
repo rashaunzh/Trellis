@@ -47,6 +47,22 @@ test("正式 Mastra 工作流创建课程方案并停在用户确认", async () 
   const run = await repository.getWorkflowRunByAggregate("owner-formal-workflow", result.curriculum.id);
   assert.equal(run?.currentStep, "confirm-curriculum");
   assert.equal(courseIntelligenceWorkflowSpec.businessStateOwner, "trellis-d1");
+  assert.equal(courseIntelligenceWorkflowSpec.ids.length, 4);
+});
+
+test("正式 reset 只清用户路线、决策和学习状态，保留发布目录", async () => {
+  const { service, repository } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-formal-reset", {
+    goal: "理解 AI 产品能力边界", weeklyCapacity: "light", materials: [],
+  });
+  await service.confirmCurriculum("owner-formal-reset", draft.id);
+  const before = await service.getCurrentLearning("owner-formal-reset");
+  assert.ok(before.curriculum);
+  const after = await service.resetCurrentLearning("owner-formal-reset");
+  assert.equal(after.curriculum, null);
+  assert.equal(after.activities.length, 0);
+  assert.equal((await repository.listCourses()).length, 30);
 });
 
 test("课程新版本只生成影响报告，不覆盖旧版本", () => {
@@ -185,6 +201,11 @@ test("候选课程只有通过完整映射发布门后才进入正式 catalog", 
     ...mapping,
     courseId: seed.genome.id,
   }));
+  await service.updateCourseCandidateDraft("candidate.publish-test", {
+    genome: seed.genome,
+    tags: ["test"],
+    mappings,
+  });
   await service.reviewCourseCandidate({
     candidateId: "candidate.publish-test",
     reviewerOwnerId: "owner-reviewer",
@@ -217,14 +238,18 @@ test("低置信章节映射不能发布", async () => {
   });
   const seed = structuredClone(baselineCourses[0]!);
   const mappings = baselineMappingsFor(new Set([seed.genome.id])).map((mapping) => ({ ...mapping, confidence: 0.5 }));
-  await service.reviewCourseCandidate({
-    candidateId: "candidate.low-confidence",
-    reviewerOwnerId: "owner-reviewer",
-    decision: "validated",
-    reason: "先验证候选状态，再确认发布质量闸门仍会拦截低置信映射",
+  await service.updateCourseCandidateDraft("candidate.low-confidence", {
+    genome: seed.genome,
+    tags: ["test"],
+    mappings,
   });
   await assert.rejects(
-    service.publishCourseCandidate("candidate.low-confidence", { genome: seed.genome, tags: ["test"], mappings }),
-    /置信度不足/,
+    service.reviewCourseCandidate({
+      candidateId: "candidate.low-confidence",
+      reviewerOwnerId: "owner-reviewer",
+      decision: "validated",
+      reason: "低置信映射不能通过候选验证",
+    }),
+    /阻断问题/,
   );
 });

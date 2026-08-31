@@ -2,9 +2,9 @@
 import { LearningApplicationService } from "../../../lib/learning/application/learning-service.ts";
 import { D1LearningStore } from "../../../lib/learning/persistence/d1.ts";
 import { createRuleAgents } from "../../../lib/learning/agents/index.ts";
-import { D1CourseIntelligenceRepository } from "../../../lib/learning/intelligence/repository.ts";
-import { CourseIntelligenceModelGateway, builtInModelConfig } from "../../../lib/learning/intelligence/model-gateway.ts";
 import { CourseIntelligenceService } from "../../../lib/learning/intelligence/service.ts";
+import { createCourseIntelligenceContext } from "../../../lib/learning/intelligence/runtime-context.ts";
+import type { D1CourseIntelligenceRepository } from "../../../lib/learning/intelligence/repository.ts";
 import { z } from "zod";
 
 // 托管环境只接受 ChatGPT 注入的身份。匿名 owner header 仅供本机开发和自动化验收。
@@ -14,7 +14,7 @@ const OWNER_ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 const AUTHENTICATED_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 let legacyContentReady: Promise<void> | null = null;
-let courseCatalogReady: Promise<void> | null = null;
+let courseContextReady: ReturnType<typeof createCourseIntelligenceContext> | null = null;
 
 function initializeOnce(current: Promise<void> | null, work: () => Promise<void>, reset: () => void): Promise<void> {
   if (current) return current;
@@ -27,7 +27,8 @@ function initializeOnce(current: Promise<void> | null, work: () => Promise<void>
 
 export async function ownerOf(request: Request): Promise<string> {
   const authenticatedEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
-  if (authenticatedEmail && authenticatedEmail.length <= 320 && AUTHENTICATED_EMAIL_PATTERN.test(authenticatedEmail)) {
+  if (authenticatedEmail && authenticatedEmail.length <= 320 && AUTHENTICATED_EMAIL_PATTERN.test(authenticatedEmail)
+    && await isTrustedManagedIdentityRequest(request)) {
     const canonicalOwnerId = `chatgpt-${await stableOwnerHash(authenticatedEmail)}`;
     await migrateLegacyOwnerId(`chatgpt-${legacyOwnerHash(authenticatedEmail)}`, canonicalOwnerId);
     return canonicalOwnerId;
@@ -37,6 +38,40 @@ export async function ownerOf(request: Request): Promise<string> {
     return header && OWNER_ID_PATTERN.test(header) ? header : DEFAULT_OWNER;
   }
   throw Object.assign(new Error("需要通过 ChatGPT 登录后访问学习数据。"), { status: 401 });
+}
+
+async function isTrustedManagedIdentityRequest(request: Request): Promise<boolean> {
+  if (isLocalRequest(request)) return true;
+  let workerModule: typeof import("cloudflare:workers");
+  try {
+    workerModule = await import("cloudflare:workers");
+  } catch {
+    return false;
+  }
+  const runtimeEnv = workerModule.env as unknown as Record<string, unknown>;
+  if (String(runtimeEnv.TRELLIS_IDENTITY_MODE ?? "") !== "chatgpt-hosted") return false;
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  if (hostname.endsWith(".workers.dev")) return false;
+  const trustedHosts = String(runtimeEnv.TRELLIS_TRUSTED_HOSTS ?? "")
+    .split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+  return trustedHosts.includes(hostname);
+}
+
+export async function requireLegacyRuntime(request: Request): Promise<void> {
+  if (!isLocalRequest(request)) {
+    throw Object.assign(new Error("该接口属于历史学习运行时，正式产品已迁移到课程智能与 Learning Signal。"), { status: 410 });
+  }
+  const explicitlyEnabled = request.headers.get("x-trellis-legacy-runtime") === "true";
+  let envEnabled = false;
+  try {
+    const { env } = await import("cloudflare:workers");
+    envEnabled = String((env as unknown as Record<string, unknown>).TRELLIS_ENABLE_LEGACY_RUNTIME ?? "") === "1";
+  } catch {
+    // Node domain tests have no Cloudflare env; the explicit header remains available.
+  }
+  if (!explicitlyEnabled && !envEnabled) {
+    throw Object.assign(new Error("历史学习运行时默认关闭；本机兼容验收需显式启用。"), { status: 410 });
+  }
 }
 
 export async function requireCourseIntelligenceAdmin(request: Request): Promise<string> {
@@ -93,6 +128,7 @@ async function migrateLegacyOwnerId(legacyOwnerId: string, canonicalOwnerId: str
     "learning_api_config", "learning_user_resources", "learning_week_reviews",
     "learning_ci_curricula", "learning_ci_analysis_runs", "learning_ci_knowledge_states",
     "learning_ci_learning_signals", "learning_ci_course_candidates", "learning_workflow_runs",
+    "learning_decisions",
   ];
   const statements = canonicalExists
     ? []
@@ -142,22 +178,14 @@ export async function getCourseIntelligenceContext(): Promise<{
   if (!env.DB) throw new Error("Cloudflare D1 binding `DB` is unavailable.");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = env.DB as any;
-  const repository = new D1CourseIntelligenceRepository(db);
-  const learningStore = new D1LearningStore(db);
-  legacyContentReady = initializeOnce(legacyContentReady, () => learningStore.seedContent(), () => {
-    legacyContentReady = null;
-  });
-  await legacyContentReady;
-  const gateway = new CourseIntelligenceModelGateway(
-    repository,
-    builtInModelConfig(env as unknown as Record<string, unknown>),
-  );
-  const service = new CourseIntelligenceService(repository, gateway, learningStore);
-  courseCatalogReady = initializeOnce(courseCatalogReady, () => service.initialize(), () => {
-    courseCatalogReady = null;
-  });
-  await courseCatalogReady;
-  return { service, repository, db };
+  if (!courseContextReady) {
+    courseContextReady = createCourseIntelligenceContext(db, env as unknown as Record<string, unknown>)
+      .catch((error) => {
+        courseContextReady = null;
+        throw error;
+      });
+  }
+  return courseContextReady;
 }
 
 export function jsonError(error: unknown): Response {

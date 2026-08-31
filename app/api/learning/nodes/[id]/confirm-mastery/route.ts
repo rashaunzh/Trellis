@@ -1,8 +1,9 @@
-import { getLearningService, ownerOf, jsonError } from "../../../_shared";
+import { getLearningService, ownerOf, jsonError, requireLegacyRuntime } from "../../../_shared";
 
 // POST /api/learning/nodes/:id/confirm-mastery — 掌握确认（confirmed 验证 / corrected 纠正降级）
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
+    await requireLegacyRuntime(request);
     const ownerId = await ownerOf(request);
     const body = (await request.json().catch(() => ({}))) as {
       decision?: "confirmed" | "corrected";

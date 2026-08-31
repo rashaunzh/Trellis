@@ -61,3 +61,33 @@ test("损坏缓存不会阻断重算，真实 token usage 会进入分析记录"
     globalThis.fetch = originalFetch;
   }
 });
+
+test("主模型连续失败后使用备用模型，且不能绕过同一结构合同", async () => {
+  const repository = new InMemoryCourseIntelligenceRepository();
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (request) => {
+    const url = String(request);
+    calls.push(url);
+    if (url.includes("primary.example")) return new Response("upstream failed", { status: 500 });
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "{\"summary\":\"fallback-ok\"}" } }],
+      usage: { prompt_tokens: 3, completion_tokens: 2 },
+    }), { headers: { "content-type": "application/json" } });
+  };
+  try {
+    const gateway = new CourseIntelligenceModelGateway(repository, {
+      primary: { apiKey: "primary", model: "primary-model", baseUrl: "https://primary.example/v1", provider: "primary", slot: "primary" },
+      fallback: { apiKey: "fallback", model: "fallback-model", baseUrl: "https://fallback.example/v1", provider: "fallback", slot: "fallback" },
+    });
+    const result = await gateway.structured({
+      ownerId: "owner-fallback", kind: "fallback-test", system: "return json", data: {},
+      schema: z.object({ summary: z.literal("fallback-ok") }),
+    });
+    assert.deepEqual(result, { summary: "fallback-ok" });
+    assert.equal(calls.filter((url) => url.includes("primary.example")).length, 2);
+    assert.equal(calls.filter((url) => url.includes("fallback.example")).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -13,6 +13,7 @@
     "demo:mastra": "node scripts/legacy/trellis-mastra-demo.mjs",
     "acceptance:three-week-loop": "node scripts/compatibility/acceptance-three-week-loop.mjs",
     "acceptance:course-intelligence": "node scripts/acceptance/acceptance-course-intelligence.mjs",
+    "acceptance:agentic-kernel": "node scripts/acceptance/acceptance-agentic-kernel.mjs",
     "acceptance:next-stage": "node scripts/compatibility/acceptance-next-stage-rubric.mjs",
     "acceptance:portfolio": "node scripts/compatibility/acceptance-portfolio-full-loop.mjs",
     "delivery:precheck": "node scripts/release/delivery-precheck.mjs",

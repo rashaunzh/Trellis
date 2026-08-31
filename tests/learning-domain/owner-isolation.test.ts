@@ -43,17 +43,24 @@ test("ownerOf 本地非法格式回退 DEFAULT_OWNER", async () => {
   }
 });
 
-test("ownerOf 优先使用托管身份并隐藏原始邮箱", async () => {
-  const first = await ownerOf(new Request("https://example.com", { headers: {
+test("ownerOf 本机模拟托管身份时隐藏原始邮箱", async () => {
+  const first = await ownerOf(new Request("http://localhost", { headers: {
     "oai-authenticated-user-email": "Learner@Example.com",
     "x-trellis-owner-id": "anonymous-owner-123",
   } }));
-  const second = await ownerOf(new Request("https://example.com", { headers: {
+  const second = await ownerOf(new Request("http://localhost", { headers: {
     "oai-authenticated-user-email": "learner@example.com",
   } }));
   assert.equal(first, second);
   assert.match(first, /^chatgpt-[0-9a-f]{32}$/);
   assert.equal(first.includes("learner"), false);
+});
+
+test("ownerOf 生产请求不信任客户端伪造的托管邮箱", async () => {
+  const request = new Request("https://trellis.example/api/learning/current", {
+    headers: { "oai-authenticated-user-email": "spoofed@example.com" },
+  });
+  await assert.rejects(ownerOf(request), /ChatGPT 登录/);
 });
 
 test("ownerOf 生产请求拒绝客户端自报 owner", async () => {
