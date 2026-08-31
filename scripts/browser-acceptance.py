@@ -1,15 +1,16 @@
 # Trellis V0.2 MVP 浏览器验收 — 完整用户旅程
-# 运行：/c/Program Files/Python314/python.exe scripts/browser-acceptance.py
+# 运行：TRELLIS_BASE=http://localhost:3400 python scripts/browser-acceptance.py
 # 依赖：playwright（系统 Python 3.14 已装），dev server 运行在 3400 端口
 import json
+import os
 import sys
 import pathlib
 import traceback
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:3400"
-SHOTS = pathlib.Path(r"D:/02-Production/01-Trellis/.wrangler/acceptance-shots")
+BASE = os.environ.get("TRELLIS_BASE", "http://localhost:3400")
+SHOTS = pathlib.Path(os.environ.get("TRELLIS_SHOTS_DIR", ".wrangler/acceptance-shots"))
 SHOTS.mkdir(parents=True, exist_ok=True)
 
 results = []

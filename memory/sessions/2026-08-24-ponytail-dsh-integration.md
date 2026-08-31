@@ -22,6 +22,15 @@
 - `AGENTS.local.md` 写入后本会话立即收到 "Additional instructions from: AGENTS.local.md" 动态注入。
 - `SKILL.md` 写入后本会话技能目录出现 `ponytail` 条目。
 
+## 同会话延续：Caveman 集成（2026-08-24）
+
+- 用户要求安装 [JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)（10.1 万 star，压缩对话 token 约 65%）。
+- 与 ponytail 互补：caveman 管说多少话，ponytail 管写多少代码；caveman README/ponytail FAQ 官方推荐同用。
+- 产出：
+  1. `AGENTS.local.md` 追加 Caveman 节（触发词、压缩规则、Auto-Clarity、边界：caveman 永不进磁盘——代码/注释/文档/memory 一律正常语言）。
+  2. `~/.agents/skills/caveman/SKILL.md`（全局技能，含 lite/full/ultra/wenyan 强度）。
+- 验证：`AGENTS.local.md` 更新后 DSH 立即注入 "Updated instructions"；技能目录出现 `caveman` 条目。
+
 ## 下一步（可选）
 
 - 如需全局常驻：可在 `~/.dsh/AGENTS.md` 放一份规则（当前不存在该文件）。

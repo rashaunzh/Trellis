@@ -1,7 +1,7 @@
 # Trellis V0.2 平台全景（当前实现状态）
 
 > 状态：工程可用 MVP + P0 三件套全部落地（2026-08-20）
-> 线上：https://trellis.rashaunzh.workers.dev（Cloudflare Workers + D1）
+> 线上：`<your deployed URL>`（Cloudflare Workers + D1）
 > 本文件描述"现在能用的平台"，区别于 PRD（目标定义）与 MVP_DELIVERY（交付记录）。
 
 ## 一句话定位
@@ -44,11 +44,11 @@
 
 - 评估为规则版（LLM 评估接口已就绪，配置后可启用）
 - 无账号体系（匿名 owner 隔离，换浏览器/清缓存丢状态；ownerId 可伪造，非安全鉴权）
-- 国内直连 workers.dev 可能不稳（可绑自定义域名或本地演示兜底）
+- 国内访问默认平台子域可能不稳（可绑自定义域名或本地演示兜底）
 - 内容包为样本量（7 节点），全量课程映射是深化方向
 
 ## 演示方式
 
-- 线上：https://trellis.rashaunzh.workers.dev（浏览器直接开，Bot Fight Mode 只拦非浏览器 UA）
+- 线上：`<your deployed URL>`（浏览器直接开；如平台启用 Bot Fight Mode，非浏览器 UA 可能被拦）
 - 一键演示：`TRELLIS_BASE=<URL> python scripts/demo-v02.py`（8 步叙事 + 截图）
 - 详见 docs/engineering/DEMO_RUNBOOK.md

@@ -1,6 +1,6 @@
 # Trellis V0.2 演示 Runbook
 
-> 演示对象：AI 学习编排系统（可信动态编排）。演示 URL：https://trellis.rashaunzh.workers.dev
+> 演示对象：AI 学习编排系统（可信动态编排）。演示 URL：`<your deployed URL>`
 > 彩排脚本：`scripts/demo-v02.py`（一键走完整叙事，截图到 `.wrangler/demo-shots/`）
 
 ## 演示前检查清单
@@ -9,11 +9,11 @@
 - [ ] 远程库干净：`npx wrangler d1 execute trellis-v02-d1 --remote --command "SELECT (SELECT COUNT(*) FROM learning_profiles) AS p, (SELECT COUNT(*) FROM learning_api_config) AS a, (SELECT COUNT(*) FROM learning_user_resources) AS u"` → p=0 a=0 u=0
 - [ ] 无敏感信息：api_configs 为 0（真实 LLM key 演示后必须清理）
 - [ ] 演示账号隔离：每位观众可用独立浏览器/隐身窗口（匿名 owner 隔离，互不干扰）
-- [ ] 网络兜底：workers.dev 打不开时用本地演示（见下）
+- [ ] 网络兜底：线上环境打不开时用本地演示（见下）
 
 ## 演示脚本（8 步叙事）
 
-运行：`TRELLIS_BASE=https://trellis.rashaunzh.workers.dev /c/Program\ Files/Python314/python.exe scripts/demo-v02.py`
+运行：`TRELLIS_BASE=<your deployed URL> python scripts/demo-v02.py`
 
 1. 干净起点（reset）
 2. 诊断：目标 + 6 小时 + 先建立全局认知 → 路线提案（AI 通识入门 3 模块）
@@ -33,7 +33,7 @@
 ## 设备与网络
 
 - 推荐 Chrome/Edge 桌面浏览器；移动端可用（响应式）
-- 国内直连 workers.dev 可能不稳；正式对外演示建议绑自定义域名（需 Cloudflare 托管域名，见"域名绑定"）
+- 国内访问默认平台子域可能不稳；正式对外演示建议绑自定义域名（需 Cloudflare 托管域名，见"域名绑定"）
 - 演示现场网络差时：本地起 `npx vite --port 3411 --strictPort` + 本地 D1，URL 用 localhost
 
 ## 域名绑定（可选，演示对象为国内观众时）

@@ -1,5 +1,5 @@
 # Trellis V0.2 工程可用 MVP 主流程验收 — 12 场景
-# 运行：TRELLIS_BASE=http://localhost:3410 /c/Program Files/Python314/python.exe scripts/acceptance-v02-main-flow.py
+# 运行：TRELLIS_BASE=http://localhost:3410 python scripts/acceptance-v02-main-flow.py
 # 依赖：playwright（系统 Python 3.14），dev server 运行中
 # 场景：新用户进入 → 目标/6h → 多活动 → 抽屉 6 段 → 短证据退回 → 修订通过 →
 #       节点验证 → 重排保留证据 → 多 owner 隔离 → reset 只清当前 owner
@@ -12,7 +12,7 @@ import urllib.request
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("TRELLIS_BASE", "http://localhost:3410")
-SHOTS = pathlib.Path(r"C:/Users/G-NC-00144/Documents/Codex/trellis-cleanup/.wrangler/acceptance-shots-v02")
+SHOTS = pathlib.Path(os.environ.get("TRELLIS_SHOTS_DIR", ".wrangler/acceptance-shots-v02"))
 SHOTS.mkdir(parents=True, exist_ok=True)
 
 # 主 owner（页面注入）+ 第二 owner（API 隔离验证）

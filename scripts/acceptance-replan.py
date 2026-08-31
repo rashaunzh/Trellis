@@ -1,5 +1,5 @@
 # Trellis V0.2 验收：温和重排本周（weekly replan）
-# 运行：/c/Program Files/Python314/python.exe scripts/acceptance-replan.py
+# 运行：python scripts/acceptance-replan.py
 # 依赖：playwright（系统 Python 3.14 已装），dev server 运行在 3400 端口
 # 流程：观察入口 → 重新设置 → 诊断(8h/全局认知) → 确认路线 → 首周计划检查 →
 #       活动闭环(开始/足量证据/评估通过) → 成长页(节点/中文/相邻分支) →
@@ -13,7 +13,7 @@ import urllib.request
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("TRELLIS_BASE", "http://localhost:3400")
-SHOTS = pathlib.Path(r"C:/Users/G-NC-00144/Documents/Codex/trellis-cleanup/.wrangler/acceptance-shots-replan")
+SHOTS = pathlib.Path(os.environ.get("TRELLIS_SHOTS_DIR", ".wrangler/acceptance-shots-replan"))
 SHOTS.mkdir(parents=True, exist_ok=True)
 
 # 匿名 owner 隔离后：浏览器页面请求带 localStorage ownerId，

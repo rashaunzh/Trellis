@@ -2,11 +2,11 @@
 
 ## 固定环境
 
-- 交付源：GitHub 仓库 `rashaunzh/AI-Learning-OS` 的当前分支；本地克隆只是工作区，不另设"唯一仓库"
+- 交付源：当前 GitHub 仓库的当前分支；本地克隆只是工作区，不另设"唯一仓库"
 - 工作区定位：以当前克隆的 git root 为准（`git rev-parse --show-toplevel`），不依赖特定盘符或绝对路径
 - 编辑器：VS Code
-- 终端：Git Bash
-- Node.js：22.23.2 LTS（安装在 `D:\tools\node-v22.23.2-win-x64`，仓库通过 `.nvmrc` 和 `.node-version` 固定版本）
+- 终端：PowerShell / Git Bash 均可；常用 npm 脚本已使用跨平台入口
+- Node.js：22.23.2 LTS（仓库通过 `.nvmrc` 和 `.node-version` 固定版本）
 - 包管理器：随 Node 22 提供的 npm
 - Cloudflare CLI：项目内 Wrangler，版本由 `package-lock.json` 固定
 
@@ -52,6 +52,7 @@ D1_ERROR: no such table: learning_routes
 $env:WRANGLER_LOG_PATH = "$PWD\.wrangler\wrangler.log"
 .\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0004_kind_boomerang.sql
 .\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0005_premium_ultron.sql
+.\node_modules\.bin\wrangler.cmd d1 execute site-creator-d1 --local --persist-to .wrangler\state --config dist\server\wrangler.json --file drizzle\0012_week_reviews.sql
 ```
 
 注意：`--persist-to` 应指向 `.wrangler\state`，不要写成 `.wrangler\state\v3`，否则 Wrangler 会创建错误的 `.wrangler\state\v3\v3\d1` 目录。

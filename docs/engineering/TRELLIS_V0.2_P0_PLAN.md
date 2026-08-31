@@ -35,7 +35,7 @@
 - 调整类型 3 种：`activity_replan / weekly_light / route_revision`，状态 `proposed/accepted/rejected/superseded`。
 - 表结构：内容层 9 张（0004）+ 状态层 5 张（profiles 0005 / api_config 0006）；**drizzle `text(enum)` 在 SQLite 是纯 TEXT、无 CHECK 约束**——新增枚举值只需改 TS 定义，不产生迁移；新增列才需要迁移。
 - 验证命令：`npm run test:domain`（42/42）、eslint 0 problems、`vinext build`、`node --test tests\*.test.mjs`（6/6）、`scripts/acceptance-replan.py`（32/32，Playwright）。
-- 远程 D1 `trellis-v02-d1` 已创建（uuid `5490481c-…`）但 **num_tables=0，迁移从未应用**；本地 Miniflare D1 有完整状态。
+- 远程 D1 `<your-d1-database-name>` 已创建（uuid `<your-database-id>`）但 **num_tables=0，迁移从未应用**；本地 Miniflare D1 有完整状态。
 
 ## 数据模型改动
 
@@ -158,4 +158,4 @@ node --test tests\*.test.mjs
 
 ## 附：部署前 checklist（第二任务产出，见会话记录）
 
-远程 D1 `trellis-v02-d1` 已存在（uuid `5490481c-c5a9-4423-8906-6a0d0e6e278f`），**num_tables=0 需先应用迁移**；`DATABASE_ID` 环境变量需在 build 时注入真实 uuid；`dist/server/wrangler.json` 当前为 placeholder（`00000000-…`）；`.openai/hosting.json` 已有 project_id 可复用。详见 2026-08-20 会话记录"部署前检查"。
+远程 D1 `<your-d1-database-name>` 已存在（uuid `<your-database-id>`），**num_tables=0 需先应用迁移**；`DATABASE_ID` 环境变量需在 build 时注入真实 uuid；`dist/server/wrangler.json` 当前为 placeholder（`00000000-…`）；`.openai/hosting.json` 已有 project_id 可复用。详见 2026-08-20 会话记录"部署前检查"。

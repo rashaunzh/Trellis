@@ -1,7 +1,7 @@
 # Trellis V0.2 演示脚本 — 从干净状态走完整核心叙事
-# 运行：TRELLIS_BASE=<URL> /c/Program Files/Python314/python.exe scripts/demo-v02.py
+# 运行：TRELLIS_BASE=<URL> python scripts/demo-v02.py
 # 本地彩排：TRELLIS_BASE=http://localhost:3411（需先起 dev server）
-# 线上演示：TRELLIS_BASE=https://trellis.rashaunzh.workers.dev（需浏览器 UA 可直连）
+# 线上演示：TRELLIS_BASE=<your deployed URL>（需浏览器 UA 可直连）
 # 截图输出：.wrangler/demo-shots/
 # 流程：诊断 → 6h 计划 → 完成概念活动(自动验证) → 完成综合任务(待确认) → 确认掌握 → 复测提醒
 import json
@@ -13,7 +13,7 @@ import urllib.request
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("TRELLIS_BASE", "http://localhost:3411")
-SHOTS = pathlib.Path(r"C:/Users/G-NC-00144/Documents/Codex/trellis-cleanup/.wrangler/demo-shots")
+SHOTS = pathlib.Path(os.environ.get("TRELLIS_SHOTS_DIR", ".wrangler/demo-shots"))
 SHOTS.mkdir(parents=True, exist_ok=True)
 OWNER_ID = os.environ.get("DEMO_OWNER", "demo-present-owner-01")
 GOOD = "语言模型从训练数据学统计规律而非存储事实：训练调整参数，推理逐词预测。流畅不等于正确，幻觉来自概率采样，泛化依赖数据分布。判断 AI 方案看任务委托、输出校验、失败兜底。"

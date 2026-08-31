@@ -4,6 +4,16 @@
 
 ## 当前权威文档
 
+- `product/TRELLIS_PORTFOLIO_AGENTIC_LEARNING_COMPANION.md`：作品集目标：Agentic Learning Companion（Learning Situation-first dynamic learning adaptation）
+- `product/TRELLIS_PORTFOLIO_DEMO_SCRIPT.md`：作品集 10-15 分钟演示讲稿
+- `product/TRELLIS_PORTFOLIO_SCREENSHOTS.md`：作品集截图索引（含 `docs/learn-next-stage-rubric.png`）
+- `engineering/PORTFOLIO_AGENT_DISTRIBUTION.md`：作品级并发开发分发说明
+- `engineering/TRELLIS_PORTFOLIO_DELIVERY_MANIFEST.md`：作品级交付清单（运行入口、验收、截图、公开边界）
+- `architecture/TRELLIS_CORE_ARCHITECTURE.md`：作品级核心架构（Kernel / Tool Registry / Domain Agents 分层）
+- `engineering/TRELLIS_MASTRA_WORKFLOW_RUNBOOK.md`：Mastra workflow runtime 运行手册
+- `architecture/TRELLIS_DECISION_TRACE.md`：决策可解释性模型
+- `architecture/TRELLIS_LEARNING_MEMORY_MODEL.md`：学习记忆聚合读模型
+- `engineering/TRELLIS_TOOL_LAYER.md`：内部工具层标准化
 - `product/TRELLIS_V0.2_PRD.md`：当前产品方向和后续实现基线
 - `product/TRELLIS_V0.3_EVIDENCE_REVIEW_ENGINE.md`：证据评审引擎的产品逻辑与工程实现（四 Agent 角色、v0.3 已完成、v0.3-beta Proposal/Adjustment Engine 已进入 alpha、规则版先行理由）
 - `product/TRELLIS_PRODUCT_INTRODUCTION.md`：面向协作者和潜在用户的产品介绍

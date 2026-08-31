@@ -18,7 +18,7 @@ Trellis 表面上有"AI"、有"agent"，但它不是聊天机器人，也不需�
 三个本质差异：
 
 1. **界面不是对话。** 用户面对的是"本周做什么 → 做了什么 → 证据被怎么评判"的看板，不是输入框。对话只是交互形式之一，Trellis 把它换成了对学习流程更有效的结构化界面。
-2. **判断不是生成。** 评审引擎的每一次评估都产出固定的结构化 schema（`EvidenceAssessment`：verdict、confidence、score、证据卡片、信号评审、维度评分、下一步动作），并写入 `reviewJson` 持久化。这意味着每个判断都可以被审计、被重放、被测试——生成式回答做不到这一点。
+2. **判断不是生成。** 评审引擎的每一次评估都产出固定的结构化 schema（`EvidenceAssessment`：verdict、confidence、score、证据卡片、信号评审、作品 rubric 评审、维度评分、下一步动作），并写入 `reviewJson` 持久化。这意味着每个判断都可以被审计、被重放、被测试——生成式回答做不到这一点。
 3. **LLM 是可选实现，不是产品本体。** 当前评审可以用规则版（确定性、零成本）或 LLM 版（用户自配 API）完成，两者输出结构完全一致，产品主流程无感知。产品内核是"证据驱动的学习闭环"，LLM 只是其中一个可替换的评审器。
 
 一句话：聊天机器人把"对话"当产品，Trellis 把"证据驱动的学习闭环"当产品。
@@ -36,8 +36,8 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 ```
 学习者提交材料（证据）
    → Evidence Agent  理解"提交了什么"（证据卡片 + 节点要求的能力信号）
-   → Review Agent    判断"覆盖了哪些能力信号"（covered / partial / missing，每条带理由）
-   → Scoring Agent   七个维度量化打分，加权合成总分
+   → Review Agent    判断"覆盖了哪些能力信号 / 作品 rubric"（covered / partial / missing，每条带理由）
+   → Scoring Agent   八个维度量化打分，加权合成总分
    → Proposal Agent  给出裁决后的下一步建议（修订 / 补前置 / 继续）
    → 全部结论回写数据层，驱动节点状态机与调整记录
 ```
@@ -49,8 +49,8 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 | 角色 | 职责 | 关键产出 |
 | --- | --- | --- |
 | **Evidence Agent**（证据理解） | 理解学习者提交了什么材料，以及这个节点要求什么证据 | 证据卡片（`EvidenceCard`）：材料类型推断、摘要、提取要点、可读性 |
-| **Review Agent**（评审） | 判断证据是否覆盖节点能力信号，给出接受/修订裁决 | 信号评审（`SignalReview[]`）+ 裁决（`verdict`）+ 置信度 |
-| **Scoring Agent**（打分） | 把评审判断量化为可比较的分数 | 七个维度评分（`ReviewDimensionScore[]`）+ 加权总分 |
+| **Review Agent**（评审） | 判断证据是否覆盖节点能力信号和作品 rubric，给出接受/修订裁决 | 信号评审（`SignalReview[]`）+ rubric 评审（`RubricReview[]`）+ 裁决（`verdict`）+ 置信度 |
+| **Scoring Agent**（打分） | 把评审判断量化为可比较的分数 | 八个维度评分（`ReviewDimensionScore[]`）+ 加权总分 |
 | **Proposal Agent**（建议） | 基于裁决与计划执行情况，提出下一步动作 | 调整建议（`AdjustmentSuggestion`）+ 证据层面的 `nextAction` |
 
 四个角色不是四个可以对话的"人格"，而是**评审流水线上的四个职责边界**。每个职责都有明确的结构化输入输出，这保证了流水线可以被单独替换、单独测试。
@@ -69,7 +69,7 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 | --- | --- | --- |
 | Evidence Agent | `agents/evidence-extractor.ts` + `domain/signals.ts` | 提取器推断材料类型（文本/网页/文档/代码/表格）、生成摘要与提取要点；能力信号数据层（`NODE_SIGNALS` 节点信号 / `CAPABILITY_SIGNALS` 信号目录 / `DEFAULT_SIGNALS` 通用兜底）定义"这个节点要求什么证据" |
 | Review Agent | `agents/evidence-evaluator.ts`（规则版）+ `agents/llm-evidence-evaluator.ts`（LLM 版） | 规则版按关键词判定每个信号的覆盖状态；LLM 版调用用户自配的 OpenAI 兼容 API 评审，**失败自动回退规则版**，输出结构完全一致 |
-| Scoring Agent | `agents/evidence-evaluator.ts` 的 `buildDimensionScores` + `weightedScore` | 七维度：材料可解析性、完成标准完整性、信号覆盖度、内容质量、证据可信度、能力证明强度、下一步明确性；加权合成 0-100 总分 |
+| Scoring Agent | `agents/evidence-evaluator.ts` 的 `buildDimensionScores` + `weightedScore` | 八维度：材料可解析性、完成标准完整性、Rubric 覆盖度、信号覆盖度、内容质量、证据可信度、能力证明强度、下一步明确性；加权合成 0-100 总分 |
 | Proposal Agent | `agents/adjustment-advisor.ts`（规则版） | 证据被退回 → 修订重交或插入前置活动；完成率低 → 收缩周计划；有跳过节点 → 安排验证；正常 → 继续推进。`severity` 非 low 才记录为正式调整事件；alpha 版建议已携带具体缺失/部分信号（来自 `missingSignals` / `partialSignals`），动作随建议落库（`action_json`），用户可确认或拒绝 |
 
 ### 一次评审的调用链
@@ -84,17 +84,17 @@ Evidence Review Engine 用一条评审流水线回应这三个问题：
 6. 回写数据层：`extractedJson`（证据卡片）+ `reviewJson`（完整评审）持久化（迁移 `0010_evidence_review_engine.sql`）
 7. `adjustmentAdvisor.suggestAdjustment()` → 建议携带具体信号缺口（`missingSignals` / `partialSignals` 合成进文案），动作列表随记录落库（`action_json`，迁移 0011）；非 low 级别建议记录为调整事件，用户可确认（执行动作）或拒绝，进入"调整记录"可追溯
 
-前端 `/learn` 活动抽屉把评审结果按学习者视角呈现：证据卡片（我提交了什么）、已覆盖/待补充能力信号（证明了哪些能力、还缺什么）、评审维度、可信度说明、下一步建议。
+前端 `/learn` 活动抽屉把评审结果按学习者视角呈现：证据卡片（我提交了什么）、已覆盖/待补充能力信号（证明了哪些能力、还缺什么）、作品 rubric 覆盖、评审维度、可信度说明、下一步建议。
 
 ## 五、v0.3 已实现
 
 - **能力信号数据层**：从规则版评估器的硬编码关键词中抽出，成为独立的产品数据（`domain/signals.ts`），由内容模型 `node.signals` 引用
-- **规则版评估器**：信号覆盖判定（covered/partial/missing，每条带理由）、七维评分与加权总分、verdict/confidence/nextAction
+- **规则版评估器**：信号覆盖判定和作品 rubric 覆盖判定（covered/partial/missing，每条带理由）、八维评分与加权总分、verdict/confidence/nextAction
 - **LLM 增强版评估器**：用户自配 OpenAI 兼容 API（base_url/key/model，key 只存服务端），结构化 JSON 输出，失败自动回退规则版
 - **证据卡片提取**：材料类型推断、摘要、提取要点、可读性（`evidence-extractor.ts`）
 - **评审结果持久化**：`extracted_json` / `review_json` 两列落库（迁移 0010），评审历史可回放
 - **调整建议（alpha）**：修订重交 / 插入前置活动 / 收缩周计划 / 继续推进，带 severity 分级；建议含具体缺失/部分信号（Evidence Review 缺口回流），动作随记录落库（迁移 0011 `action_json`），用户可确认（执行动作）或拒绝（`/reject`），非 low 事件记录在案
-- **前端展示层**：`/learn` 抽屉中文化展示（证据卡片、信号覆盖分组、评审维度、可信度说明、下一步建议）；调整记录区中文展示（类型映射、缺口信号、建议动作、确认/忽略）
+- **前端展示层**：`/learn` 抽屉中文化展示（证据卡片、信号覆盖分组、作品 rubric 覆盖、评审维度、可信度说明、下一步建议）；调整记录区中文展示（类型映射、缺口信号、建议动作、确认/忽略）
 - **测试**：`signals.test.ts`、`agents.test.ts`、`api-loop.test.ts` 等，`npm run test:domain` 78/78 通过
 
 ## 六、v0.3 尚未实现
