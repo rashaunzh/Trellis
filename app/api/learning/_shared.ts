@@ -7,8 +7,7 @@ import { CourseIntelligenceModelGateway, builtInModelConfig } from "../../../lib
 import { CourseIntelligenceService } from "../../../lib/learning/intelligence/service.ts";
 import { z } from "zod";
 
-// V0.2 demo 匿名 owner 隔离：请求头 `x-trellis-owner-id` 优先，无/非法回退固定 owner。
-// 这是匿名隔离（每个浏览器一个状态），不是鉴权；不引入登录、不改数据模型。
+// 托管环境只接受 ChatGPT 注入的身份。匿名 owner header 仅供本机开发和自动化验收。
 export const DEFAULT_OWNER = "trellis-owner";
 
 const OWNER_ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
@@ -26,16 +25,85 @@ function initializeOnce(current: Promise<void> | null, work: () => Promise<void>
   return pending;
 }
 
-export function ownerOf(request: Request): string {
+export async function ownerOf(request: Request): Promise<string> {
   const authenticatedEmail = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
   if (authenticatedEmail && authenticatedEmail.length <= 320 && AUTHENTICATED_EMAIL_PATTERN.test(authenticatedEmail)) {
-    return `chatgpt-${stableOwnerHash(authenticatedEmail)}`;
+    const canonicalOwnerId = `chatgpt-${await stableOwnerHash(authenticatedEmail)}`;
+    await migrateLegacyOwnerId(`chatgpt-${legacyOwnerHash(authenticatedEmail)}`, canonicalOwnerId);
+    return canonicalOwnerId;
   }
-  const header = request.headers.get("x-trellis-owner-id");
-  return header && OWNER_ID_PATTERN.test(header) ? header : DEFAULT_OWNER;
+  if (isLocalRequest(request)) {
+    const header = request.headers.get("x-trellis-owner-id");
+    return header && OWNER_ID_PATTERN.test(header) ? header : DEFAULT_OWNER;
+  }
+  throw Object.assign(new Error("需要通过 ChatGPT 登录后访问学习数据。"), { status: 401 });
 }
 
-function stableOwnerHash(value: string): string {
+export async function requireCourseIntelligenceAdmin(request: Request): Promise<string> {
+  const email = request.headers.get("oai-authenticated-user-email")?.trim().toLowerCase();
+  if (email && AUTHENTICATED_EMAIL_PATTERN.test(email)) {
+    const { env } = await import("cloudflare:workers");
+    const allowed = String((env as unknown as Record<string, unknown>).TRELLIS_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+    if (allowed.includes(email)) return await ownerOf(request);
+  }
+  if (isLocalRequest(request) && request.headers.get("x-trellis-admin") === "true") {
+    return await ownerOf(request);
+  }
+  throw Object.assign(new Error("没有课程内容评审权限。"), { status: 403 });
+}
+
+async function stableOwnerHash(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest).slice(0, 16))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function isLocalRequest(request: Request): boolean {
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+}
+
+async function migrateLegacyOwnerId(legacyOwnerId: string, canonicalOwnerId: string): Promise<void> {
+  if (legacyOwnerId === canonicalOwnerId) return;
+  let workerModule: typeof import("cloudflare:workers");
+  try {
+    workerModule = await import("cloudflare:workers");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ERR_UNSUPPORTED_ESM_URL_SCHEME") return;
+    throw error;
+  }
+  const { env } = workerModule;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = (env as any).DB;
+  if (!db) return;
+  const known = await db.prepare("SELECT canonical_owner_id FROM learning_owner_aliases WHERE legacy_owner_id=? LIMIT 1")
+    .bind(legacyOwnerId).first();
+  if (known) return;
+  const canonicalExists = await db.prepare(`SELECT owner_id FROM learning_profiles WHERE owner_id=?
+    UNION SELECT owner_id FROM learning_ci_curricula WHERE owner_id=? LIMIT 1`)
+    .bind(canonicalOwnerId, canonicalOwnerId).first();
+  const tables = [
+    "learning_diagnostics", "learning_path_proposals", "learning_mvp_states",
+    "learning_activities", "learning_adjustments", "learning_evidence",
+    "learning_node_progress", "learning_weekly_plans", "learning_profiles",
+    "learning_api_config", "learning_user_resources", "learning_week_reviews",
+    "learning_ci_curricula", "learning_ci_analysis_runs", "learning_ci_knowledge_states",
+    "learning_ci_learning_signals", "learning_ci_course_candidates", "learning_workflow_runs",
+  ];
+  const statements = canonicalExists
+    ? []
+    : tables.map((table) => db.prepare(`UPDATE ${table} SET owner_id=? WHERE owner_id=?`)
+      .bind(canonicalOwnerId, legacyOwnerId));
+  statements.push(db.prepare(`INSERT INTO learning_owner_aliases
+    (legacy_owner_id,canonical_owner_id) VALUES (?,?)`).bind(legacyOwnerId, canonicalOwnerId));
+  await db.batch(statements);
+}
+
+function legacyOwnerHash(value: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
@@ -61,6 +129,15 @@ export async function getLearningService(): Promise<LearningApplicationService> 
 }
 
 export async function getCourseIntelligenceService(): Promise<CourseIntelligenceService> {
+  return (await getCourseIntelligenceContext()).service;
+}
+
+export async function getCourseIntelligenceContext(): Promise<{
+  service: CourseIntelligenceService;
+  repository: D1CourseIntelligenceRepository;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any;
+}> {
   const { env } = await import("cloudflare:workers");
   if (!env.DB) throw new Error("Cloudflare D1 binding `DB` is unavailable.");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,7 +157,7 @@ export async function getCourseIntelligenceService(): Promise<CourseIntelligence
     courseCatalogReady = null;
   });
   await courseCatalogReady;
-  return service;
+  return { service, repository, db };
 }
 
 export function jsonError(error: unknown): Response {

@@ -33,12 +33,26 @@ Trellis 负责把用户目标和已有课程转化为有限课程组合、准确
 - 内置模型环境变量未配置时运行 baseline 模式；未知课程明确为 `needs_analysis`。
 - 课程更新只产生候选版本和影响报告，不自动迁移已确认用户路线。
 
+## 2026-08-31 生产控制面修缮
+
+- 生产学习 API 已切换为 ChatGPT 托管身份；localhost 保留显式测试 owner。旧短 owner 会在首次托管访问时迁移到 128 位 canonical owner。
+- Mastra 已成为正式课程智能工作流：intake 创建 draft 并 suspend，curriculum confirm 恢复 run；官方 D1Store 保存快照。
+- D1 业务表仍是唯一产品状态；课程激活使用单个 D1 batch，不再留下画像/计划/活动半写入。
+- 新增 0015：workflow run、candidate review、source update job 和 owner alias。
+- 内部评审页位于 `/internal/course-intelligence`；候选必须 validated 后才能发布。
+- 模型网关记录真实 token/延迟，坏缓存自动重算，并限制输入、调用次数和 token 预算。
+- `/api/learning/current` 已成为 Course Intelligence 当前状态统一读模型。
+- 新增正式 production smoke、真实模型 benchmark、秘密扫描和 Windows/macOS/Linux 可用的 dev/start 脚本。
+- 本地验证：16 个迁移、220 项领域测试、production build、6 项构建测试、Course Intelligence 浏览器验收全部通过。
+- Cloudflare CLI 当前未登录；远程 D1、部署和线上 smoke 未执行。真实模型 Key 未配置，benchmark 明确跳过。
+
 ## 准确下一步
 
-1. 建立来源更新脚本和候选内容内部评审台，复用现有受控发布服务。
-2. 完成远程 D1 `0013/0014` migration、部署和 production smoke。
-3. 用真实用户目标复核 AI 产品路线的课程与章节选择质量，再扩充发布基线。
-4. 确认历史兼容依赖后，再逐步删除旧固定路线与工程展示代码。
+1. 登录 Cloudflare 后依次执行远程 D1 `0013/0014/0015`，配置托管环境变量并部署。
+2. 在真实 ChatGPT 托管请求中验证身份 header、canonical owner 连续性和 production smoke。
+3. 配置一个正式 provider，运行有限模型 benchmark；根据准确性、失败率、延迟和 token 成本决定发布阈值。
+4. 人工复核首批代表来源和 candidate，再用真实用户目标验证课程组合质量。
+5. 观察历史数据兼容情况后，逐步删除旧固定路线、旧 Evidence 和 Mastra demo 代码。
 
 ## 2026-08-31 审计修缮实施
 
@@ -52,7 +66,7 @@ Trellis 负责把用户目标和已有课程转化为有限课程组合、准确
 - 浏览器验收覆盖下一准确章节推进和 390px；最新本地地址为 `http://127.0.0.1:5179/learn`。
 - 实施报告：`docs/engineering/TRELLIS_REMEDIATION_IMPLEMENTATION_2026-08-31.md`。
 
-公开发布仍未完成：完整账号授权、candidate 内部评审界面、远程 D1 0013/0014、线上部署和 production smoke 仍是阻塞项。
+公开发布仍未完成：远程 D1 0013/0014/0015、托管身份联调、真实模型 benchmark、线上部署和 production smoke 仍是阻塞项。
 
 ## 2026-08-31 仓库整理
 

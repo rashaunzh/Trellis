@@ -7,7 +7,8 @@
 - [ ] 代码已 commit + push（分支 `docs/trellis-v02-adaptive-learning-prd`）
 - [ ] 全量验证绿：test:domain / eslint / build / node --test / 验收脚本
 - [ ] wrangler 已登录（`npx wrangler whoami`，OAuth 有效）
-- [ ] 远程 D1 迁移已应用（见下）
+- [ ] 远程 D1 迁移已应用到 `0015`（见下）
+- [ ] `TRELLIS_ADMIN_EMAILS` 已配置为课程内容评审管理员邮箱
 - [ ] 网络走 Clash 代理（`export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890`）
 
 ## 远程 D1 迁移
@@ -24,6 +25,8 @@ npx wrangler d1 execute <your-d1-database-name> --remote --command "SELECT name 
 
 ```bash
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0013_course_intelligence.sql
+npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0014_canonical_learning_runtime.sql
+npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0015_production_control_plane.sql
 ```
 
 若启用内置模型，在服务端配置 `TRELLIS_AI_API_KEY`、`TRELLIS_AI_MODEL` 和可选 `TRELLIS_AI_BASE_URL`；不要把 Key 写入仓库。未配置模型时生产环境仍应通过已发布基线 smoke。
@@ -54,11 +57,13 @@ UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Ge
 curl -s -x http://127.0.0.1:7890 -A "$UA" -o /dev/null -w "%{http_code}\n" <your deployed URL>/learn   # 200
 curl -s -x http://127.0.0.1:7890 -A "$UA" <your deployed URL>/api/learning/workspace   # {"workspace":{...}}
 
-# 自动 smoke：未设置 TRELLIS_BASE 时会跳过；设置后检查 /learn、/workbench、workspace API、week-review API
-TRELLIS_BASE=<your deployed URL> npm run smoke:production
+# 自动 smoke：无身份时检查页面与 API 鉴权；提供测试身份后执行完整 Course Intelligence 链。
+TRELLIS_BASE=<your deployed URL> TRELLIS_AUTH_EMAIL=<smoke-user-email> npm run smoke:production
 ```
 
 - `/`→307（→/learn）、`/product /learn /grow /workbench`→200
+- 未带 ChatGPT 托管身份的学习 API → 401
+- `/api/learning/mastra-runtime` → 正式 `course-intelligence-learning-loop`
 - 远程库为空 = 全新起点（onboarding 态）
 
 ## 交付前固定检查
@@ -70,7 +75,7 @@ node --test tests/*.test.mjs
 npm run lint
 npm run build
 npm run delivery:precheck
-TRELLIS_BASE=<your deployed URL> npm run smoke:production
+TRELLIS_BASE=<your deployed URL> TRELLIS_AUTH_EMAIL=<smoke-user-email> npm run smoke:production
 ```
 
 部署前还应在本地运行：
@@ -84,7 +89,7 @@ TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intellige
 ## 演示数据管理
 
 - **重置**：页面右上角"重新设置"（清学习状态，不清 API 配置与收集箱）
-- **API 直调**：`curl -X POST -H "x-trellis-owner-id: <uuid>" <your deployed URL>/api/learning/reset`
+- **API 直调**：生产请求必须经过 ChatGPT 托管身份；`x-trellis-owner-id` 只在 localhost 有效。
 - 验证用的真实 LLM key 测完必须清除（`DELETE FROM learning_api_config`）
 
 ## 回滚
@@ -97,4 +102,5 @@ TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intellige
 
 - workers.dev 子域名注册只能用户在 dashboard 完成（Turnstile 挡 headless）：`https://dash.cloudflare.com/<accountId>/workers/onboarding`
 - 中国大陆直连网络访问 workers.dev 可能不稳定；正式对外演示建议绑定自定义域名
-- 公网是匿名隔离（x-trellis-owner-id header），不是安全鉴权；ownerId 可伪造
+- 课程候选评审入口为 `/internal/course-intelligence`，数据接口同时校验托管身份与 `TRELLIS_ADMIN_EMAILS`。
+- smoke 使用的身份必须是专用测试用户，完整 smoke 会生成并确认一条课程方案。

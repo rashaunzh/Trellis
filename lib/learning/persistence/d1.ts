@@ -28,6 +28,68 @@ export class D1LearningStore implements LearningStore {
     this.db = db;
   }
 
+  async activateCurriculumRuntime(input: {
+    curriculumId: string;
+    ownerId: string;
+    profile: LearnerProfile;
+    weeklyPlan: WeeklyPlan;
+    activities: LearningActivity[];
+    nodeProgress: NodeProgress[];
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const statements = [
+      this.db.prepare(`INSERT INTO learning_profiles
+        (id,owner_id,goal,active_route_id,weekly_minutes,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(owner_id) DO UPDATE SET goal=excluded.goal,active_route_id=excluded.active_route_id,
+          weekly_minutes=excluded.weekly_minutes,status=excluded.status,updated_at=excluded.updated_at`)
+        .bind(input.profile.id, input.profile.ownerId, input.profile.goal, input.profile.activeRouteId,
+          input.profile.weeklyMinutes, input.profile.status, now),
+      this.db.prepare(`INSERT INTO learning_weekly_plans
+        (id,owner_id,route_id,week_key,capacity_minutes,status,rationale,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(owner_id,route_id,week_key) DO UPDATE SET capacity_minutes=excluded.capacity_minutes,
+          status=excluded.status,rationale=excluded.rationale,updated_at=excluded.updated_at`)
+        .bind(input.weeklyPlan.id, input.weeklyPlan.ownerId, input.weeklyPlan.routeId,
+          input.weeklyPlan.weekKey, input.weeklyPlan.capacityMinutes, input.weeklyPlan.status,
+          input.weeklyPlan.rationale, now),
+      this.db.prepare(`DELETE FROM learning_activities
+        WHERE owner_id=? AND weekly_plan_id=? AND status IN ('planned','in_progress')
+          AND id NOT IN (SELECT activity_id FROM learning_evidence WHERE owner_id=?)`)
+        .bind(input.ownerId, input.weeklyPlan.id, input.ownerId),
+      ...input.activities.map((activity) => this.db.prepare(`INSERT INTO learning_activities
+        (id,owner_id,weekly_plan_id,node_id,curriculum_id,course_version_id,course_id,unit_key,
+          canonical_node_id,title,activity_type,goal,estimated_minutes,is_core,status,is_skip_validation,
+          input_refs,steps,expected_evidence,evaluation_criteria,next_advice,sequence,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(id) DO UPDATE SET status=excluded.status,input_refs=excluded.input_refs,
+          next_advice=excluded.next_advice,curriculum_id=excluded.curriculum_id,
+          course_version_id=excluded.course_version_id,course_id=excluded.course_id,
+          unit_key=excluded.unit_key,canonical_node_id=excluded.canonical_node_id,updated_at=excluded.updated_at`)
+        .bind(activity.id, activity.ownerId, activity.weeklyPlanId, activity.nodeId,
+          activity.curriculumId ?? null, activity.courseVersionId ?? null, activity.courseId ?? null,
+          activity.unitId ?? null, activity.canonicalNodeId ?? null, activity.title, activity.activityType,
+          activity.goal, activity.estimatedMinutes, activity.isCore ? 1 : 0, activity.status,
+          activity.isSkipValidation ? 1 : 0, activity.inputRefs.join(","), activity.steps,
+          activity.expectedEvidence, activity.evaluationCriteria, activity.nextAdvice, activity.sequence, now)),
+      ...input.nodeProgress.map((progress) => this.db.prepare(`INSERT INTO learning_node_progress
+        (id,owner_id,node_id,status,confidence,last_validated_at,confirmed_at,review_interval_days,
+          next_review_at,review_count,supporting_evidence_ids,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(owner_id,node_id) DO NOTHING`)
+        .bind(progress.id, progress.ownerId, progress.nodeId, progress.status, progress.confidence,
+          progress.lastValidatedAt, progress.confirmedAt, progress.reviewIntervalDays,
+          progress.nextReviewAt, progress.reviewCount, progress.supportingEvidenceIds.join(","), now)),
+      this.db.prepare(`UPDATE learning_ci_curricula SET status='superseded',updated_at=?
+        WHERE owner_id=? AND id!=? AND status IN ('draft','confirmed')`)
+        .bind(now, input.ownerId, input.curriculumId),
+      this.db.prepare(`UPDATE learning_ci_curricula SET status='confirmed',activation_status='active',
+        activation_error='',updated_at=? WHERE id=? AND owner_id=?`)
+        .bind(now, input.curriculumId, input.ownerId),
+    ];
+    await this.db.batch(statements);
+  }
+
   // ── 内容层种子（幂等）──────────────────────────────
   // 学习地图内容包是版本化只读数据，存于代码；首次使用时写入 D1
   // 内容层表，保证状态层外键（active_route_id 等）有真实引用。

@@ -6,6 +6,7 @@
 
 - `product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md`：当前 Course Intelligence 产品责任、用户链路与边界。
 - `architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md`：来源、领域图、Course Genome、课程组合与学习状态架构。
+- `architecture/ADR_MASTRA_D1_RESPONSIBILITIES.md`：正式工作流与业务状态的责任划分。
 - `engineering/TRELLIS_REMEDIATION_IMPLEMENTATION_2026-08-31.md`：本地功能 MVP 的 Conditional Go 状态与生产缺口。
 - `engineering/TRELLIS_FULL_ENGINEERING_AUDIT_2026-08-30.md`：全仓审计依据与风险底稿。
 

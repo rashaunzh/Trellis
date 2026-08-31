@@ -7,6 +7,10 @@ import { InMemoryCourseIntelligenceRepository } from "../../lib/learning/intelli
 import { CourseIntelligenceService } from "../../lib/learning/intelligence/service.ts";
 import { compareCourseGenomes, evaluateDomainGraph } from "../../lib/learning/intelligence/course-intelligence.ts";
 import { baselineCourses, baselineMappingsFor, publishedDomainGraph } from "../../lib/learning/intelligence/baseline.ts";
+import {
+  courseIntelligenceWorkflowSpec,
+  startCourseIntelligenceWorkflow,
+} from "../../lib/learning/intelligence/workflow-runtime.ts";
 
 function setup() {
   const repository = new InMemoryCourseIntelligenceRepository();
@@ -24,6 +28,27 @@ test("发布领域图包含完整分类并拒绝循环前置", () => {
   assert.ok(evaluateDomainGraph(broken).some((issue) => issue.code === "prerequisite_cycle"));
 });
 
+test("正式 Mastra 工作流创建课程方案并停在用户确认", async () => {
+  const { service, repository } = setup();
+  await service.initialize();
+  const result = await startCourseIntelligenceWorkflow({
+    ownerId: "owner-formal-workflow",
+    rawIntake: {
+      goal: "理解 AI 产品能力边界并判断 Agent 场景",
+      weeklyCapacity: "light",
+      materials: [],
+    },
+    service,
+    repository,
+  });
+  assert.equal(result.status, "suspended");
+  assert.match(result.workflowRunId, /^course-intelligence\./);
+  assert.equal(result.curriculum.status, "draft");
+  const run = await repository.getWorkflowRunByAggregate("owner-formal-workflow", result.curriculum.id);
+  assert.equal(run?.currentStep, "confirm-curriculum");
+  assert.equal(courseIntelligenceWorkflowSpec.businessStateOwner, "trellis-d1");
+});
+
 test("课程新版本只生成影响报告，不覆盖旧版本", () => {
   const previous = structuredClone(baselineCourses[0]!.genome);
   const next = structuredClone(previous);
@@ -33,6 +58,27 @@ test("课程新版本只生成影响报告，不覆盖旧版本", () => {
   assert.equal(diff.requiresReview, true);
   assert.deepEqual(diff.changedUnitIds, [next.units[0]!.id]);
   assert.equal(previous.units[0]!.title.endsWith("（更新）"), false);
+});
+
+test("来源快照变化只创建候选更新，相同内容保持 unchanged", async () => {
+  const repository = new InMemoryCourseIntelligenceRepository();
+  const first = await repository.saveSourceUpdateCandidate({
+    id: "snapshot.source.v1",
+    sourceId: "source.test",
+    contentHash: "hash-v1",
+    retrievedAt: "2026-08-31T00:00:00.000Z",
+    contentJson: "{}",
+  });
+  const second = await repository.saveSourceUpdateCandidate({
+    id: "snapshot.source.v1-repeat",
+    sourceId: "source.test",
+    contentHash: "hash-v1",
+    retrievedAt: "2026-08-31T01:00:00.000Z",
+    contentJson: "{}",
+  });
+  assert.equal(first.status, "candidate");
+  assert.equal(second.status, "unchanged");
+  assert.equal(second.candidateSnapshotId, null);
 });
 
 test("AI PM 目标压缩多源目录，不把 ML 专项当默认前置", async () => {
@@ -139,6 +185,12 @@ test("候选课程只有通过完整映射发布门后才进入正式 catalog", 
     ...mapping,
     courseId: seed.genome.id,
   }));
+  await service.reviewCourseCandidate({
+    candidateId: "candidate.publish-test",
+    reviewerOwnerId: "owner-reviewer",
+    decision: "validated",
+    reason: "来源、章节结构和节点映射均已人工核对",
+  });
   const published = await service.publishCourseCandidate("candidate.publish-test", {
     genome: seed.genome,
     tags: ["test"],
@@ -165,6 +217,12 @@ test("低置信章节映射不能发布", async () => {
   });
   const seed = structuredClone(baselineCourses[0]!);
   const mappings = baselineMappingsFor(new Set([seed.genome.id])).map((mapping) => ({ ...mapping, confidence: 0.5 }));
+  await service.reviewCourseCandidate({
+    candidateId: "candidate.low-confidence",
+    reviewerOwnerId: "owner-reviewer",
+    decision: "validated",
+    reason: "先验证候选状态，再确认发布质量闸门仍会拦截低置信映射",
+  });
   await assert.rejects(
     service.publishCourseCandidate("candidate.low-confidence", { genome: seed.genome, tags: ["test"], mappings }),
     /置信度不足/,

@@ -22,6 +22,21 @@ export class InMemoryLearningStore implements LearningStore {
   private adjustments = new Map<string, AdjustmentRecord>();
   private userResources = new Map<string, UserResource>();
 
+  async activateCurriculumRuntime(input: {
+    curriculumId: string;
+    ownerId: string;
+    profile: LearnerProfile;
+    weeklyPlan: WeeklyPlan;
+    activities: LearningActivity[];
+    nodeProgress: NodeProgress[];
+  }): Promise<void> {
+    await this.saveProfile(input.profile);
+    await this.saveWeeklyPlan(input.weeklyPlan);
+    await this.clearOpenActivitiesForPlan(input.ownerId, input.weeklyPlan.id);
+    for (const activity of input.activities) await this.saveActivity(activity);
+    for (const progress of input.nodeProgress) await this.saveNodeProgress(progress);
+  }
+
   async getProfile(ownerId: string): Promise<LearnerProfile | null> {
     for (const p of Array.from(this.profiles.values())) {
       if (p.ownerId === ownerId) return p;

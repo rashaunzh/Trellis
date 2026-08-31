@@ -3,7 +3,7 @@ import { getLearningService, ownerOf, jsonError } from "../../../_shared";
 // POST /api/learning/activities/:id/evidence — 提交证据
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const ownerId = ownerOf(request);
+    const ownerId = await ownerOf(request);
     const { id } = await context.params;
     const payload = (await request.json()) as Record<string, unknown>;
     const workspace = await (await getLearningService()).submitEvidence(ownerId, id, {

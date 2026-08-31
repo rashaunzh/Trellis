@@ -18,8 +18,9 @@ import {
   type LearningSignalInput,
   type PublishedCourse,
 } from "./course-intelligence.ts";
-import { CourseIntelligenceModelGateway, type ModelGatewayStatus } from "./model-gateway.ts";
-import type { CourseIntelligenceRepository } from "./repository.ts";
+import { CourseIntelligenceModelGateway, hashInput, type ModelGatewayStatus } from "./model-gateway.ts";
+import type { CourseIntelligenceRepository, WorkflowRunRecord } from "./repository.ts";
+import { fetchPublicSource } from "./source-fetcher.ts";
 
 const capacityMinutes = { light: 120, steady: 240, focused: 360, intensive: 540 } as const;
 
@@ -48,6 +49,7 @@ export interface CurrentLearningState {
   weeklyPlan: WeeklyPlan | null;
   activities: LearningActivity[];
   knowledgeStates: CanonicalKnowledgeState[];
+  workflow: WorkflowRunRecord | null;
 }
 
 const intentRefinementSchema = z.object({
@@ -378,17 +380,75 @@ export class CourseIntelligenceService {
     return record;
   }
 
-  async publishCourseCandidate(candidateId: string, raw: unknown): Promise<PublishedCourse> {
+  async publishCourseCandidate(candidateId: string, raw: unknown, reviewerOwnerId = "system"): Promise<PublishedCourse> {
     const candidate = await this.repository.getCourseCandidate(candidateId);
     if (!candidate) throw Object.assign(new Error("课程候选不存在"), { status: 404 });
+    if (candidate.status !== "validated") {
+      throw Object.assign(new Error("课程候选必须先通过内部评审才能发布"), { status: 409 });
+    }
     const course = publishedCourseSchema.parse(raw);
     const graph = await this.repository.getPublishedGraph();
     const issues = evaluatePublishedCourse(course, graph);
     if (issues.length) {
       throw Object.assign(new Error(`课程候选未通过发布检查：${issues.map((issue) => issue.message).join("；")}`), { status: 409 });
     }
-    await this.repository.publishCourseCandidate(candidateId, course);
+    const now = new Date().toISOString();
+    await this.repository.publishCourseCandidate(candidateId, course, {
+      id: `candidate-review.${crypto.randomUUID()}`,
+      candidateId,
+      reviewerOwnerId,
+      decision: "published",
+      reason: "课程结构和全部章节映射通过发布质量闸门",
+      reviewJson: JSON.stringify({ courseId: course.genome.id, version: course.genome.version }),
+      createdAt: now,
+    });
     return course;
+  }
+
+  async listCourseCandidates(status?: "candidate" | "validated" | "rejected" | "published") {
+    return this.repository.listCourseCandidates(status);
+  }
+
+  async refreshSource(sourceId: string) {
+    const source = (await this.repository.listSources()).find((item) => item.id === sourceId);
+    if (!source) throw Object.assign(new Error("课程来源不存在"), { status: 404 });
+    const snapshot = await fetchPublicSource(source.url);
+    const contentHash = await hashInput(snapshot.body);
+    return this.repository.saveSourceUpdateCandidate({
+      id: `snapshot.${sourceId}.${contentHash.slice(0, 16)}`,
+      sourceId,
+      contentHash,
+      retrievedAt: snapshot.retrievedAt,
+      contentJson: JSON.stringify({
+        finalUrl: snapshot.finalUrl,
+        contentType: snapshot.contentType,
+        byteLength: new TextEncoder().encode(snapshot.body).byteLength,
+      }),
+    });
+  }
+
+  async reviewCourseCandidate(input: {
+    candidateId: string;
+    reviewerOwnerId: string;
+    decision: "validated" | "rejected";
+    reason: string;
+  }) {
+    const candidate = await this.repository.getCourseCandidate(input.candidateId);
+    if (!candidate) throw Object.assign(new Error("课程候选不存在"), { status: 404 });
+    if (!["candidate", "validated"].includes(candidate.status)) {
+      throw Object.assign(new Error("该课程候选当前不可评审"), { status: 409 });
+    }
+    const reason = z.string().trim().min(3).max(1200).parse(input.reason);
+    await this.repository.reviewCourseCandidate(input.candidateId, {
+      id: `candidate-review.${crypto.randomUUID()}`,
+      candidateId: input.candidateId,
+      reviewerOwnerId: input.reviewerOwnerId,
+      decision: input.decision,
+      reason,
+      reviewJson: JSON.stringify({ previousStatus: candidate.status }),
+      createdAt: new Date().toISOString(),
+    });
+    return this.repository.getCourseCandidate(input.candidateId);
   }
 
   async getCurriculum(ownerId: string, id: string): Promise<CurriculumRecord | null> {
@@ -398,41 +458,46 @@ export class CourseIntelligenceService {
   async getCurrentLearning(ownerId: string): Promise<CurrentLearningState> {
     const curriculum = await this.repository.getLatestCurriculum(ownerId);
     const knowledgeStates = await this.repository.listKnowledgeStates(ownerId);
+    const workflow = curriculum
+      ? await this.repository.getWorkflowRunByAggregate(ownerId, curriculum.id)
+      : null;
     if (!this.learningStore || !curriculum || curriculum.status !== "confirmed") {
-      return { curriculum, weeklyPlan: null, activities: [], knowledgeStates };
+      return { curriculum, weeklyPlan: null, activities: [], knowledgeStates, workflow };
     }
     const profile = await this.learningStore.getProfile(ownerId);
-    if (!profile) return { curriculum, weeklyPlan: null, activities: [], knowledgeStates };
+    if (!profile) return { curriculum, weeklyPlan: null, activities: [], knowledgeStates, workflow };
     const weeklyPlan = await this.learningStore.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, isoWeekKey(new Date()));
     const activities = weeklyPlan ? await this.learningStore.listActivitiesByPlan(weeklyPlan.id) : [];
-    return { curriculum, weeklyPlan, activities, knowledgeStates };
+    return { curriculum, weeklyPlan, activities, knowledgeStates, workflow };
   }
 
   async confirmCurriculum(ownerId: string, id: string): Promise<CurriculumRecord> {
     const record = await this.repository.getCurriculum(id, ownerId);
     if (!record) throw new Error("课程方案不存在");
-    if (record.status !== "confirmed") {
+    if (record.activationStatus === "active") return record;
+    if (!this.learningStore) {
       record.status = "confirmed";
       record.updatedAt = new Date().toISOString();
       await this.repository.saveCurriculum(record);
       await this.repository.supersedeCurricula(ownerId, record.id, true);
+      return record;
     }
-    if (this.learningStore && record.activationStatus !== "active") {
-      record.activationStatus = "activating";
-      record.activationError = "";
+
+    record.activationStatus = "activating";
+    record.activationError = "";
+    try {
+      await this.activateLearningRuntime(record);
+      record.status = "confirmed";
+      record.activationStatus = "active";
       record.updatedAt = new Date().toISOString();
       await this.repository.saveCurriculum(record);
-      try {
-        await this.activateLearningRuntime(record);
-        record.activationStatus = "active";
-      } catch (error) {
-        record.activationStatus = "failed";
-        record.activationError = error instanceof Error ? error.message : "学习方案激活失败";
-        await this.repository.saveCurriculum(record);
-        throw error;
-      }
+      await this.repository.supersedeCurricula(ownerId, record.id, true);
+    } catch (error) {
+      record.activationStatus = "failed";
+      record.activationError = error instanceof Error ? error.message : "学习方案激活失败";
       record.updatedAt = new Date().toISOString();
       await this.repository.saveCurriculum(record);
+      throw error;
     }
     return record;
   }
@@ -488,7 +553,6 @@ export class CourseIntelligenceService {
       weeklyMinutes: minutes,
       status: "confirmed",
     };
-    await store.saveProfile(profile);
     const weekKey = isoWeekKey(new Date());
     const existingPlan = await store.getWeeklyPlanByWeek(record.ownerId, routeId, weekKey);
     const plan: WeeklyPlan = existingPlan ?? {
@@ -502,11 +566,11 @@ export class CourseIntelligenceService {
     };
     plan.capacityMinutes = minutes;
     plan.rationale = record.assembly.rationale;
-    await store.saveWeeklyPlan(plan);
-    await store.clearOpenActivitiesForPlan(record.ownerId, plan.id);
 
     const courseById = new Map((await this.repository.listCourses()).map((item) => [item.genome.id, item.genome]));
     const refs = record.assembly.stages.flatMap((stage) => stage.unitRefs.map((ref) => ({ ...ref, stage })));
+    const activities: LearningActivity[] = [];
+    const progressEntries: NodeProgress[] = [];
     let committed = 0;
     let sequence = 1;
     for (const ref of refs) {
@@ -542,18 +606,26 @@ export class CourseIntelligenceService {
         nextAdvice: `退出条件：${ref.stage.exitCriteria.join("；")}`,
         sequence,
       };
-      await store.saveActivity(activity);
+      activities.push(activity);
       const existingProgress = await store.getNodeProgress(record.ownerId, nodeId);
       if (!existingProgress) {
         const progress: NodeProgress = {
           id: `progress.ci.${crypto.randomUUID()}`, ownerId: record.ownerId, nodeId, status: "unstarted", confidence: 0,
           lastValidatedAt: null, supportingEvidenceIds: [], confirmedAt: null, reviewIntervalDays: 14, nextReviewAt: null, reviewCount: 0,
         };
-        await store.saveNodeProgress(progress);
+        progressEntries.push(progress);
       }
       committed += estimatedMinutes;
       sequence += 1;
     }
+    await store.activateCurriculumRuntime({
+      curriculumId: record.id,
+      ownerId: record.ownerId,
+      profile,
+      weeklyPlan: plan,
+      activities,
+      nodeProgress: progressEntries,
+    });
   }
 }
 

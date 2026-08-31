@@ -37,9 +37,53 @@ export interface AnalysisRunRecord {
   createdAt: string;
 }
 
+export interface WorkflowRunRecord {
+  id: string;
+  ownerId: string;
+  workflowId: string;
+  aggregateType: "curriculum";
+  aggregateId: string;
+  status: "running" | "suspended" | "completed" | "failed" | "cancelled";
+  currentStep: string;
+  lastError: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateReviewRecord {
+  id: string;
+  candidateId: string;
+  reviewerOwnerId: string;
+  decision: "validated" | "rejected" | "published" | "rolled_back";
+  reason: string;
+  reviewJson: string;
+  createdAt: string;
+}
+
+export interface SourceSnapshotCandidate {
+  id: string;
+  sourceId: string;
+  contentHash: string;
+  retrievedAt: string;
+  contentJson: string;
+}
+
+export interface SourceUpdateJobRecord {
+  id: string;
+  sourceId: string;
+  status: "candidate" | "unchanged";
+  previousSnapshotId: string | null;
+  candidateSnapshotId: string | null;
+  impactJson: string;
+  error: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CourseIntelligenceRepository {
   seedPublishedBaseline(): Promise<void>;
   listSources(): Promise<TrustedSource[]>;
+  saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord>;
   listCourses(): Promise<PublishedCourse[]>;
   getPublishedGraph(): Promise<DomainGraph>;
   getCurriculum(id: string, ownerId: string): Promise<CurriculumRecord | null>;
@@ -47,11 +91,16 @@ export interface CourseIntelligenceRepository {
   saveCurriculum(record: CurriculumRecord): Promise<void>;
   saveCourseCandidate(candidate: CourseCandidateRecord): Promise<void>;
   getCourseCandidate(id: string): Promise<CourseCandidateRecord | null>;
-  publishCourseCandidate(candidateId: string, course: PublishedCourse): Promise<void>;
+  listCourseCandidates(status?: CourseCandidateRecord["status"]): Promise<CourseCandidateRecord[]>;
+  reviewCourseCandidate(candidateId: string, review: CandidateReviewRecord): Promise<void>;
+  publishCourseCandidate(candidateId: string, course: PublishedCourse, review?: CandidateReviewRecord): Promise<void>;
+  saveWorkflowRun(run: WorkflowRunRecord): Promise<void>;
+  getWorkflowRunByAggregate(ownerId: string, aggregateId: string): Promise<WorkflowRunRecord | null>;
   supersedeCurricula(ownerId: string, exceptId: string, includeConfirmed?: boolean): Promise<void>;
   saveLearningSignal(signal: LearningSignal, state: CanonicalKnowledgeState): Promise<void>;
   listKnowledgeStates(ownerId: string): Promise<CanonicalKnowledgeState[]>;
   findCachedAnalysis(kind: string, inputHash: string, model: string): Promise<AnalysisRunRecord | null>;
+  getAnalysisUsageSince(ownerId: string, since: string): Promise<{ calls: number; tokens: number }>;
   saveAnalysisRun(run: AnalysisRunRecord): Promise<void>;
 }
 
@@ -62,9 +111,30 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
   private knowledgeStates = new Map<string, CanonicalKnowledgeState>();
   private candidates = new Map<string, CourseCandidateRecord>();
   private publishedCourses = new Map<string, PublishedCourse>();
+  private workflowRuns = new Map<string, WorkflowRunRecord>();
+  private candidateReviews = new Map<string, CandidateReviewRecord>();
+  private sourceSnapshots = new Map<string, SourceSnapshotCandidate>();
 
   async seedPublishedBaseline() {}
   async listSources() { return structuredClone(trustedSources); }
+  async saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord> {
+    const previous = Array.from(this.sourceSnapshots.values())
+      .filter((item) => item.sourceId === snapshot.sourceId)
+      .sort((a, b) => b.retrievedAt.localeCompare(a.retrievedAt))[0] ?? null;
+    const unchanged = previous?.contentHash === snapshot.contentHash;
+    if (!unchanged) this.sourceSnapshots.set(snapshot.id, structuredClone(snapshot));
+    return {
+      id: `source-job.${crypto.randomUUID()}`,
+      sourceId: snapshot.sourceId,
+      status: unchanged ? "unchanged" : "candidate",
+      previousSnapshotId: previous?.id ?? null,
+      candidateSnapshotId: unchanged ? null : snapshot.id,
+      impactJson: JSON.stringify({ changed: !unchanged, requiresReview: !unchanged }),
+      error: "",
+      createdAt: snapshot.retrievedAt,
+      updatedAt: snapshot.retrievedAt,
+    };
+  }
   async listCourses(): Promise<PublishedCourse[]> {
     const mappings = baselineMappingsFor();
     return [...baselineCourses.map((item) => ({
@@ -86,13 +156,27 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
   async saveCurriculum(record: CurriculumRecord) { this.curricula.set(record.id, structuredClone(record)); }
   async saveCourseCandidate(candidate: CourseCandidateRecord) { this.candidates.set(candidate.id, structuredClone(candidate)); }
   async getCourseCandidate(id: string) { return structuredClone(this.candidates.get(id) ?? null); }
-  async publishCourseCandidate(candidateId: string, course: PublishedCourse) {
+  async listCourseCandidates(status?: CourseCandidateRecord["status"]) {
+    return Array.from(this.candidates.values())
+      .filter((item) => !status || item.status === status)
+      .map((item) => structuredClone(item));
+  }
+  async reviewCourseCandidate(candidateId: string, review: CandidateReviewRecord) {
     const candidate = this.candidates.get(candidateId);
-    if (!candidate || candidate.status !== "candidate") throw new Error("课程候选不存在或不可发布");
+    if (!candidate) throw new Error("课程候选不存在");
+    candidate.status = review.decision === "validated" ? "validated" : "rejected";
+    candidate.updatedAt = review.createdAt;
+    this.candidates.set(candidateId, candidate);
+    this.candidateReviews.set(review.id, structuredClone(review));
+  }
+  async publishCourseCandidate(candidateId: string, course: PublishedCourse, review?: CandidateReviewRecord) {
+    const candidate = this.candidates.get(candidateId);
+    if (!candidate || !["candidate", "validated"].includes(candidate.status)) throw new Error("课程候选不存在或不可发布");
     candidate.status = "published";
     candidate.updatedAt = new Date().toISOString();
     this.candidates.set(candidateId, candidate);
     this.publishedCourses.set(course.genome.id, structuredClone(course));
+    if (review) this.candidateReviews.set(review.id, structuredClone(review));
   }
   async supersedeCurricula(ownerId: string, exceptId: string, includeConfirmed = false) {
     for (const record of this.curricula.values()) {
@@ -113,7 +197,20 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
       run.kind === kind && run.inputHash === inputHash && run.model === model && run.status === "success",
     ) ?? null;
   }
+  async getAnalysisUsageSince(ownerId: string, since: string) {
+    const runs = Array.from(this.runs.values()).filter((run) => run.ownerId === ownerId && run.createdAt >= since);
+    return {
+      calls: runs.length,
+      tokens: runs.reduce((total, run) => total + run.promptTokens + run.completionTokens, 0),
+    };
+  }
   async saveAnalysisRun(run: AnalysisRunRecord) { this.runs.set(run.id, { ...run }); }
+  async saveWorkflowRun(run: WorkflowRunRecord) { this.workflowRuns.set(run.id, structuredClone(run)); }
+  async getWorkflowRunByAggregate(ownerId: string, aggregateId: string) {
+    return structuredClone(Array.from(this.workflowRuns.values()).find((run) =>
+      run.ownerId === ownerId && run.aggregateId === aggregateId,
+    ) ?? null);
+  }
 }
 
 // D1 类型声明不在当前依赖中；边界由接口和结构化解析保证。
@@ -214,6 +311,36 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     }));
   }
 
+  async saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord> {
+    const previous = await this.db.prepare(`SELECT id,content_hash FROM learning_ci_source_snapshots
+      WHERE source_id=? ORDER BY created_at DESC LIMIT 1`).bind(snapshot.sourceId).first();
+    const unchanged = previous && String(previous.content_hash) === snapshot.contentHash;
+    const job: SourceUpdateJobRecord = {
+      id: `source-job.${crypto.randomUUID()}`,
+      sourceId: snapshot.sourceId,
+      status: unchanged ? "unchanged" : "candidate",
+      previousSnapshotId: previous ? String(previous.id) : null,
+      candidateSnapshotId: unchanged ? null : snapshot.id,
+      impactJson: JSON.stringify({ changed: !unchanged, requiresReview: !unchanged }),
+      error: "",
+      createdAt: snapshot.retrievedAt,
+      updatedAt: snapshot.retrievedAt,
+    };
+    const statements = [];
+    if (!unchanged) {
+      statements.push(this.db.prepare(`INSERT OR IGNORE INTO learning_ci_source_snapshots
+        (id,source_id,content_hash,retrieved_at,content_json,status) VALUES (?,?,?,?,?,'candidate')`)
+        .bind(snapshot.id, snapshot.sourceId, snapshot.contentHash, snapshot.retrievedAt, snapshot.contentJson));
+    }
+    statements.push(this.db.prepare(`INSERT INTO learning_ci_source_update_jobs
+      (id,source_id,status,previous_snapshot_id,candidate_snapshot_id,impact_json,error,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+      .bind(job.id, job.sourceId, job.status, job.previousSnapshotId, job.candidateSnapshotId,
+        job.impactJson, job.error, job.createdAt, job.updatedAt));
+    await this.db.batch(statements);
+    return job;
+  }
+
   async listCourses(): Promise<PublishedCourse[]> {
     const rows = await this.db.prepare(`SELECT c.id,c.tags_json,v.id AS version_id,v.genome_json
       FROM learning_ci_courses c JOIN learning_ci_course_versions v ON v.id=c.published_version_id
@@ -284,9 +411,37 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     } : null;
   }
 
-  async publishCourseCandidate(candidateId: string, course: PublishedCourse): Promise<void> {
+  async listCourseCandidates(status?: CourseCandidateRecord["status"]): Promise<CourseCandidateRecord[]> {
+    const where = status ? "WHERE status=?" : "";
+    const statement = this.db.prepare(`SELECT * FROM learning_ci_course_candidates ${where} ORDER BY updated_at DESC`);
+    const rows = status ? await statement.bind(status).all() : await statement.all();
+    return (rows.results as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      ownerId: String(row.owner_id),
+      title: String(row.title),
+      sourceUrl: String(row.source_url),
+      outline: JSON.parse(String(row.outline_json)),
+      analysisJson: String(row.analysis_json),
+      status: row.status as CourseCandidateRecord["status"],
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    }));
+  }
+
+  async reviewCourseCandidate(candidateId: string, review: CandidateReviewRecord): Promise<void> {
+    const status = review.decision === "validated" ? "validated" : "rejected";
+    await this.db.batch([
+      this.db.prepare("UPDATE learning_ci_course_candidates SET status=?,updated_at=? WHERE id=? AND status IN ('candidate','validated')")
+        .bind(status, review.createdAt, candidateId),
+      this.db.prepare(`INSERT INTO learning_ci_candidate_reviews
+        (id,candidate_id,reviewer_owner_id,decision,reason,review_json,created_at) VALUES (?,?,?,?,?,?,?)`)
+        .bind(review.id, review.candidateId, review.reviewerOwnerId, review.decision, review.reason, review.reviewJson, review.createdAt),
+    ]);
+  }
+
+  async publishCourseCandidate(candidateId: string, course: PublishedCourse, review?: CandidateReviewRecord): Promise<void> {
     const candidate = await this.getCourseCandidate(candidateId);
-    if (!candidate || candidate.status !== "candidate") throw new Error("课程候选不存在或不可发布");
+    if (!candidate || !["candidate", "validated"].includes(candidate.status)) throw new Error("课程候选不存在或不可发布");
     const versionId = `${course.genome.id}@${course.genome.version}`;
     const statements = [
       this.db.prepare(`INSERT INTO learning_ci_courses
@@ -303,7 +458,11 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
       ...course.mappings.map((mapping) => this.db.prepare(`INSERT INTO learning_ci_unit_node_mappings
         (id,course_version_id,unit_key,node_id,depth,relation,confidence,mapping_json) VALUES (?,?,?,?,?,?,?,?)`)
         .bind(`${versionId}:${mapping.unitId}:${mapping.nodeId}`, versionId, mapping.unitId, mapping.nodeId, mapping.depth, mapping.relation, Math.round(mapping.confidence * 1000), JSON.stringify(mapping))),
-      this.db.prepare("UPDATE learning_ci_course_candidates SET status='published',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='candidate'").bind(candidateId),
+      this.db.prepare("UPDATE learning_ci_course_candidates SET status='published',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('candidate','validated')").bind(candidateId),
+      ...(review ? [this.db.prepare(`INSERT INTO learning_ci_candidate_reviews
+        (id,candidate_id,reviewer_owner_id,decision,reason,review_json,created_at) VALUES (?,?,?,?,?,?,?)`)
+        .bind(review.id, review.candidateId, review.reviewerOwnerId, review.decision,
+          review.reason, review.reviewJson, review.createdAt)] : []),
     ];
     await this.db.batch(statements);
   }
@@ -352,11 +511,48 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     } : null;
   }
 
+  async getAnalysisUsageSince(ownerId: string, since: string): Promise<{ calls: number; tokens: number }> {
+    const row = await this.db.prepare(`SELECT COUNT(*) AS calls,
+      COALESCE(SUM(prompt_tokens + completion_tokens),0) AS tokens
+      FROM learning_ci_analysis_runs WHERE owner_id=? AND created_at>=?`)
+      .bind(ownerId, since).first();
+    return { calls: Number(row?.calls ?? 0), tokens: Number(row?.tokens ?? 0) };
+  }
+
   async saveAnalysisRun(run: AnalysisRunRecord): Promise<void> {
     await this.db.prepare(`INSERT OR REPLACE INTO learning_ci_analysis_runs
       (id,owner_id,kind,input_hash,provider,model,status,output_json,error,prompt_tokens,completion_tokens,latency_ms,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .bind(run.id, run.ownerId, run.kind, run.inputHash, run.provider, run.model, run.status, run.outputJson, run.error, run.promptTokens, run.completionTokens, run.latencyMs, run.createdAt)
       .run();
+  }
+
+  async saveWorkflowRun(run: WorkflowRunRecord): Promise<void> {
+    await this.db.prepare(`INSERT INTO learning_workflow_runs
+      (id,owner_id,workflow_id,aggregate_type,aggregate_id,status,current_step,last_error,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET status=excluded.status,current_step=excluded.current_step,
+        last_error=excluded.last_error,updated_at=excluded.updated_at`)
+      .bind(run.id, run.ownerId, run.workflowId, run.aggregateType, run.aggregateId, run.status,
+        run.currentStep, run.lastError, run.createdAt, run.updatedAt)
+      .run();
+  }
+
+  async getWorkflowRunByAggregate(ownerId: string, aggregateId: string): Promise<WorkflowRunRecord | null> {
+    const row = await this.db.prepare(`SELECT * FROM learning_workflow_runs
+      WHERE owner_id=? AND aggregate_type='curriculum' AND aggregate_id=? ORDER BY updated_at DESC LIMIT 1`)
+      .bind(ownerId, aggregateId).first();
+    return row ? {
+      id: String(row.id),
+      ownerId: String(row.owner_id),
+      workflowId: String(row.workflow_id),
+      aggregateType: "curriculum",
+      aggregateId: String(row.aggregate_id),
+      status: row.status as WorkflowRunRecord["status"],
+      currentStep: String(row.current_step),
+      lastError: String(row.last_error),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    } : null;
   }
 }

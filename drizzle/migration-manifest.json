@@ -15,6 +15,7 @@
     "0011_adjustment_actions.sql",
     "0012_week_reviews.sql",
     "0013_course_intelligence.sql",
-    "0014_canonical_learning_runtime.sql"
+    "0014_canonical_learning_runtime.sql",
+    "0015_production_control_plane.sql"
   ]
 }

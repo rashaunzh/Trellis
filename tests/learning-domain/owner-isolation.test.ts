@@ -2,7 +2,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ownerOf, DEFAULT_OWNER } from "../../app/api/learning/_shared.ts";
+import {
+  ownerOf,
+  DEFAULT_OWNER,
+  requireCourseIntelligenceAdmin,
+} from "../../app/api/learning/_shared.ts";
 import {
   LearningApplicationService,
 } from "../../lib/learning/application/learning-service.ts";
@@ -17,39 +21,58 @@ function createService() {
 }
 
 // ── ownerOf：header 优先，无/非法回退 DEFAULT_OWNER ──
-test("ownerOf 优先读 x-trellis-owner-id", () => {
+test("ownerOf 本地开发允许 x-trellis-owner-id", async () => {
   const id = "aaaabbbb-1111-2222-3333-444455556666";
   const req = new Request("http://localhost/api/learning/workspace", {
     headers: { "x-trellis-owner-id": id },
   });
-  assert.equal(ownerOf(req), id);
+  assert.equal(await ownerOf(req), id);
 });
 
-test("ownerOf 无 header 回退 DEFAULT_OWNER", () => {
+test("ownerOf 本地无 header 回退 DEFAULT_OWNER", async () => {
   const req = new Request("http://localhost/api/learning/workspace");
-  assert.equal(ownerOf(req), DEFAULT_OWNER);
+  assert.equal(await ownerOf(req), DEFAULT_OWNER);
 });
 
-test("ownerOf 非法格式回退 DEFAULT_OWNER", () => {
+test("ownerOf 本地非法格式回退 DEFAULT_OWNER", async () => {
   for (const bad of ["short", "a".repeat(200), "bad id!", "select*from", ""]) {
     const req = new Request("http://localhost/api/learning/workspace", {
       headers: { "x-trellis-owner-id": bad },
     });
-    assert.equal(ownerOf(req), DEFAULT_OWNER, `header=${JSON.stringify(bad)} 应回退`);
+    assert.equal(await ownerOf(req), DEFAULT_OWNER, `header=${JSON.stringify(bad)} 应回退`);
   }
 });
 
-test("ownerOf 优先使用托管身份并隐藏原始邮箱", () => {
-  const first = ownerOf(new Request("https://example.com", { headers: {
+test("ownerOf 优先使用托管身份并隐藏原始邮箱", async () => {
+  const first = await ownerOf(new Request("https://example.com", { headers: {
     "oai-authenticated-user-email": "Learner@Example.com",
     "x-trellis-owner-id": "anonymous-owner-123",
   } }));
-  const second = ownerOf(new Request("https://example.com", { headers: {
+  const second = await ownerOf(new Request("https://example.com", { headers: {
     "oai-authenticated-user-email": "learner@example.com",
   } }));
   assert.equal(first, second);
-  assert.match(first, /^chatgpt-[0-9a-f]{8}$/);
+  assert.match(first, /^chatgpt-[0-9a-f]{32}$/);
   assert.equal(first.includes("learner"), false);
+});
+
+test("ownerOf 生产请求拒绝客户端自报 owner", async () => {
+  const request = new Request("https://trellis.example/api/learning/current", {
+    headers: { "x-trellis-owner-id": "spoofed-owner-123" },
+  });
+  await assert.rejects(ownerOf(request), /ChatGPT 登录/);
+});
+
+test("内部评审本地也必须显式声明管理员请求", async () => {
+  const ordinary = new Request("http://127.0.0.1/api/internal/course-intelligence/candidates");
+  await assert.rejects(requireCourseIntelligenceAdmin(ordinary), /评审权限/);
+  const admin = new Request("http://127.0.0.1/api/internal/course-intelligence/candidates", {
+    headers: {
+      "x-trellis-admin": "true",
+      "x-trellis-owner-id": "local-reviewer-owner",
+    },
+  });
+  assert.equal(await requireCourseIntelligenceAdmin(admin), "local-reviewer-owner");
 });
 
 // ── 多 owner 状态隔离（service 层）───────────────────

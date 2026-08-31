@@ -4,7 +4,7 @@ import { getLearningService, ownerOf, jsonError } from "../../_shared";
 // POST /api/learning/resources/inbox — 新增收集项（链接/笔记/工具/材料）
 export async function GET(request: Request) {
   try {
-    const ownerId = ownerOf(request);
+    const ownerId = await ownerOf(request);
     const resources = await (await getLearningService()).listInboxResources(ownerId);
     return Response.json({ resources });
   } catch (error) {
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const ownerId = ownerOf(request);
+    const ownerId = await ownerOf(request);
     const body = (await request.json().catch(() => ({}))) as {
       title?: string;
       type?: "link" | "note" | "tool" | "resource";

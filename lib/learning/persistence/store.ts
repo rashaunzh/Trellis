@@ -54,6 +54,14 @@ export interface WeekReviewRecord {
 }
 
 export interface LearningStore {
+  activateCurriculumRuntime(input: {
+    curriculumId: string;
+    ownerId: string;
+    profile: LearnerProfile;
+    weeklyPlan: WeeklyPlan;
+    activities: LearningActivity[];
+    nodeProgress: NodeProgress[];
+  }): Promise<void>;
   // 学习者画像
   getProfile(ownerId: string): Promise<LearnerProfile | null>;
   saveProfile(profile: LearnerProfile): Promise<void>;
