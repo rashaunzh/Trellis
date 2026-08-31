@@ -5,9 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV = [
-  { href: "/learn", label: "学习", hint: "本周计划" },
-  { href: "/grow", label: "成长", hint: "学习地图" },
-  { href: "/workbench", label: "工作台", hint: "资源与工具" },
+  { href: "/learn", label: "学习", hint: "课程与本周" },
+  { href: "/grow", label: "成长", hint: "领域与路线" },
+  { href: "/workbench", label: "工作台", hint: "辅助空间" },
 ] as const;
 
 export default function Shell({ children }: { children: React.ReactNode }) {
@@ -36,7 +36,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="t2-sidebar-note">
           <strong>学习 / 成长 / 工作台</strong>
-          <p>同一份学习状态，三个视角。地图、计划与证据始终一致。</p>
+          <p>课程取舍、领域路线与外部工具各司其职，学习状态保持连续。</p>
         </div>
       </aside>
       <main className="t2-main">{children}</main>

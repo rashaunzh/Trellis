@@ -1,988 +1,350 @@
 "use client";
 
-// 学习页（默认首页）：诊断 → 路线确认 → 本周计划与活动
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Shell from "../_components/shell";
 import {
-  ACTIVITY_STATUS_TEXT,
-  ACTIVITY_TYPE_TEXT,
+  analyzeCourseMaterial,
+  confirmCurriculum,
+  createCurriculum,
+  fetchCourseIntelligenceState,
   fetchWorkspace,
-  postDiagnostic,
-  confirmProposal,
-  startActivity,
-  submitEvidence,
-  reviewEvidence,
-  confirmAdjustment,
-  rejectAdjustment,
-  resetLearner,
-  replanCurrentWeek,
-  retestNode,
-  ADJUSTMENT_TYPE_TEXT,
-  type AssessmentResult,
+  recordLearningSignal,
+  type CourseIntelligenceState,
+  type CurriculumRecord,
+  type MaterialAnalysisResult,
   type Workspace,
-  type WorkspaceActivity,
-  type WorkspaceAdjustment,
 } from "../../lib/learning/frontend";
 
-const WEEKLY_TIME_OPTIONS = [
-  [180, "3 小时"],
-  [300, "5 小时"],
-  [360, "6 小时"],
-  [480, "8 小时"],
-  [720, "12 小时"],
-  [900, "15 小时"],
-  [1200, "20 小时"],
-] as const;
-const CUSTOM_TIME = "custom";
-
-const MATERIAL_OPTIONS = [
-  {
-    id: "res.gml-crash-course",
-    title: "Machine Learning Crash Course",
-    description: "Google 官方 ML 入门，适合建立 AI 基础概念。",
-  },
-  {
-    id: "res.openai-evals",
-    title: "OpenAI Evals Guide",
-    description: "评测集设计与失败样例，适合 AI 产品评估任务。",
-  },
-  {
-    id: "res.nist-ai-rmf",
-    title: "NIST AI Risk Management Framework",
-    description: "AI 风险管理标准，适合判断可靠性与治理边界。",
-  },
+const capacityOptions = [
+  ["light", "每周约 2 小时"],
+  ["steady", "每周约 3-4 小时"],
+  ["focused", "每周约 5-6 小时"],
+  ["intensive", "每周 7 小时以上"],
 ] as const;
 
-const ADJUSTMENT_STATUS_TEXT: Record<WorkspaceAdjustment["status"], string> = {
-  proposed: "待确认",
-  accepted: "已采纳",
-  rejected: "已忽略",
-  superseded: "已被新建议取代",
-};
+const decisionLabels = {
+  anchor: "当前主线",
+  selected_units: "只学选定章节",
+  supplement: "补充参考",
+  defer: "后续再学",
+  exclude: "当前跳过",
+} as const;
 
-const MATERIAL_VERDICT_TEXT: Record<string, string> = {
-  core: "可作主线",
-  reference: "适合参考",
-  supplement: "需要补充",
-  not_recommended: "暂不建议",
-};
-
-const LEARNING_NEED_TEXT: Record<string, string> = {
-  clarify_goal: "先把目标说清楚",
-  review_material: "先评估资料是否适合",
-  build_understanding: "先建立理解",
-  practice_skill: "进入练习",
-  produce_artifact: "开始产出作品",
-  repair_gap: "修复能力缺口",
-  spaced_review: "安排复习",
-  motivation_support: "降低范围，恢复节奏",
-  route_correction: "修正学习路线",
-  package_portfolio: "包装阶段成果",
-};
-
-function extractAdjustmentSignals(reason: string): string[] {
-  const labels = new Set<string>();
-  for (const marker of ["缺少能力信号：", "部分信号需补强："]) {
-    const segment = reason.split(marker)[1]?.split(/[。；;]/)[0];
-    if (!segment) continue;
-    for (const label of segment.split(/[、,，]/).map((item) => item.trim()).filter(Boolean)) {
-      labels.add(label);
-    }
-  }
-  return Array.from(labels);
+function courseOf(state: CourseIntelligenceState, courseId: string) {
+  return state.catalog.find((course) => course.id === courseId);
 }
-
-function parseAdjustmentActions(actionJson: string): Array<{ action: string; targetNodeId?: string; description: string }> {
-  try {
-    const parsed = JSON.parse(actionJson || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item) =>
-      item &&
-      typeof item === "object" &&
-      typeof item.action === "string" &&
-      typeof item.description === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-function adjustmentSignals(adjustment: WorkspaceAdjustment): string[] {
-  const labels = new Set([...(adjustment.missingSignals ?? []), ...(adjustment.partialSignals ?? [])]);
-  if (labels.size > 0) return Array.from(labels);
-  return extractAdjustmentSignals(adjustment.reason);
-}
-
-function describeAdjustmentAction(adjustment: WorkspaceAdjustment): string {
-  const actions = parseAdjustmentActions(adjustment.actionJson);
-  const hasInsertActivity = actions.some((action) => action.action === "insert_activity");
-  const hasRevise = actions.some((action) => action.action === "revise");
-  const hasPrerequisiteInsert = actions.some((action) =>
-    action.action === "insert_activity" && action.description.startsWith("插入前置节点活动："),
-  );
-  const hasMultipleInsertActivities = actions.filter((action) => action.action === "insert_activity").length > 1;
-  const hasContinue = actions.some((action) => action.action === "continue");
-
-  if (adjustment.adjustmentType === "activity_replan" && hasPrerequisiteInsert && hasRevise) {
-    return "建议先补一个前置活动，补齐基础后再回来重新提交证据。";
-  }
-  if (adjustment.adjustmentType === "activity_replan" && hasInsertActivity) {
-    return "建议按缺口补充可复核证据，采纳后系统会插入一次补强活动。";
-  }
-  if (adjustment.adjustmentType === "weekly_light" && hasMultipleInsertActivities) {
-    return "建议为跳过节点安排一次验证活动，提交证据后再确认掌握。";
-  }
-  if (adjustment.adjustmentType === "weekly_light" && hasContinue) {
-    return "建议本周降低新增压力，保留核心活动，其余顺延。";
-  }
-  if (adjustment.adjustmentType === "mastery_confirm") {
-    return "建议处理掌握确认结果，并按确认或纠正后的状态继续学习。";
-  }
-  return "建议根据这次证据反馈更新后续学习路线。";
-}
-
-// 采纳后的效果声明：有 insert_activity 动作 → 插入补强活动；否则仅计划更新
-function describeAdjustmentEffect(adjustment: WorkspaceAdjustment): string {
-  const actions = parseAdjustmentActions(adjustment.actionJson);
-  return actions.some((action) => action.action === "insert_activity")
-    ? "已采纳，本周看板已插入补强活动。"
-    : "已采纳，本周计划已按建议更新。";
-}
-
-// 当前节点是否有待确认的调整建议（保守判断：actionJson targetNodeId === nodeId）
-function hasProposedAdjustmentForNode(adjustments: WorkspaceAdjustment[], nodeId: string): boolean {
-  return adjustments.some(
-    (a) => a.status === "proposed"
-      && parseAdjustmentActions(a.actionJson).some((x) => x.targetNodeId === nodeId),
-  );
+function unitOf(state: CourseIntelligenceState, courseId: string, unitId: string) {
+  return courseOf(state, courseId)?.units.find((unit) => unit.id === unitId);
 }
 
 export default function LearnPage() {
-  const [ws, setWs] = useState<Workspace | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  // 诊断表单
+  const [state, setState] = useState<CourseIntelligenceState | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [goal, setGoal] = useState("");
-  const [weeklyMinutes, setWeeklyMinutes] = useState(300); // 默认 5 小时
-  const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
-  const [preference, setPreference] = useState<"breadth_first" | "build_first">("breadth_first");
-  const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
-  // 活动抽屉
-  const [activeActivity, setActiveActivity] = useState<WorkspaceActivity | null>(null);
-  const [evidenceDraft, setEvidenceDraft] = useState("");
-  const [activityNote, setActivityNote] = useState("");
-  const [evidenceType, setEvidenceType] = useState<"explanation" | "artifact" | "code" | "judgment" | "notes" | "external">("explanation");
-  const [externalUrl, setExternalUrl] = useState("");
-  const [checkedSteps, setCheckedSteps] = useState<Record<number, boolean>>({});
-  const [selfChecks, setSelfChecks] = useState<Record<string, boolean>>({});
-  // 最近一次评估结果（展示 reasons/missing，让用户理解判断依据）
-  const [lastAssessment, setLastAssessment] = useState<AssessmentResult | null>(null);
+  const [weeklyCapacity, setWeeklyCapacity] = useState<(typeof capacityOptions)[number][0]>("steady");
+  const [materialTitle, setMaterialTitle] = useState("");
+  const [materialUrl, setMaterialUrl] = useState("");
+  const [materialOutline, setMaterialOutline] = useState("");
+  const [materialAnalysis, setMaterialAnalysis] = useState<MaterialAnalysisResult | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [feedbackState, setFeedbackState] = useState("understood");
+  const [quizState, setQuizState] = useState("not_taken");
+  const [feedbackNote, setFeedbackNote] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+
+  async function refresh() {
+    const [nextState, nextWorkspace] = await Promise.all([
+      fetchCourseIntelligenceState(),
+      fetchWorkspace().catch(() => null),
+    ]);
+    setState(nextState);
+    setWorkspace(nextWorkspace);
+  }
 
   useEffect(() => {
     let alive = true;
-    fetchWorkspace()
-      .then((next) => { if (alive) setWs(next); })
-      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : "加载失败"); });
+    Promise.all([fetchCourseIntelligenceState(), fetchWorkspace().catch(() => null)])
+      .then(([nextState, nextWorkspace]) => {
+        if (!alive) return;
+        setState(nextState);
+        setWorkspace(nextWorkspace);
+      })
+      .catch((cause) => {
+        if (alive) setError(cause instanceof Error ? cause.message : "课程智能加载失败");
+      });
     return () => { alive = false; };
   }, []);
 
-  async function run(action: () => Promise<Workspace>, successMessage?: string) {
+  const curriculum = state?.curriculum ?? null;
+  const activeDecisions = curriculum?.assembly.decisions.filter((decision) =>
+    decision.role === "anchor" || decision.role === "selected_units" || decision.role === "supplement",
+  ) ?? [];
+  const deferredDecisions = curriculum?.assembly.decisions.filter((decision) =>
+    decision.role === "defer" || decision.role === "exclude",
+  ) ?? [];
+  const currentActivity = workspace?.activities.find((activity) => activity.status !== "completed") ?? workspace?.activities[0] ?? null;
+  const currentRef = currentActivity?.courseId && currentActivity.unitId
+    ? { courseId: currentActivity.courseId, unitId: currentActivity.unitId }
+    : curriculum?.assembly.stages[0]?.unitRefs[0];
+  const currentCourse = state && currentRef ? courseOf(state, currentRef.courseId) : null;
+  const currentUnit = state && currentRef ? unitOf(state, currentRef.courseId, currentRef.unitId) : null;
+  const progressCount = useMemo(() => workspace?.activities.filter((activity) => activity.status === "completed").length ?? 0, [workspace]);
+
+  if (!state) {
+    return (
+      <Shell>
+        <div className="t2-center">
+          <b className="t2-loading">Trellis</b>
+          <p>{error || "正在读取已发布课程目录与学习状态……"}</p>
+          {error.includes("learning_ci_") && <small>本地数据库尚未应用 `0013_course_intelligence.sql`。</small>}
+        </div>
+      </Shell>
+    );
+  }
+
+  const showIntake = editing || !curriculum;
+
+  async function submitIntake() {
+    if (!goal.trim()) return;
     setBusy(true);
-    setMessage("");
     setError("");
     try {
-      const next = await action();
-      setWs(next);
-      if (successMessage) setMessage(successMessage);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "操作失败");
+      const materials = materialTitle.trim() || materialUrl.trim() || materialOutline.trim()
+        ? [{ title: materialTitle.trim(), url: materialUrl.trim(), outline: materialOutline.trim() }]
+        : [];
+      await createCurriculum({ goal: goal.trim(), weeklyCapacity, materials });
+      setEditing(false);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "生成课程方案失败");
     } finally {
       setBusy(false);
     }
   }
 
-  if (error && !ws) {
-    return (
-      <Shell>
-        <div className="t2-center">
-          <h1>暂时无法加载</h1>
-          <p>{error}</p>
-          <button className="t2-primary" onClick={() => window.location.reload()}>重试</button>
-        </div>
-      </Shell>
-    );
-  }
-  if (!ws) {
-    return (
-      <Shell>
-        <div className="t2-center">
-          <b className="t2-loading">Trellis</b>
-          <p>正在准备你的学习环境……</p>
-        </div>
-      </Shell>
-    );
+  async function analyzeMaterial() {
+    if (!materialUrl.trim() && !materialOutline.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      setMaterialAnalysis(await analyzeCourseMaterial({ title: materialTitle, url: materialUrl, outline: materialOutline }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "材料分析失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  // ── 视图 1：未诊断 → 目标输入 ──────────────────────
-  if (!ws.profile) {
-    return (
-      <Shell>
-        <div className="t2-onboarding">
-          <p className="t2-kicker">不是课程目录，而是由证据驱动的学习路径</p>
-          <h1>知道你要去哪里，<br />也知道该从哪里开始。</h1>
-          <p className="t2-lead">
-            Trellis 先理解你的目标和每周可用时间，生成学习地图与首周计划。
-            所有判断都能回到证据，所有调整都会留下记录。
-          </p>
-          <div className="t2-onboard-card">
-            <span>01 · 学习主题与目标</span>
-            <label>
-              你想学习什么主题，学完后希望能完成什么？
-              <textarea
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
-                placeholder="例如：系统学习 AIPM，并能完成一个 AI 知识问答应用方案；或系统学习 Python、英语口语、考试科目等"
-              />
-            </label>
-            <div className="t2-form-row">
-              <label>
-                每周可用时间
-                <select
-                  value={timeMode === "custom" ? CUSTOM_TIME : weeklyMinutes}
-                  onChange={(e) => {
-                    if (e.target.value === CUSTOM_TIME) {
-                      setTimeMode("custom");
-                    } else {
-                      setWeeklyMinutes(Number(e.target.value));
-                      setTimeMode("preset");
-                    }
-                  }}
-                >
-                  {WEEKLY_TIME_OPTIONS.map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                  <option value={CUSTOM_TIME}>自定义</option>
-                </select>
-                {timeMode === "custom" && (
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    placeholder="1–20 小时"
-                    onChange={(e) => {
-                      const hours = Number(e.target.value);
-                      if (hours >= 1 && hours <= 20) setWeeklyMinutes(hours * 60);
-                    }}
-                  />
-                )}
-              </label>
-              <label>
-                优先方向
-                <select value={preference} onChange={(e) => setPreference(e.target.value as never)}>
-                  <option value="breadth_first">先建立全局认知</option>
-                  <option value="build_first">尽快做出产出</option>
-                </select>
-              </label>
-            </div>
-            <fieldset className="t2-material-picker">
-              <legend>已有参考资料（可选）</legend>
-              <p>你可以先带一份资料进来。Trellis 会判断它适不适合当当前主线，而不是默认全都照单全收。</p>
-              {MATERIAL_OPTIONS.map((material) => (
-                <label key={material.id}>
-                  <input
-                    type="checkbox"
-                    checked={selectedMaterialIds.includes(material.id)}
-                    onChange={(e) => {
-                      setSelectedMaterialIds((prev) =>
-                        e.target.checked
-                          ? [...prev, material.id]
-                          : prev.filter((id) => id !== material.id),
-                      );
-                    }}
-                  />
-                  <span>
-                    <b>{material.title}</b>
-                    <small>{material.description}</small>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-            <button
-              className="t2-primary"
-              disabled={busy || !goal.trim()}
-              onClick={() => void run(
-                () => postDiagnostic({ goal, weeklyMinutes, preference, materialIds: selectedMaterialIds }),
-              )}
-            >
-              生成我的学习地图
-            </button>
-            {message && <p className="t2-message">{message}</p>}
-            {error && <p className="t2-error">{error}</p>}
-          </div>
-        </div>
-      </Shell>
-    );
+  async function confirm(record: CurriculumRecord) {
+    setBusy(true);
+    setError("");
+    try {
+      await confirmCurriculum(record.id);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "确认课程方案失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  // ── 视图 2：已诊断未确认 → 路线提案 ─────────────────
-  if (ws.profile.status !== "confirmed") {
-    const firstNode = ws.nodeProgress[0];
-    const growingCount = ws.nodeProgress.filter((p) => p.status !== "unstarted").length;
-    const analysis = ws.analysis;
-    return (
-      <Shell>
-        <div className="t2-topbar">
-          <div>
-            <p className="t2-kicker">学习地图提案</p>
-            <h1>{ws.route?.title}</h1>
-          </div>
-          <span className="t2-muted">{ws.profile.weeklyMinutes} 分钟 / 周</span>
-        </div>
-        <div className="t2-proposal">
-          <div className="t2-proposal-hero">
-            <p className="t2-kicker">为什么从这里开始</p>
-            <h2>{ws.route?.description}</h2>
-            <div className="t2-proposal-meta">
-              <span>地图节点 <b>{ws.nodeProgress.length}</b></span>
-              <span>已有基础 <b>{growingCount}</b></span>
-              <span>首个节点 <b>{firstNode ? firstNode.title : "—"}</b></span>
-            </div>
-            {ws.adjacentBranches.length > 0 && (
-              <div className="t2-adjacent">
-                <span>相邻分支：</span>
-                {ws.adjacentBranches.map((b) => <em key={b.id}>{b.name}</em>)}
-              </div>
-            )}
-          </div>
-          {analysis && (
-            <div className="t2-analysis-panel">
-              <section>
-                <p className="t2-kicker">Trellis 当前判断</p>
-                <h3>{LEARNING_NEED_TEXT[analysis.learningDecision.primaryNeed] ?? analysis.learningDecision.primaryNeed}</h3>
-                <p>{analysis.learningDecision.reason}</p>
-                <div className="t2-analysis-next">
-                  <b>下一步</b>
-                  <span>{analysis.learningDecision.nextAction}</span>
-                </div>
-              </section>
-
-              <section>
-                <p className="t2-kicker">资料是否适合现在的你</p>
-                {analysis.materialReviews.length > 0 ? (
-                  <div className="t2-material-review-list">
-                    {analysis.materialReviews.map((review) => (
-                      <article key={review.materialId}>
-                        <header>
-                          <b>{review.title}</b>
-                          <em className={`t2-material-verdict ${review.verdict}`}>
-                            {MATERIAL_VERDICT_TEXT[review.verdict]}
-                          </em>
-                        </header>
-                        <p>{review.rationale}</p>
-                        <div>
-                          <span>资料质量 {review.qualityScore}</span>
-                          <span>个人适配 {review.personalFitScore}</span>
-                        </div>
-                        {review.missingAreas.length > 0 && (
-                          <small>需要补：{review.missingAreas.join("、")}</small>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="t2-muted">这次没有选择资料。系统会先按目标拆能力，后续可在工作台加入课程、文章或项目链接再评估。</p>
-                )}
-              </section>
-
-              <section>
-                <p className="t2-kicker">能力拆解预览</p>
-                <div className="t2-analysis-caps">
-                  {analysis.capabilityMap.capabilities.slice(0, 4).map((capability) => (
-                    <span key={capability.id}>{capability.title}</span>
-                  ))}
-                </div>
-              </section>
-            </div>
-          )}
-          <div className="t2-proposal-actions">
-            <p className="t2-hint">确认后生成首周计划与具体学习活动；之后可在成长页随时调整。</p>
-            <button
-              className="t2-primary"
-              disabled={busy}
-              onClick={() => void run(() => confirmProposal(), "首周计划已生成")}
-            >
-              确认路线，生成首周计划
-            </button>
-            {error && <p className="t2-error">{error}</p>}
-          </div>
-        </div>
-      </Shell>
-    );
-  }
-
-  // ── 视图 3：已确认 → 本周计划 ───────────────────────
-  const core = ws.activities.filter((a) => a.isCore);
-  const optional = ws.activities.filter((a) => !a.isCore);
-  const doneCount = core.filter((a) => a.status === "completed").length;
-  const plannedMinutes = core.reduce((s, a) => s + a.estimatedMinutes, 0);
-  const optionalMinutes = optional.reduce((s, a) => s + a.estimatedMinutes, 0);
-  const capacityMinutes = ws.weeklyPlan?.capacityMinutes ?? ws.profile.weeklyMinutes;
-  const remainingMinutes = Math.max(0, capacityMinutes - plannedMinutes);
-  const completionPercent = core.length ? (doneCount / core.length) * 100 : 0;
-  const activeEvidence = activeActivity
-    ? ws.evidence.find((e) => e.activityId === activeActivity.id && e.reviewJson && e.reviewJson !== "{}")
-      ?? ws.evidence.find((e) => e.activityId === activeActivity.id)
-    : null;
-  const visibleAssessment = lastAssessment ?? parseAssessment(activeEvidence?.reviewJson);
-  const coveredSignals = visibleAssessment?.signalReviews.filter((s) => s.status === "covered") ?? [];
-  const pendingSignals = visibleAssessment?.signalReviews.filter((s) => s.status !== "covered") ?? [];
-
-  function openActivity(activity: WorkspaceActivity) {
-    setActiveActivity(activity);
-    setEvidenceDraft("");
-    setActivityNote("");
-    setExternalUrl("");
-    setEvidenceType("explanation");
-    setCheckedSteps({});
-    setSelfChecks({});
-    setLastAssessment(null);
+  async function sendFeedback() {
+    if (!currentActivity) return;
+    setBusy(true);
+    setError("");
+    try {
+      const input = quizState !== "not_taken"
+        ? { type: "quiz_result" as const, value: quizState === "passed" ? 100 : 50, note: feedbackNote.trim() }
+        : feedbackState === "blocked"
+          ? { type: "stuck" as const, value: feedbackNote.trim() || "当前卡住，但暂未描述具体原因", note: feedbackNote.trim() }
+          : { type: "understanding" as const, value: feedbackState === "understood", note: feedbackNote.trim() };
+      await recordLearningSignal(currentActivity.id, input);
+      setFeedbackMessage(input.type === "stuck" || input.value === false
+        ? "反馈已记录。Trellis 会保留卡点，不把“看完”冒充掌握。"
+        : "反馈已记录，这一节可以继续推进。");
+      await refresh();
+      setFeedbackNote("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "记录学习反馈失败");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <Shell>
-      <div className="t2-topbar">
+      <header className="ci-topbar">
         <div>
-          <p className="t2-kicker">学习主题 · 第 {ws.weeklyPlan?.weekKey.replace("2026-W", "") ?? "?"} 周</p>
-          <h1>{ws.profile.goal}</h1>
+          <p className="t2-kicker">课程智能 · {state.catalogCount} 个代表课程 · {state.sourceCount} 类来源</p>
+          <h1>{showIntake ? "先说清楚你想获得什么能力" : curriculum.status === "draft" ? "检查 Trellis 的课程取舍" : "继续当前最值得推进的一节"}</h1>
         </div>
-        <div className="t2-topbar-actions">
-          <span className="t2-muted">核心承诺 {plannedMinutes} / {capacityMinutes} 分钟</span>
-          <button
-            className="t2-secondary"
-            disabled={busy}
-            onClick={() => {
-              if (!window.confirm("重排本周会保留已产生的证据和节点进度，只替换未产生证据的开放活动。继续吗？")) return;
-              void run(() => replanCurrentWeek({ weeklyMinutes: capacityMinutes }), "本周计划已重排，证据和成长状态已保留");
-            }}
-          >
-            重排本周
-          </button>
-          <button
-            className="t2-secondary t2-reset-btn"
-            disabled={busy}
-            onClick={() => {
-              if (!window.confirm("重新设置将清空当前学习状态并回到初始诊断，确定继续？")) return;
-              void run(() => resetLearner(), "已重置，请重新诊断");
-            }}
-          >
-            重新设置
-          </button>
-        </div>
-      </div>
+        <span className={`ci-model ${state.model.available ? "online" : "baseline"}`}>
+          {state.model.available ? "内置 AI 已启用" : "已发布基线可用"}
+        </span>
+      </header>
 
-      {message && <p className="t2-message">{message}</p>}
       {error && <p className="t2-error">{error}</p>}
 
-      {ws.dueReviews.length > 0 && (
-        <div className="t2-due-reviews">
-          <b>复测提醒</b>
-          <span>已验证能力进入复核期，避免一次通过就永久掌握。</span>
-          {ws.dueReviews.map((d) => (
-            <button
-              key={d.nodeId}
-              className="t2-mini"
-              disabled={busy}
-              onClick={() => void run(() => retestNode(d.nodeId), "已生成延迟复测活动，完成它来复核掌握")}
-            >
-              {d.title}（已 {d.daysSinceValidated} 天）
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="t2-week-hero">
-        <div>
-          <p className="t2-kicker">本周进度</p>
-          <h2>{doneCount} / {core.length} 个核心活动完成</h2>
-          <p>按需推进，不按日历切碎；只要本周完成核心承诺即可。普通完成只更新状态，不重排整周。</p>
-        </div>
-        <div className="t2-week-meter">
-          <div className="t2-week-bar"><i style={{ width: `${completionPercent}%` }} /></div>
-          <div className="t2-week-caps">
-            <span><b>{Math.round(capacityMinutes / 60 * 10) / 10}h</b> 可用</span>
-            <span><b>{Math.round(plannedMinutes / 60 * 10) / 10}h</b> 核心</span>
-            <span><b>{Math.round(remainingMinutes / 60 * 10) / 10}h</b> 缓冲</span>
-            <span><b>{Math.round(optionalMinutes / 60 * 10) / 10}h</b> 可选</span>
+      {showIntake && (
+        <section className="ci-intake">
+          <div className="ci-intake-copy">
+            <p className="t2-kicker">只需要三个输入</p>
+            <h2>不用先判断自己属于哪种“入门”</h2>
+            <p>Trellis 会先解释目标涉及哪些共同基础和专业分支，再从课程目录中做取舍。你可以带着现有课程来，也可以从已发布课程库开始。</p>
+            <dl>
+              <div><dt>不会做</dt><dd>把所有知名课程排成收藏清单</dd></div>
+              <div><dt>会做</dt><dd>选主线、指定章节、说明跳过理由和退出位置</dd></div>
+            </dl>
           </div>
-        </div>
-      </div>
-
-      <section className="t2-section">
-        <header>
-          <h3>本周看板</h3>
-          <span className="t2-muted">实心 = 核心承诺（按顺序推进）；描边 = 可选（缓冲，不计入承诺）。</span>
-        </header>
-        <div className="t2-week-board">
-          {ws.activities.map((activity, index) => (
-            <ActivityCard
-              key={activity.id}
-              activity={activity}
-              nodeTitle={activity.title}
-              order={index + 1}
-              onOpen={() => openActivity(activity)}
-            />
-          ))}
-          {ws.activities.length === 0 && <p className="t2-empty">本周暂无活动，先去成长页看看地图。</p>}
-        </div>
-      </section>
-
-      <section className="t2-section">
-        <header>
-          <h3>调整记录</h3>
-          <span className="t2-muted">每次调整都说明原因，采纳后即时生效</span>
-        </header>
-        <div className="t2-adjust-list">
-          {ws.adjustments.map((a) => {
-            const signals = adjustmentSignals(a);
-            return (
-              <div key={a.id} className={`t2-adjust ${a.status === "proposed" ? "proposed" : ""}`}>
-                <div className="t2-adjust-main">
-                  <div className="t2-adjust-title">
-                    <b>{ADJUSTMENT_TYPE_TEXT[a.adjustmentType]}</b>
-                    <em className={`t2-adjust-status ${a.status}`}>{ADJUSTMENT_STATUS_TEXT[a.status]}</em>
-                  </div>
-                  <p><span>为什么：</span>{a.reason}</p>
-                  {signals.length > 0 && (
-                    <div className="t2-adjust-signals" aria-label="缺口信号">
-                      {signals.map((signal) => <span key={signal}>{signal}</span>)}
-                    </div>
-                  )}
-                  <p><span>做什么：</span>{describeAdjustmentAction(a)}</p>
-                </div>
-                <div className="t2-adjust-meta">
-                  {a.status === "proposed" && (
-                    <>
-                      <button
-                        className="t2-mini"
-                        disabled={busy}
-                        onClick={() => void run(() => confirmAdjustment(a.id), describeAdjustmentEffect(a))}
-                      >
-                        采纳建议
-                      </button>
-                      <button
-                        className="t2-mini subtle"
-                        disabled={busy}
-                        onClick={() => void run(() => rejectAdjustment(a.id), "已忽略，本周计划保持不变")}
-                      >
-                        先不调整
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {ws.adjustments.length === 0 && <p className="t2-empty">暂无调整建议。证据未通过评审或进度偏离时，系统会在这里说明原因和建议。</p>}
-        </div>
-      </section>
-
-      {/* 活动抽屉：开始 / 提交证据 / 评估 */}
-      {activeActivity && (
-        <div className="t2-drawer-backdrop" onClick={() => setActiveActivity(null)}>
-          <div className="t2-drawer" onClick={(e) => e.stopPropagation()}>
-            <header>
-              <div>
-                <p className="t2-kicker">
-                  {ACTIVITY_TYPE_TEXT[activeActivity.activityType]} · {activeActivity.estimatedMinutes} 分钟
-                  {activeActivity.isSkipValidation && " · 跳学验证"}
-                </p>
-                <h2>{activeActivity.title}</h2>
-                <p className="t2-goal">{activeActivity.goal}</p>
-              </div>
-              <button className="t2-close" onClick={() => setActiveActivity(null)}>×</button>
-            </header>
-
-            <div className="t2-drawer-body">
-              {/* 为什么学：节点位置与前后关系 */}
-              <section>
-                <span className="t2-drawer-label">为什么学</span>
-                <p className="t2-goal">{activeActivity.goal}</p>
-                <div className="t2-node-rel">
-                  <em>对应节点：{activeActivity.nodeId.replace(/^ai-literacy\./, "")}</em>
-                  {(() => {
-                    const prereqs = ws.edges
-                      .filter((e) => e.relationType === "prerequisite" && e.targetNodeId === activeActivity.nodeId)
-                      .map((e) => ws.nodeProgress.find((p) => p.nodeId === e.sourceNodeId)?.title ?? e.sourceNodeId);
-                    const nexts = ws.edges
-                      .filter((e) => e.relationType === "prerequisite" && e.sourceNodeId === activeActivity.nodeId)
-                      .map((e) => ws.nodeProgress.find((p) => p.nodeId === e.targetNodeId)?.title ?? e.targetNodeId);
-                    return (
-                      <>
-                        {prereqs.length > 0 && <em>前置：{prereqs.join("、")}</em>}
-                        {nexts.length > 0 && <em>完成后可进入：{nexts.join("、")}</em>}
-                      </>
-                    );
-                  })()}
-                </div>
-              </section>
-
-              {/* 学什么：关联材料资源卡（可点击） */}
-              {(() => {
-                const refs = ws.workbench.resources.filter((r) => activeActivity.inputRefs.includes(r.resourceId));
-                if (refs.length === 0) return null;
-                return (
-                  <section>
-                    <span className="t2-drawer-label">学什么 · 关联材料</span>
-                    <div className="t2-resource-links">
-                      {refs.map((r) => (
-                        <a key={r.resourceId} href={r.url} target="_blank" rel="noreferrer" className="t2-resource-link">
-                          {r.title}
-                          <small>{r.usage}</small>
-                        </a>
-                      ))}
-                    </div>
-                  </section>
-                );
-              })()}
-
-              <section>
-                <span className="t2-drawer-label">操作步骤</span>
-                <div className="t2-step-checklist">
-                  {activeActivity.steps.split("\n").filter(Boolean).map((step, i) => (
-                    <label key={i} className={checkedSteps[i] ? "checked" : ""}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(checkedSteps[i])}
-                        onChange={(e) => setCheckedSteps((prev) => ({ ...prev, [i]: e.target.checked }))}
-                      />
-                      <span>{step}</span>
-                    </label>
-                  ))}
-                </div>
-              </section>
-
-              <section>
-                <span className="t2-drawer-label">产出证据</span>
-                <p className="t2-muted">{activeActivity.expectedEvidence}</p>
-                <span className="t2-drawer-label">评估标准</span>
-                <p className="t2-muted">{activeActivity.evaluationCriteria}</p>
-              </section>
-
-              {activeActivity.status === "planned" && (
-                <button
-                  className="t2-primary"
-                  disabled={busy}
-                  onClick={() => void run(
-                    () => startActivity(activeActivity.id).then((next) => {
-                      setActiveActivity(next.activities.find((a) => a.id === activeActivity.id) ?? null);
-                      return next;
-                    }),
-                  )}
-                >
-                  开始这个活动
-                </button>
-              )}
-
-              {(activeActivity.status === "in_progress") && (
-                <section className="t2-evidence-form">
-                  <span className="t2-drawer-label">活动笔记</span>
-                  <textarea
-                    value={activityNote}
-                    onChange={(e) => setActivityNote(e.target.value)}
-                    placeholder="先写草稿：我理解了什么？哪里不确定？用了哪个材料或工具？"
-                  />
-                  <div className="t2-self-checks">
-                    {[
-                      ["explain", "我能用自己的话解释这个节点"],
-                      ["boundary", "我知道它适用/不适用的边界"],
-                      ["artifact", "我留下了可复核的产出或判断"],
-                    ].map(([key, label]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        className={selfChecks[key] ? "active" : ""}
-                        onClick={() => setSelfChecks((prev) => ({ ...prev, [key]: !prev[key] }))}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="t2-drawer-label">提交你的证据</span>
-                  <div className="t2-evidence-meta">
-                    <label>
-                      证据类型
-                      <select value={evidenceType} onChange={(e) => setEvidenceType(e.target.value as typeof evidenceType)}>
-                        <option value="explanation">解释</option>
-                        <option value="artifact">作品/产出</option>
-                        <option value="code">代码</option>
-                        <option value="judgment">判断</option>
-                        <option value="notes">笔记</option>
-                        <option value="external">外部链接</option>
-                      </select>
-                    </label>
-                    <label>
-                      外部链接（可选）
-                      <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="作品、文档、代码或材料链接" />
-                    </label>
-                  </div>
-                  <textarea
-                    value={evidenceDraft}
-                    onChange={(e) => setEvidenceDraft(e.target.value)}
-                    placeholder="写下最终证据：解释、判断、作品摘要、代码说明或学习笔记……"
-                  />
-                  <button
-                    className="t2-primary"
-                    disabled={busy || !evidenceDraft.trim()}
-                    onClick={() => void run(
-                      () => submitEvidence(activeActivity.id, {
-                        evidenceType,
-                        externalUrl: externalUrl.trim(),
-                        content: [
-                          activityNote.trim() ? `活动笔记：${activityNote.trim()}` : "",
-                          `自检：${Object.values(selfChecks).filter(Boolean).length}/3`,
-                          `证据：${evidenceDraft.trim()}`,
-                        ].filter(Boolean).join("\n\n"),
-                      }).then((next) => {
-                        setLastAssessment(null);
-                        setActiveActivity(next.activities.find((a) => a.id === activeActivity.id) ?? null);
-                        return next;
-                      }),
-                      "证据已提交，等待评估",
-                    )}
-                  >
-                    提交证据
-                  </button>
-                </section>
-              )}
-
-              {activeActivity.status === "evidence_submitted" && (
-                <div className="t2-pending">
-                  <p>证据已提交，等待评估。</p>
-                  <button
-                    className="t2-primary"
-                    disabled={busy}
-                    onClick={() => {
-                      const evidence = ws.evidence.find((e) => e.activityId === activeActivity.id && e.status === "submitted");
-                      if (!evidence) return;
-                      void run(async () => {
-                        const result = await reviewEvidence(evidence.id);
-                        setLastAssessment(result.assessment);
-                        setActiveActivity(result.workspace.activities.find((a) => a.id === activeActivity.id) ?? null);
-                        return result.workspace;
-                      });
-                    }}
-                  >
-                    评估证据
-                  </button>
+          <div className="ci-intake-form">
+            <label>
+              你最终希望能判断或完成什么？
+              <textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="例如：我想能独立判断一个 Agent 产品场景，设计能力边界、人工兜底和最小评测方案。" />
+            </label>
+            <label>
+              每周大约可投入
+              <select value={weeklyCapacity} onChange={(event) => setWeeklyCapacity(event.target.value as typeof weeklyCapacity)}>
+                {capacityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </label>
+            <details className="ci-material-input" open={Boolean(materialTitle || materialUrl || materialOutline)}>
+              <summary>我已经有一门课程或课程目录</summary>
+              <label>课程名称（可选）<input value={materialTitle} onChange={(event) => setMaterialTitle(event.target.value)} placeholder="课程名称" /></label>
+              <label>公开链接（可选）<input value={materialUrl} onChange={(event) => setMaterialUrl(event.target.value)} placeholder="https://..." /></label>
+              <label>目录或摘要（抓不到网页时粘贴）<textarea value={materialOutline} onChange={(event) => setMaterialOutline(event.target.value)} placeholder="每行一个章节，或粘贴公开课程摘要。" /></label>
+              <button className="t2-secondary" disabled={busy || (!materialUrl.trim() && !materialOutline.trim())} onClick={() => void analyzeMaterial()}>先判断这份材料</button>
+              {materialAnalysis && (
+                <div className={`ci-analysis-result ${materialAnalysis.status}`}>
+                  <b>{materialAnalysis.message}</b>
+                  {materialAnalysis.extractedUnits.length > 0 && <p>识别到：{materialAnalysis.extractedUnits.slice(0, 8).join("、")}</p>}
                 </div>
               )}
-
-              {/* 评估结果：让用户理解「提交了什么 → 提取到什么 → 证明了哪些能力 → 还缺什么 → 下一步」 */}
-              {visibleAssessment && (
-                <section className="t2-assessment">
-                  <span className="t2-drawer-label">
-                    评审结果：{visibleAssessment.verdict === "accepted" ? "已接受" : "需要补充"}
-                  </span>
-                  <div className="t2-review-score">
-                    <b>{visibleAssessment.score}</b>
-                    <span>总分 / 100（≥58 通过）</span>
-                    <em>系统判断把握 {Math.round(visibleAssessment.confidence * 100)}%</em>
-                  </div>
-                  <p className="t2-hint t2-assessment-rationale">{visibleAssessment.rationale}</p>
-
-                  {/* 我提交的材料：与系统提取摘要对照 */}
-                  {(() => {
-                    const raw = activeEvidence?.content?.trim();
-                    const url = activeEvidence?.externalUrl?.trim();
-                    if (!raw && !url) return null;
-                    return (
-                      <details className="t2-evidence-raw">
-                        <summary>我提交的材料</summary>
-                        {url && (
-                          <p className="t2-evidence-raw-url">
-                            链接：<a href={url} target="_blank" rel="noreferrer">{url}</a>
-                          </p>
-                        )}
-                        {raw && <pre>{raw}</pre>}
-                      </details>
-                    );
-                  })()}
-
-                  {/* 系统提取的材料摘要：AI 从提交里读到了什么 */}
-                  <div className="t2-evidence-card">
-                    <b>系统提取的材料摘要</b>
-                    <p>{visibleAssessment.evidenceCard.summary}</p>
-                    <div className="t2-review-tags">
-                      <span>{ARTIFACT_TYPE_LABEL[visibleAssessment.evidenceCard.artifactType] ?? visibleAssessment.evidenceCard.artifactType}</span>
-                      <span>{READABILITY_LABEL[visibleAssessment.evidenceCard.sourceReadability] ?? visibleAssessment.evidenceCard.sourceReadability}</span>
-                    </div>
-                    {visibleAssessment.evidenceCard.extractedItems.length > 0 && (
-                      <ul>
-                        {visibleAssessment.evidenceCard.extractedItems.map((item, i) => <li key={i}>{item}</li>)}
-                      </ul>
-                    )}
-                  </div>
-
-                  {/* 已覆盖能力信号：这份材料证明了哪些能力 */}
-                  {coveredSignals.length > 0 && (
-                    <>
-                      <span className="t2-assessment-sub">已覆盖能力信号</span>
-                      <div className="t2-signal-grid">
-                        {coveredSignals.map((signal) => (
-                          <div key={signal.signalId} className={`t2-signal ${signal.status}`}>
-                            <b>{signal.label}</b>
-                            <span>已覆盖</span>
-                            <p>{signal.reason}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {/* 待补充能力信号：还缺哪些能力证据 */}
-                  <span className="t2-assessment-sub">待补充能力信号</span>
-                  {pendingSignals.length > 0 ? (
-                    <div className="t2-signal-grid">
-                      {pendingSignals.map((signal) => (
-                        <div key={signal.signalId} className={`t2-signal ${signal.status}`}>
-                          <b>{signal.label}</b>
-                          <span>{signal.status === "partial" ? "部分覆盖" : "待补充"}</span>
-                          <p>{signal.reason}</p>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="t2-signal-note">全部能力信号均已覆盖，无需补充。</p>
-                  )}
-
-                  {/* 评分依据 */}
-                  <span className="t2-assessment-sub">评分依据</span>
-                  <div className="t2-dimension-grid">
-                    {visibleAssessment.dimensionScores.map((dimension) => (
-                      <div key={dimension.id} className="t2-dimension">
-                        <span>{dimension.label}</span>
-                        <b>{dimension.score}</b>
-                        <i style={{ width: `${dimension.score}%` }} />
-                      </div>
-                    ))}
-                  </div>
-
-                  {visibleAssessment.missing.length > 0 && (
-                    <div className="t2-assessment-missing">
-                      <b>还缺什么：</b>
-                      <ul>{visibleAssessment.missing.map((m, i) => <li key={i}>{m}</li>)}</ul>
-                    </div>
-                  )}
-
-                  <p className="t2-hint"><b>可信度说明：</b>{visibleAssessment.credibilityNote}</p>
-                  <p className="t2-hint"><b>下一步建议：</b>{nextActionLabel(visibleAssessment.nextAction)}</p>
-
-                  {/* 评审 → 调整的因果连接（只展示，不动数据流） */}
-                  {(() => {
-                    if (hasProposedAdjustmentForNode(ws.adjustments, activeActivity.nodeId)) {
-                      return <p className="t2-hint t2-assessment-followup">系统已基于本次评审生成调整建议，见页面下方「调整记录」。</p>;
-                    }
-                    if (visibleAssessment.verdict === "accepted") {
-                      return <p className="t2-hint t2-assessment-followup">证据已通过，本次无需调整。</p>;
-                    }
-                    return null;
-                  })()}
-                </section>
-              )}
-
-              {(activeActivity.status === "reviewed" || activeActivity.status === "completed") && (
-                <div className="t2-done">
-                  <b>✓ 活动已完成</b>
-                  <p className="t2-muted">{activeActivity.nextAdvice}</p>
-                  {activeActivity.isSkipValidation && (
-                    <p className="t2-hint">跳学验证通过，节点进入已验证。</p>
-                  )}
-                </div>
-              )}
-
-              <p className="t2-status-line">
-                当前状态：<b>{ACTIVITY_STATUS_TEXT[activeActivity.status]}</b>
-              </p>
+            </details>
+            <div className="ci-form-actions">
+              {curriculum && <button className="t2-secondary" onClick={() => setEditing(false)}>取消</button>}
+              <button className="t2-primary" disabled={busy || !goal.trim()} onClick={() => void submitIntake()}>{busy ? "正在做课程取舍……" : "生成课程方案"}</button>
             </div>
           </div>
+        </section>
+      )}
+
+      {!showIntake && curriculum.status === "draft" && (
+        <CurriculumProposal state={state} curriculum={curriculum} activeDecisions={activeDecisions} deferredDecisions={deferredDecisions} busy={busy} onEdit={() => {
+          setGoal(curriculum.intake.goal);
+          setWeeklyCapacity(curriculum.intake.weeklyCapacity);
+          const material = curriculum.intake.materials[0];
+          setMaterialTitle(material?.title ?? ""); setMaterialUrl(material?.url ?? ""); setMaterialOutline(material?.outline ?? "");
+          setEditing(true);
+        }} onConfirm={() => void confirm(curriculum)} />
+      )}
+
+      {!showIntake && curriculum.status === "confirmed" && (
+        <div className="ci-learning">
+          <section className="ci-current-action">
+            <div className="ci-action-main">
+              <p className="t2-kicker">本次学习 · {currentActivity?.estimatedMinutes ?? currentUnit?.estimatedMinutes ?? 45} 分钟</p>
+              <span>{currentCourse?.provider}</span>
+              <h2>{currentUnit?.title ?? currentActivity?.title ?? "本周课程单元"}</h2>
+              <p>{curriculum.assembly.stages[0]?.objective}</p>
+              <div className="ci-stop-condition">
+                <b>学到这里就可以停</b>
+                <p>{curriculum.assembly.stages[0]?.exitCriteria.join("；")}</p>
+              </div>
+              <div className="ci-action-buttons">
+                {currentCourse?.url && <a className="t2-primary t2-link" href={currentCourse.url} target="_blank" rel="noreferrer">打开这一节 ↗</a>}
+                <button className="t2-secondary" onClick={() => setEditing(true)}>重新梳理目标</button>
+              </div>
+            </div>
+            <aside>
+              <span>本周路线</span>
+              <strong>{progressCount}/{workspace?.activities.length ?? 0}</strong>
+              <p>只计算当前采用章节，不要求通关整个平台目录。</p>
+            </aside>
+          </section>
+
+          <section className="ci-week-strip">
+            <header><div><p className="t2-kicker">接下来</p><h2>本周采用的准确章节</h2></div><span>{activeDecisions.length} 个来源</span></header>
+            <div>
+              {curriculum.assembly.stages.flatMap((stage) => stage.unitRefs).slice(0, 5).map((ref, index) => {
+                const course = courseOf(state, ref.courseId);
+                const unit = unitOf(state, ref.courseId, ref.unitId);
+                return <article key={`${ref.courseId}:${ref.unitId}`} className={index === 0 ? "current" : ""}><b>{String(index + 1).padStart(2, "0")}</b><div><span>{course?.title}</span><strong>{unit?.title}</strong></div><small>{unit?.estimatedMinutes ?? 45} 分钟</small></article>;
+              })}
+            </div>
+          </section>
+
+          <section className="ci-feedback">
+            <div><p className="t2-kicker">学习反馈</p><h2>不写作业，也要让后续编排知道发生了什么</h2><p>课程自己的测试结果可以直接成为学习信号。Trellis 不把“看完”自动判成掌握。</p></div>
+            <div className="ci-feedback-form">
+              <label>现在的状态<select value={feedbackState} onChange={(event) => setFeedbackState(event.target.value)}><option value="understood">能说明关键判断</option><option value="uncertain">部分理解，仍不确定</option><option value="blocked">卡住了</option></select></label>
+              <label>课程测试<select value={quizState} onChange={(event) => setQuizState(event.target.value)}><option value="not_taken">没有测试 / 还没做</option><option value="passed">已通过</option><option value="failed">未通过</option></select></label>
+              <label className="wide">一句判断或卡点（可选）<textarea value={feedbackNote} onChange={(event) => setFeedbackNote(event.target.value)} placeholder="例如：Agent 不等于完全自治，关键是工具边界和人工确认点。" /></label>
+              <button className="t2-primary" disabled={busy || !currentActivity} onClick={() => void sendFeedback()}>记录并继续</button>
+              {feedbackMessage && <p className="ci-feedback-message">{feedbackMessage}</p>}
+            </div>
+          </section>
+
+          <details className="ci-route-details">
+            <summary>查看完整课程取舍与路线缺口</summary>
+            <CurriculumDetails state={state} curriculum={curriculum} activeDecisions={activeDecisions} deferredDecisions={deferredDecisions} />
+          </details>
         </div>
       )}
     </Shell>
   );
 }
 
-// 证据卡片枚举字段的中文展示（仅展示层映射，不改数据结构）
-const ARTIFACT_TYPE_LABEL: Record<string, string> = {
-  text: "文本",
-  webpage: "网页",
-  doc: "文档",
-  code: "代码",
-  table: "表格",
-  unknown: "未知类型",
-};
-
-const READABILITY_LABEL: Record<string, string> = {
-  readable: "内容完整可读",
-  partial: "内容部分可读",
-  unknown: "链接暂未解析",
-};
-
-// nextAction 枚举 → 学习者可执行的下一步建议
-function nextActionLabel(action: string): string {
-  switch (action) {
-    case "proceed":
-      return "证据已足够，可以继续推进";
-    case "insert_prerequisite":
-      return "先补齐前置能力，再回来完成本活动";
-    case "revise_and_resubmit":
-      return "按上方的缺项修订证据后重新提交";
-    default:
-      return action;
-  }
-}
-
-function parseAssessment(reviewJson?: string): AssessmentResult | null {
-  if (!reviewJson || reviewJson === "{}") return null;
-  try {
-    const parsed = JSON.parse(reviewJson) as Partial<AssessmentResult>;
-    if (parsed.verdict !== "accepted" && parsed.verdict !== "needs_revision") return null;
-    if (!parsed.evidenceCard || !Array.isArray(parsed.signalReviews) || !Array.isArray(parsed.dimensionScores)) {
-      return null;
-    }
-    return parsed as AssessmentResult;
-  } catch {
-    return null;
-  }
-}
-
-function ActivityCard({
-  activity,
-  nodeTitle,
-  order,
-  onOpen,
-}: {
-  activity: WorkspaceActivity;
-  nodeTitle: string;
-  order?: number;
-  onOpen: () => void;
+function CurriculumProposal({ state, curriculum, activeDecisions, deferredDecisions, busy, onEdit, onConfirm }: {
+  state: CourseIntelligenceState;
+  curriculum: CurriculumRecord;
+  activeDecisions: CurriculumRecord["assembly"]["decisions"];
+  deferredDecisions: CurriculumRecord["assembly"]["decisions"];
+  busy: boolean;
+  onEdit: () => void;
+  onConfirm: () => void;
 }) {
-  const evidence = null; // 卡片上不展示证据详情，抽屉内展示
   return (
-    <article className={`t2-activity-card ${activity.isCore ? "core" : "optional"} ${activity.status === "completed" ? "done" : ""}`}>
-      <div className="t2-activity-main" onClick={onOpen}>
-        <div className="t2-activity-head">
-          <span>{order ? `#${order} · ` : ""}{ACTIVITY_TYPE_TEXT[activity.activityType]}{activity.isSkipValidation ? " · 跳学验证" : ""}</span>
-          <em>{activity.estimatedMinutes} 分钟{!activity.isCore ? " · 可选" : ""}</em>
+    <div className="ci-proposal">
+      <section className="ci-goal-brief">
+        <div><p className="t2-kicker">Trellis 对目标的理解</p><h2>{curriculum.assembly.learnerIntent}</h2><p>{curriculum.assembly.rationale}</p></div>
+        <button className="t2-secondary" onClick={onEdit}>修改目标或材料</button>
+      </section>
+      <CurriculumDetails state={state} curriculum={curriculum} activeDecisions={activeDecisions} deferredDecisions={deferredDecisions} />
+      <footer className="ci-proposal-actions">
+        <p>确认后只生成当前周可执行章节。历史路线和学习记录不会被清空。</p>
+        <button className="t2-primary" disabled={busy} onClick={onConfirm}>{busy ? "正在建立本周路线……" : "确认并开始第一节"}</button>
+      </footer>
+    </div>
+  );
+}
+
+function CurriculumDetails({ state, curriculum, activeDecisions, deferredDecisions }: {
+  state: CourseIntelligenceState;
+  curriculum: CurriculumRecord;
+  activeDecisions: CurriculumRecord["assembly"]["decisions"];
+  deferredDecisions: CurriculumRecord["assembly"]["decisions"];
+}) {
+  return (
+    <div className="ci-curriculum-details">
+      <section className="ci-adopted">
+        <header><div><p className="t2-kicker">当前采用</p><h2>少量课程，精确到章节</h2></div><span>{activeDecisions.length} / {state.catalogCount} 个来源进入当前路线</span></header>
+        <div>
+          {activeDecisions.map((decision) => {
+            const course = courseOf(state, decision.courseId);
+            return <article key={decision.courseId}><div className="ci-course-head"><span>{decisionLabels[decision.role]}</span><small>置信度 {Math.round(decision.confidence * 100)}%</small></div><h3>{course?.title ?? decision.courseId}</h3><p>{decision.rationale}</p><ul>{decision.selectedUnitIds.map((unitId) => <li key={unitId}>{unitOf(state, decision.courseId, unitId)?.title ?? unitId}</li>)}</ul><b>退出：{decision.exitCriteria.join("；")}</b></article>;
+          })}
         </div>
-        <h4>{nodeTitle}</h4>
-        <p>{activity.goal}</p>
-        <footer>
-          <span>{ACTIVITY_STATUS_TEXT[activity.status]}</span>
-          <span>证据：{activity.expectedEvidence}</span>
-        </footer>
+      </section>
+      <section className="ci-stages">
+        <header><p className="t2-kicker">学习顺序</p><h2>先建立共同判断，再进入目标分支</h2></header>
+        {curriculum.assembly.stages.map((stage, index) => <article key={stage.id}><b>{String(index + 1).padStart(2, "0")}</b><div><h3>{stage.title}</h3><p>{stage.objective}</p><span>{stage.unitRefs.map((ref) => unitOf(state, ref.courseId, ref.unitId)?.title).filter(Boolean).join(" → ")}</span><small>通过标准：{stage.exitCriteria.join("；")}</small></div></article>)}
+      </section>
+      <div className="ci-decisions-bottom">
+        <details><summary>{deferredDecisions.length} 门课程为什么没有进入当前路线</summary>{deferredDecisions.map((decision) => <p key={decision.courseId}><b>{decisionLabels[decision.role]} · {courseOf(state, decision.courseId)?.title ?? decision.courseId}</b><span>{decision.rationale}</span></p>)}</details>
+        <article><p className="t2-kicker">路线缺口</p>{curriculum.assembly.unresolvedGaps.map((gap) => <p key={gap}>{gap}</p>)}</article>
       </div>
-      {evidence}
-    </article>
+    </div>
   );
 }
