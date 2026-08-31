@@ -20,12 +20,14 @@ export async function POST(request: Request) {
       type?: "link" | "note" | "tool" | "resource";
       content?: string;
       sourceUrl?: string;
+      relatedNodeIds?: string[];
     };
     await (await getLearningService()).saveUserResource(ownerId, {
       title: body.title ?? "",
       type: body.type ?? "link",
       content: body.content,
       sourceUrl: body.sourceUrl,
+      relatedNodeIds: Array.isArray(body.relatedNodeIds) ? body.relatedNodeIds.map(String) : [],
     });
     const resources = await (await getLearningService()).listInboxResources(ownerId);
     return Response.json({ resources });

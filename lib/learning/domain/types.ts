@@ -124,6 +124,10 @@ export interface ResourceMapping {
   resourceId: string;
   nodeId: string;
   usage: string;
+  segmentFocus?: string;
+  qualityRationale?: string;
+  skipGuidance?: string;
+  learnerAction?: string;
 }
 
 export interface LearningTool {
@@ -156,6 +160,12 @@ export interface LearningActivity {
   ownerId: string;
   weeklyPlanId: string;
   nodeId: string;
+  /** Canonical Course Intelligence references; nodeId remains the legacy compatibility FK. */
+  curriculumId?: string;
+  courseVersionId?: string;
+  courseId?: string;
+  unitId?: string;
+  canonicalNodeId?: string;
   title: string;
   activityType: ActivityType;
   goal: string;

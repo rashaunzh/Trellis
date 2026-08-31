@@ -105,7 +105,7 @@ test("LLM 返回空 content：回退规则版", async () => {
   assert.deepEqual(actual, expected);
 });
 
-test("回退结果包含 evidenceCard / signalReviews / dimensionScores", async () => {
+test("回退结果包含 evidenceCard / signalReviews / rubricReviews / dimensionScores", async () => {
   const { baseUrl } = await startFakeLLM(() => ({
     status: 200,
     body: openAIResponse("垃圾输入"),
@@ -115,10 +115,12 @@ test("回退结果包含 evidenceCard / signalReviews / dimensionScores", async 
   // 结构完整性：回退输出不是残缺对象
   assert.deepEqual(actual.evidenceCard, expected.evidenceCard);
   assert.deepEqual(actual.signalReviews, expected.signalReviews);
+  assert.deepEqual(actual.rubricReviews, expected.rubricReviews);
   assert.deepEqual(actual.dimensionScores, expected.dimensionScores);
   assert.ok(actual.evidenceCard.summary.length > 0);
   assert.ok(actual.signalReviews.length > 0);
-  assert.ok(actual.dimensionScores.length === 7);
+  assert.ok(Array.isArray(actual.rubricReviews));
+  assert.ok(actual.dimensionScores.length === 8);
 });
 
 test("合法 LLM 响应：LLM 字段生效，结构字段回退到规则版", async () => {

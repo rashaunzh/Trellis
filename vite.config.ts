@@ -47,10 +47,32 @@ export default defineConfig(async () => {
   return {
     server: {
       host: "0.0.0.0",
+      // 验收脚本默认 BASE 为 5174（acceptance-next-stage / acceptance-portfolio），固定端口保持一致
+      port: 5174,
       allowedHosts: ["terminal.local"],
-      ...(isCodexSeatbeltSandbox
-        ? { watch: { useFsEvents: false, usePolling: true } }
-        : {}),
+      watch: {
+        // 生成/运行时目录不监听：Chrome 自动化 profile / Mastra 输出 / wrangler 状态
+        // 在验收运行时高频写文件，watcher 风暴会拖垮 dev server（页面 fetch 挂起）。
+        // ponytail: 只排除运行产物；源码目录保持热更新。
+        ignored: [
+          "**/node_modules/**",
+          "**/.tmp-*/**",
+          "**/.mastra/**",
+          "**/.wrangler/**",
+          "**/.sites-runtime/**",
+        ],
+        ...(isCodexSeatbeltSandbox
+          ? { useFsEvents: false, usePolling: true }
+          : {}),
+      },
+    },
+    build: {
+      rolldownOptions: {
+        // Mastra's workspace helpers reference this native optional package.
+        // The Trellis app route only needs the workflow runtime wrapper, so keep
+        // the Studio/workspace native helper out of the application bundle.
+        external: ["@ast-grep/napi"],
+      },
     },
     plugins: [
       vinext(),

@@ -9,17 +9,17 @@ import type {
   NodeProgress,
   WeeklyPlan,
 } from "../domain/types.ts";
-import type { LearningStore, LearnerProfile, ApiConfig, DiagnosticSnapshot } from "./store.ts";
+import type { LearningStore, LearnerProfile, DiagnosticSnapshot, WeekReviewRecord } from "./store.ts";
 
 export class InMemoryLearningStore implements LearningStore {
   private profiles = new Map<string, LearnerProfile>();
   private diagnostics = new Map<string, DiagnosticSnapshot>();
   private weeklyPlans = new Map<string, WeeklyPlan>();
+  private weekReviews = new Map<string, WeekReviewRecord>();
   private activities = new Map<string, LearningActivity>();
   private evidence = new Map<string, Evidence>();
   private nodeProgress = new Map<string, NodeProgress>();
   private adjustments = new Map<string, AdjustmentRecord>();
-  private apiConfigs = new Map<string, ApiConfig>();
   private userResources = new Map<string, UserResource>();
 
   async getProfile(ownerId: string): Promise<LearnerProfile | null> {
@@ -55,6 +55,25 @@ export class InMemoryLearningStore implements LearningStore {
 
   async saveWeeklyPlan(plan: WeeklyPlan): Promise<void> {
     this.weeklyPlans.set(plan.id, { ...plan });
+  }
+
+  async listWeeklyPlans(ownerId: string, routeId: string): Promise<WeeklyPlan[]> {
+    return Array.from(this.weeklyPlans.values())
+      .filter((plan) => plan.ownerId === ownerId && plan.routeId === routeId)
+      .sort((a, b) => a.weekKey.localeCompare(b.weekKey));
+  }
+
+  async getWeekReview(ownerId: string, routeId: string, weekKey: string): Promise<WeekReviewRecord | null> {
+    for (const review of this.weekReviews.values()) {
+      if (review.ownerId === ownerId && review.routeId === routeId && review.weekKey === weekKey) {
+        return { ...review };
+      }
+    }
+    return null;
+  }
+
+  async saveWeekReview(review: WeekReviewRecord): Promise<void> {
+    this.weekReviews.set(review.id, { ...review });
   }
 
   async listActivitiesByPlan(planId: string): Promise<LearningActivity[]> {
@@ -146,21 +165,11 @@ export class InMemoryLearningStore implements LearningStore {
   }
 
 async resetLearner(ownerId: string): Promise<void> {
-    for (const map of [this.profiles, this.diagnostics, this.weeklyPlans, this.activities, this.nodeProgress, this.evidence, this.adjustments]) {
+    for (const map of [this.profiles, this.diagnostics, this.weeklyPlans, this.weekReviews, this.activities, this.nodeProgress, this.evidence, this.adjustments]) {
       for (const [key, value] of map) {
         if (value.ownerId === ownerId) map.delete(key);
       }
     }
   }
 
-  async getApiConfig(ownerId: string): Promise<ApiConfig | null> {
-    for (const config of this.apiConfigs.values()) {
-      if (config.ownerId === ownerId) return { ...config };
-    }
-    return null;
-  }
-
-  async saveApiConfig(config: ApiConfig): Promise<void> {
-    this.apiConfigs.set(config.id, { ...config });
-  }
 }

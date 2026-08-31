@@ -53,6 +53,7 @@ export class LLMEvidenceEvaluator implements EvidenceEvaluatorPort {
         score: parsed.score ?? base.score,
         evidenceCard: parsed.evidenceCard ?? base.evidenceCard,
         signalReviews: parsed.signalReviews ?? base.signalReviews,
+        rubricReviews: parsed.rubricReviews ?? base.rubricReviews,
         dimensionScores: parsed.dimensionScores ?? base.dimensionScores,
         reasons: parsed.reasons ?? base.reasons,
         missing: parsed.missing ?? base.missing,

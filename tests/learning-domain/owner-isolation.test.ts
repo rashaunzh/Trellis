@@ -39,6 +39,19 @@ test("ownerOf 非法格式回退 DEFAULT_OWNER", () => {
   }
 });
 
+test("ownerOf 优先使用托管身份并隐藏原始邮箱", () => {
+  const first = ownerOf(new Request("https://example.com", { headers: {
+    "oai-authenticated-user-email": "Learner@Example.com",
+    "x-trellis-owner-id": "anonymous-owner-123",
+  } }));
+  const second = ownerOf(new Request("https://example.com", { headers: {
+    "oai-authenticated-user-email": "learner@example.com",
+  } }));
+  assert.equal(first, second);
+  assert.match(first, /^chatgpt-[0-9a-f]{8}$/);
+  assert.equal(first.includes("learner"), false);
+});
+
 // ── 多 owner 状态隔离（service 层）───────────────────
 const OWNER_A = "owner-a-aaaa";
 const OWNER_B = "owner-b-bbbb";

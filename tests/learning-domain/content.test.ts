@@ -120,6 +120,15 @@ test("内容包节点字段完整（outcomes/sourceRefs/模板/量规）", () =>
   }
 });
 
+test("内置资源映射包含课程片段判断字段", () => {
+  for (const mapping of learningContentPack.resourceMappings) {
+    assert.ok(mapping.segmentFocus?.trim(), `${mapping.resourceId}:${mapping.nodeId} 有建议片段`);
+    assert.ok(mapping.qualityRationale?.trim(), `${mapping.resourceId}:${mapping.nodeId} 有专业性依据`);
+    assert.ok(mapping.skipGuidance?.trim(), `${mapping.resourceId}:${mapping.nodeId} 有暂时跳过范围`);
+    assert.ok(mapping.learnerAction?.trim(), `${mapping.resourceId}:${mapping.nodeId} 有看完后的学习动作`);
+  }
+});
+
 test("内容包校验：缺失字段抛错", () => {
   const pack = structuredClone(learningContentPack);
   const bad = pack.nodes[0];

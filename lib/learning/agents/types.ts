@@ -16,6 +16,8 @@ import type {
 // AdaptivePlannerPort / AdaptivePlan 定义于 adaptive-types.ts（自适应专属契约），
 // 此处仅类型引用。该文件对 types.ts 只有类型级 import，运行期无循环依赖。
 import type { AdaptivePlan, AdaptivePlannerPort } from "./adaptive-types.ts";
+import type { DynamicSprintSimulation, StagePath } from "./stage-path-planner.ts";
+import type { LearningDecisionTrace } from "../architecture/decision-trace.ts";
 
 // ── planner：路线规划与周计划编排 ──────────────────────
 
@@ -140,10 +142,19 @@ export interface SignalReview {
   evidenceRefs: string[];
 }
 
+export interface RubricReview {
+  rubricId: string;
+  criterion: string;
+  status: SignalReviewStatus;
+  reason: string;
+  evidenceRefs: string[];
+}
+
 export interface ReviewDimensionScore {
   id:
     | "parseability"
     | "criteriaCompleteness"
+    | "rubricCoverage"
     | "signalCoverage"
     | "contentQuality"
     | "credibility"
@@ -161,6 +172,7 @@ export interface EvidenceAssessment {
   score: number;
   evidenceCard: EvidenceCard;
   signalReviews: SignalReview[];
+  rubricReviews: RubricReview[];
   dimensionScores: ReviewDimensionScore[];
   reasons: string[]; // 逐条依据
   missing: string[]; // 尚未满足的方面
@@ -399,6 +411,12 @@ export interface LearningAnalysis {
   capabilityMap: CapabilityMap;
   learningDecision: LearningDecision;
   adaptivePlan: AdaptivePlan;
+  /** 作品级路径：AI PM 转型启动阶段的 6-8 周路线与成果要求（transient）。 */
+  stagePath: StagePath;
+  /** 可复现前三周动态演示：容量/精力/资料/证据变化如何调整计划（transient）。 */
+  dynamicSimulation: DynamicSprintSimulation;
+  /** 统一决策追踪：解释输入信号、工具步骤、HITL 与状态变更（transient）。 */
+  decisionTrace?: LearningDecisionTrace;
   /** 本次诊断请求的规划模式（默认 "legacy"；adaptive 是否可驱动正式计划） */
   plannerMode: PlannerMode;
   /** 实现模式：Phase 3 仍为 "rule"（全部规则实现） */
@@ -446,6 +464,18 @@ export type LearningMode =
 export type LearningSignalType = "hard_evidence" | "soft_signal" | "behavior_signal";
 export type EvidencePolicy = "none" | "soft_signal" | "hard_evidence" | "behavior_signal";
 
+export type CapacityState = "ample" | "normal" | "constrained" | "critical";
+export type EnergyState = "high" | "steady" | "low" | "depleted";
+export type BehaviorPattern = "starting" | "consistent" | "input_heavy" | "avoidant" | "restarting";
+export type EvidenceQuality = "none" | "soft_only" | "insufficient" | "reviewable" | "validated";
+
+export interface DailyCapacitySignal {
+  day: string;
+  availableMinutes: number;
+  energy?: EnergyState;
+  note?: string;
+}
+
 export interface LearningSituationInput {
   goalText: string;
   goalAnalysis?: GoalAnalysis;
@@ -464,6 +494,10 @@ export interface LearningSituationInput {
   recentHardEvidenceCount?: number;
   recentSoftSignalCount?: number;
   capabilityLevelById?: Record<string, number>; // 细粒度能力水平；总体 learnerLevel 只作粗粒度推断
+  dailyCapacitySignals?: DailyCapacitySignal[];
+  energyState?: EnergyState;
+  confusionNotes?: string[];
+  behaviorNotes?: string[];
 }
 
 export interface LearningSituation {
@@ -473,12 +507,17 @@ export interface LearningSituation {
   currentStage: LearningStage;
   motivationState: "steady" | "fragile" | "blocked";
   timePressure: "low" | "medium" | "high";
+  capacityState: CapacityState;
+  energyState: EnergyState;
+  behaviorPattern: BehaviorPattern;
+  evidenceQuality: EvidenceQuality;
   recentPattern: {
     completionRate: number;
     repeatedGaps: string[];
     skippedActivities: number;
   };
   activeRisks: string[];
+  nextBestMove: string;
 }
 
 export interface LearningDecision {

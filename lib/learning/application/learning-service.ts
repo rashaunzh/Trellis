@@ -20,6 +20,7 @@ import type {
   AdjustmentType,
   Evidence,
   LearningActivity,
+  LearningNode,
   UserResource,
   NodeProgress,
   NodeStatus,
@@ -31,13 +32,25 @@ import type {
   AdjustmentSuggestion,
   EvidenceAssessment,
   LearningAnalysis,
+  MaterialReview,
   PlannerMode,
 } from "../agents/types.ts";
 import type { AdaptivePlan } from "../agents/adaptive-types.ts";
-import type { LearningStore, LearnerProfile } from "../persistence/store.ts";
+import type { LearningStore, LearnerProfile, WeekReviewRecord } from "../persistence/store.ts";
 import { InMemoryLearningStore } from "../persistence/in-memory.ts";
 import { createRuleAgents } from "../agents/index.ts";
 import { adaptiveDraftToActivity } from "../agents/adapters.ts";
+import { planPortfolioStagePath, simulateDynamicSprint } from "../agents/stage-path-planner.ts";
+import { summarizeLearningQuality, type LearningQualityMonitor } from "../agents/learning-quality.ts";
+import {
+  buildPortfolioNextStagePlan,
+  isPortfolioNextStageAdjustment,
+  summarizePortfolioArtifactIteration,
+  type NextStagePlan,
+  type PortfolioArtifactIteration,
+} from "../agents/next-stage-planner.ts";
+import { TrellisCoreKernel } from "../architecture/kernel.ts";
+import type { LearningMemorySnapshot } from "../architecture/learning-memory.ts";
 
 // ── 稳定 ID（与 V0.1 learning-server 同算法，前缀区分）────────
 function stableId(prefix: string, value: string): string {
@@ -73,6 +86,13 @@ function parseAdjustmentGapSignals(reason: string): Pick<AdjustmentRecord, "miss
     missingSignals: parseSignalSegment(reason, "缺少能力信号："),
     partialSignals: parseSignalSegment(reason, "部分信号需补强："),
   };
+}
+
+function isPortfolioArtifactActivity(activity: LearningActivity): boolean {
+  return activity.activityType === "integrated_task"
+    && /作品任务|AI Agent 产品 PRD|案例拆解报告|portfolio/i.test(
+      `${activity.title} ${activity.goal} ${activity.expectedEvidence}`,
+    );
 }
 
 function parseSignalSegment(reason: string, marker: string): string[] {
@@ -147,6 +167,119 @@ export function currentWeekKey(now = new Date()): string {
   return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+function nextWeekKey(weekKey: string): string {
+  const match = /^(\d{4})-W(\d{2})$/.exec(weekKey);
+  if (!match) return currentWeekKey(new Date(Date.now() + 7 * 86400000));
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  return week >= 52 ? `${year + 1}-W01` : `${year}-W${String(week + 1).padStart(2, "0")}`;
+}
+
+function normalizeWeekKey(value?: string): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^\d{4}-W\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function parseWeekReviewJson(value: string, fallback: WeekReviewRecord): WeekReview {
+  try {
+    const parsed = JSON.parse(value || "{}") as Partial<WeekReview>;
+    if (parsed.weekKey && parsed.summary && parsed.nextBestMove && parsed.nextWeekProposal) {
+      return {
+        weekKey: parsed.weekKey,
+        completedCount: parsed.completedCount ?? fallback.completedCount,
+        acceptedEvidenceCount: parsed.acceptedEvidenceCount ?? fallback.acceptedEvidenceCount,
+        openActivityCount: parsed.openActivityCount ?? fallback.openActivityCount,
+        revisionCount: parsed.revisionCount ?? fallback.revisionCount,
+        materialMismatchCount: parsed.materialMismatchCount ?? 0,
+        capacityMinutes: parsed.capacityMinutes ?? 0,
+        plannedMinutes: parsed.plannedMinutes ?? 0,
+        completionRate: parsed.completionRate ?? 0,
+        summary: parsed.summary,
+        nextBestMove: parsed.nextBestMove,
+        nextWeekProposal: parsed.nextWeekProposal,
+        archivedAt: fallback.updatedAt,
+        generatedNextWeek: parsed.generatedNextWeek ?? false,
+      };
+    }
+  } catch {
+    // fall through to record fields
+  }
+  return {
+    weekKey: fallback.weekKey,
+    completedCount: fallback.completedCount,
+    acceptedEvidenceCount: fallback.acceptedEvidenceCount,
+    openActivityCount: fallback.openActivityCount,
+    revisionCount: fallback.revisionCount,
+    materialMismatchCount: 0,
+    capacityMinutes: 0,
+    plannedMinutes: 0,
+    completionRate: 0,
+    summary: fallback.summary,
+    nextBestMove: fallback.nextBestMove,
+    nextWeekProposal: {
+      title: `生成 ${nextWeekKey(fallback.weekKey)} 计划`,
+      summary: "基于已归档复盘继续推进。",
+      actionCount: 1,
+      canGenerate: true,
+    },
+    archivedAt: fallback.updatedAt,
+    generatedNextWeek: false,
+  };
+}
+
+function nodeFor(id: string): LearningNode | undefined {
+  return learningContentPack.nodes.find((node) => node.id === id);
+}
+
+function conceptHintsForNode(nodeId: string): ConceptHint[] {
+  const node = nodeFor(nodeId);
+  if (!node) return [];
+  return [
+    {
+      id: stableId("concept", `${node.id}:title`),
+      label: node.title,
+      plainText: node.description || `先用这个概念完成当前判断，不需要一次学完全部术语。`,
+    },
+    ...node.signals.slice(0, 1).map((signal) => ({
+      id: stableId("concept", `${node.id}:${signal}`),
+      label: signal,
+      plainText: `这是判断「${node.title}」是否真的理解的一条表现信号：能在当前行动中用出来即可。`,
+    })),
+  ].slice(0, 2);
+}
+
+function normalizeActionMinutes(minutes: number): number {
+  return Math.max(30, Math.round(minutes / 15) * 15);
+}
+
+function actionTypeOf(activity: LearningActivity): WeeklyActionCard["actionType"] {
+  if (activity.activityType === "build_model" || activity.activityType === "follow_demo") return "看这一段";
+  if (activity.activityType === "quiz") return "做一个判断";
+  if (activity.activityType === "reflection") return "整理一个材料取舍";
+  if (activity.activityType === "integrated_task") return "填一个小框架";
+  if (activity.activityType === "retest") return "做一个判断";
+  return "拆一个案例";
+}
+
+function feedbackModeOf(activity: LearningActivity): ActionFeedbackMode {
+  if (activity.activityType === "reflection") return "light_status";
+  if (activity.activityType === "integrated_task") return "small_template";
+  return "scenario_judgment";
+}
+
+function actionCardTitleOf(activity: LearningActivity): string {
+  const nodeTitle = nodeFor(activity.nodeId)?.title ?? activity.title.replace(/^[^：]+：/, "");
+  if (activity.activityType === "build_model") return `先搞懂：${nodeTitle}`;
+  if (activity.activityType === "follow_demo") return `看例子：${nodeTitle}`;
+  if (activity.activityType === "independent_practice") return `做一版：${nodeTitle}`;
+  if (activity.activityType === "quiz") return `判断题：${nodeTitle}`;
+  if (activity.activityType === "reflection") return `收个口：${nodeTitle}`;
+  if (activity.activityType === "integrated_task") return `小框架：${nodeTitle}`;
+  if (activity.activityType === "retest") return `复测：${nodeTitle}`;
+  return activity.title;
+}
+
 // ── 领域错误 ───────────────────────────────────────────
 export class LearningError extends Error {
   status: number;
@@ -174,11 +307,21 @@ export interface Workspace {
     relationType: "prerequisite" | "supports" | "related";
   }>;
   weeklyPlan: WeeklyPlan | null;
+  weekReview: WeekReview | null;
+  weeklyPlanHistory: WeeklyPlanSummary[];
+  contentJudgment: ContentJudgment[];
+  courseSlices: CourseSlice[];
+  weeklyActionPlan: WeeklyActionCard[];
+  nextAction: WeeklyActionCard | null;
+  conceptHints: ConceptHint[];
+  learningOutputs: LearningOutput[];
   activities: LearningActivity[];
   // 节点进度带中文标题（内容包为唯一真相，前端不再维护标题映射）
   nodeProgress: Array<NodeProgress & { title: string }>;
   evidence: Evidence[];
   adjustments: AdjustmentRecord[];
+  nextStagePlan: NextStagePlan | null;
+  artifactIteration: PortfolioArtifactIteration;
   // 工作台：资源/工具与节点的映射
   userResources: UserResource[];
   // 到期复测节点（延迟复测提醒）
@@ -194,6 +337,10 @@ export interface Workspace {
       summary: string;
       nodeId: string;
       usage: string;
+      segmentFocus?: string;
+      qualityRationale?: string;
+      skipGuidance?: string;
+      learnerAction?: string;
     }>;
     tools: Array<{
       toolId: string;
@@ -210,17 +357,136 @@ export interface Workspace {
   analysis: LearningAnalysis | null;
 }
 
+export type ContentJudgmentRole = "本周主线" | "只作参考" | "后续再用" | "暂不碰";
+export type ActionTier = "主推进" | "补充推进" | "低精力备选" | "暂不碰";
+export type ActionFeedbackMode = "light_status" | "scenario_judgment" | "small_template";
+
+export interface ConceptHint {
+  id: string;
+  label: string;
+  plainText: string;
+}
+
+export interface ContentJudgment {
+  resourceId: string;
+  title: string;
+  professionalVerdict: "专业可信" | "基本可用" | "需要谨慎";
+  fitVerdict: "适合本周" | "适合稍后" | "仅供参考" | "暂不适合";
+  role: ContentJudgmentRole;
+  recommendedSegment: string;
+  skipReason: string;
+  useFor: string;
+  qualityRationale: string;
+  skipGuidance: string;
+  conceptsIntroduced: ConceptHint[];
+  entersCurrentWeek: boolean;
+  rawContent?: string;
+}
+
+export interface CourseSlice {
+  id: string;
+  resourceId: string;
+  title: string;
+  resourceTitle: string;
+  nodeId: string;
+  role: ContentJudgmentRole;
+  sourceRange: string;
+  whyThisSlice: string;
+  estimatedMinutes: number;
+  difficulty: "入门" | "适中" | "偏难";
+  learnerAction: string;
+  afterWatchingPrompt: string;
+  skipReason: string;
+  entersCurrentWeek: boolean;
+  activityIds: string[];
+}
+
+export interface ScenarioQuestion {
+  id: string;
+  prompt: string;
+  options: Array<{ id: string; label: string; text: string }>;
+  preferredOptionId: string;
+  diagnosisByOption: Record<string, string>;
+  nextActionByOption: Record<string, string>;
+}
+
+export interface WeeklyActionCard {
+  id: string;
+  activityId: string | null;
+  weekKey: string;
+  title: string;
+  tier: ActionTier;
+  actionType: "看这一段" | "做一个判断" | "拆一个案例" | "填一个小框架" | "整理一个材料取舍" | "缩小一步";
+  whyNow: string;
+  materialSlice: string;
+  courseSliceIds: string[];
+  estimatedMinutes: number;
+  conceptHints: ConceptHint[];
+  feedbackMode: ActionFeedbackMode;
+  scenarioQuestion: ScenarioQuestion | null;
+  nextIfClear: string;
+  nextIfStuck: string;
+}
+
+export interface LearningOutput {
+  id: string;
+  kind: "判断记录" | "学习产出" | "作品片段" | "进展记录";
+  title: string;
+  sourceActionId: string | null;
+  weekKey: string;
+  summary: string;
+}
+
+export interface WeekReview {
+  weekKey: string;
+  completedCount: number;
+  acceptedEvidenceCount: number;
+  openActivityCount: number;
+  revisionCount: number;
+  materialMismatchCount: number;
+  capacityMinutes: number;
+  plannedMinutes: number;
+  completionRate: number;
+  summary: string;
+  nextBestMove: string;
+  nextWeekProposal: {
+    title: string;
+    summary: string;
+    actionCount: number;
+    canGenerate: boolean;
+  };
+  archivedAt: string | null;
+  generatedNextWeek: boolean;
+}
+
+export interface WeeklyPlanSummary {
+  weekKey: string;
+  status: WeeklyPlan["status"];
+  capacityMinutes: number;
+  activityCount: number;
+  coreActivityCount: number;
+  completedCount: number;
+  acceptedEvidenceCount: number;
+  isCurrentWeek: boolean;
+  isFutureWeek: boolean;
+  reviewSummary: string | null;
+  reviewArchivedAt: string | null;
+  generatedFromReview: boolean;
+}
+
 export class LearningApplicationService {
   private store: LearningStore;
   private agents: AgentRegistry;
+  private kernel: TrellisCoreKernel;
 
   constructor(store: LearningStore, agents: AgentRegistry) {
     this.store = store;
     this.agents = agents;
+    this.kernel = new TrellisCoreKernel(agents);
   }
 
   // ── GET /api/learning/workspace ─────────────────────
-  async getWorkspace(ownerId: string): Promise<Workspace> {
+  async getWorkspace(ownerId: string, input: { weekKey?: string } = {}): Promise<Workspace> {
     const profile = await this.store.getProfile(ownerId);
     if (!profile) {
       return {
@@ -229,10 +495,25 @@ export class LearningApplicationService {
         adjacentBranches: [],
         edges: [],
         weeklyPlan: null,
+        weekReview: null,
+        weeklyPlanHistory: [],
+        contentJudgment: [],
+        courseSlices: [],
+        weeklyActionPlan: [],
+        nextAction: null,
+        conceptHints: [],
+        learningOutputs: [],
         activities: [],
         nodeProgress: [],
         evidence: [],
         adjustments: [],
+        nextStagePlan: null,
+        artifactIteration: summarizePortfolioArtifactIteration({
+          activities: [],
+          evidence: [],
+          adjustments: [],
+          nextStagePlan: null,
+        }),
         userResources: [],
         dueReviews: [],
         workbench: { resources: [], tools: [] },
@@ -249,10 +530,11 @@ export class LearningApplicationService {
         }))
       : [];
 
+    const selectedWeekKey = normalizeWeekKey(input.weekKey) ?? currentWeekKey();
     const weeklyPlan = await this.store.getWeeklyPlanByWeek(
       ownerId,
       profile.activeRouteId,
-      currentWeekKey(),
+      selectedWeekKey,
     );
     const activities = weeklyPlan
       ? await this.store.listActivitiesByPlan(weeklyPlan.id)
@@ -270,7 +552,23 @@ export class LearningApplicationService {
       ...adjustment,
       ...parseAdjustmentGapSignals(adjustment.reason),
     }));
+    const nextStagePlan = adjustments
+      .map((adjustment) => buildPortfolioNextStagePlan(adjustment))
+      .find((plan): plan is NextStagePlan => Boolean(plan)) ?? null;
+    const artifactIteration = summarizePortfolioArtifactIteration({
+      activities,
+      evidence,
+      adjustments,
+      nextStagePlan,
+    });
+    const archivedReview = weeklyPlan
+      ? await this.store.getWeekReview(ownerId, profile.activeRouteId, weeklyPlan.weekKey)
+      : null;
+    const weekReview = weeklyPlan
+      ? this.buildWeekReview(weeklyPlan, activities, evidence, adjustments, archivedReview)
+      : null;
     const userResources = await this.store.listUserResources(ownerId);
+    const weeklyPlanHistory = await this.buildWeeklyPlanHistory(ownerId, profile.activeRouteId);
     // 到期复测：validated 节点且 nextReviewAt 已过（或 lastValidatedAt + 间隔已过）
     const now = Date.now();
     const dueReviews = nodeProgress
@@ -309,6 +607,10 @@ export class LearningApplicationService {
           summary: resource.summary,
           nodeId: m.nodeId,
           usage: m.usage,
+          segmentFocus: m.segmentFocus,
+          qualityRationale: m.qualityRationale,
+          skipGuidance: m.skipGuidance,
+          learnerAction: m.learnerAction,
         };
       });
     const tools = learningContentPack.toolMappings
@@ -337,6 +639,42 @@ export class LearningApplicationService {
         targetNodeId: e.targetNodeId,
         relationType: e.relationType,
       }));
+    const snapshot = await this.store.getDiagnostic(ownerId);
+    const materialReviews = snapshot
+      ? this.buildAnalysis({
+          goal: snapshot.goal,
+          weeklyMinutes: snapshot.weeklyMinutes,
+          materialIds: parseJsonStringArray(snapshot.materialsJson),
+          selfReport: parseJsonNumberRecord(snapshot.selfReportJson),
+          preference: parseAnswersJson(snapshot.answersJson).preference,
+          plannerMode: parseAnswersJson(snapshot.answersJson).plannerMode,
+        }).materialReviews
+      : [];
+    const contentJudgment = this.buildContentJudgment({
+      routeId: route?.id ?? "",
+      activities,
+      resources,
+      userResources,
+      materialReviews,
+    });
+    const courseSlices = this.buildCourseSlices({
+      activities,
+      contentJudgment,
+    });
+    const weeklyActionPlan = weeklyPlan
+      ? this.buildWeeklyActionPlan({
+          weeklyPlan,
+          activities,
+          contentJudgment,
+          courseSlices,
+          evidence,
+        })
+      : [];
+    const nextAction = this.pickNextAction(weeklyActionPlan, activities, evidence);
+    const conceptHints = this.collectConceptHints(weeklyActionPlan, contentJudgment);
+    const learningOutputs = weeklyPlan
+      ? this.buildLearningOutputs(weeklyPlan, activities, evidence)
+      : [];
 
     return {
       profile,
@@ -344,16 +682,35 @@ export class LearningApplicationService {
       adjacentBranches,
       edges,
       weeklyPlan,
+      weekReview,
+      weeklyPlanHistory,
+      contentJudgment,
+      courseSlices,
+      weeklyActionPlan,
+      nextAction,
+      conceptHints,
+      learningOutputs,
       activities,
       nodeProgress,
       evidence,
       adjustments,
+      nextStagePlan,
+      artifactIteration,
       userResources,
       dueReviews,
       workbench: { resources, tools },
       // Full Chain Phase 2：analysis 仅在 runDiagnostic 响应上附带（见 buildAnalysis）
       analysis: null,
     };
+  }
+
+  private async getWorkspaceForPlan(ownerId: string, weeklyPlanId: string | null): Promise<Workspace> {
+    if (!weeklyPlanId) return this.getWorkspace(ownerId);
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) return this.getWorkspace(ownerId);
+    const plans = await this.store.listWeeklyPlans(ownerId, profile.activeRouteId);
+    const plan = plans.find((item) => item.id === weeklyPlanId);
+    return this.getWorkspace(ownerId, plan ? { weekKey: plan.weekKey } : {});
   }
 
   // ── POST /api/learning/diagnostic ───────────────────
@@ -436,6 +793,7 @@ export class LearningApplicationService {
       preference: input.preference ?? "breadth_first",
       plannerMode,
     });
+    analysis.decisionTrace = this.kernel.traceDiagnostic(input.ownerId, analysis);
     const workspace = await this.getWorkspace(input.ownerId);
     workspace.analysis = analysis;
     return workspace;
@@ -612,7 +970,7 @@ export class LearningApplicationService {
       progress.status = transitionNode(progress.status, { type: "beginLearning" });
       await this.store.saveNodeProgress(progress);
     }
-    return this.getWorkspace(ownerId);
+    return this.getWorkspaceForPlan(ownerId, activity.weeklyPlanId);
   }
 
   // ── POST /api/learning/activities/:id/evidence ──────
@@ -645,7 +1003,7 @@ export class LearningApplicationService {
     activity.status = next;
     await this.store.saveActivity(activity);
 
-    return this.getWorkspace(ownerId);
+    return this.getWorkspaceForPlan(ownerId, activity.weeklyPlanId);
   }
 
   // ── POST /api/learning/evidence/:id/review ──────────
@@ -665,11 +1023,8 @@ export class LearningApplicationService {
     const node = learningContentPack.nodes.find((n) => n.id === evidence.nodeId);
     if (!node) throw new LearningError("节点不存在", 404);
 
-    // 规则/LLM 评估（LLM 用用户自配的 API 配置，key 只在服务端）
-    const apiConfig = await this.store.getApiConfig(ownerId);
-    const llm = apiConfig?.enabled && apiConfig.apiKey
-      ? { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model }
-      : undefined;
+    // 旧 evidence 链只保留规则降级；模型增强统一由 Course Intelligence 服务端网关承担。
+    const llm = undefined;
     const assessment = await this.agents.evidenceEvaluator.evaluateEvidence({
       evidenceId,
       nodeId: evidence.nodeId,
@@ -808,7 +1163,7 @@ export class LearningApplicationService {
       await this.store.saveAdjustment(adjustment);
     }
 
-    return { workspace: await this.getWorkspace(ownerId), assessment };
+    return { workspace: await this.getWorkspaceForPlan(ownerId, activity.weeklyPlanId), assessment };
   }
 
   // ── POST /api/learning/adjustments/:id/confirm ──────
@@ -821,6 +1176,9 @@ export class LearningApplicationService {
       throw new LearningError(`调整建议状态 ${adjustment.status} 不允许确认`, 400);
     }
     adjustment.status = "accepted";
+    if (isPortfolioNextStageAdjustment(adjustment)) {
+      adjustment.summary = `${adjustment.summary}（已进入作品集包装阶段）`;
+    }
     await this.store.saveAdjustment(adjustment);
     await this.executeAdjustmentActions(ownerId, adjustment);
     return this.getWorkspace(ownerId);
@@ -877,6 +1235,7 @@ export class LearningApplicationService {
         actionJson: "[]",
       };
       await this.store.saveAdjustment(adjustment);
+      await this.proposeNextStageAfterPortfolioMastery(ownerId, profile, nodeId);
     } else {
       // 纠正：回 growing + 降级 + 补强建议
       progress.status = transitionNode(progress.status, { type: "correctMastery" });
@@ -971,7 +1330,7 @@ export class LearningApplicationService {
       isCore: false,
       status: "planned",
       isSkipValidation: false,
-      inputRefs: [],
+      inputRefs: await this.resourceRefsForNode(ownerId, nodeId, []),
       steps: draft.steps.join("\n"),
       expectedEvidence: draft.expectedEvidence,
       evaluationCriteria: draft.evaluationCriteria,
@@ -979,13 +1338,168 @@ export class LearningApplicationService {
       sequence,
     };
     await this.store.saveActivity(activity);
-    return this.getWorkspace(ownerId);
+    return this.getWorkspaceForPlan(ownerId, activity.weeklyPlanId);
+  }
+
+  // ── POST /api/learning/week-review ─────────────────
+  async generateNextWeekPlan(ownerId: string, weekKey = currentWeekKey()): Promise<Workspace> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    if (profile.status !== "confirmed") throw new LearningError("路线尚未确认，不能生成下周计划", 400);
+
+    const normalized = normalizeWeekKey(weekKey);
+    if (!normalized) throw new LearningError("weekKey 格式应为 YYYY-Www", 400);
+    const currentPlan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, normalized);
+    if (!currentPlan) throw new LearningError("本周计划不存在", 404);
+    const currentActivities = await this.store.listActivitiesByPlan(currentPlan.id);
+    const currentEvidence: Evidence[] = [];
+    for (const activity of currentActivities) {
+      currentEvidence.push(...(await this.store.listEvidenceByActivity(activity.id)));
+    }
+    const currentAdjustments = await this.store.listAdjustments(ownerId);
+    const review = this.buildWeekReview(currentPlan, currentActivities, currentEvidence, currentAdjustments);
+    if (!review.nextWeekProposal.canGenerate) {
+      throw new LearningError("本周还没有足够的完成或评审记录，先完成一个活动再生成下周计划", 400);
+    }
+    const archived = await this.archiveWeekReview(ownerId, profile.activeRouteId, review);
+
+    const targetWeekKey = nextWeekKey(currentPlan.weekKey);
+    const nodeStatusById: Record<string, NodeStatus> = {};
+    for (const p of await this.store.listNodeProgress(ownerId)) nodeStatusById[p.nodeId] = p.status;
+    const planDraft = this.agents.planner.composeWeeklyPlan({
+      ownerId,
+      routeId: profile.activeRouteId,
+      weekKey: targetWeekKey,
+      capacityMinutes: profile.weeklyMinutes,
+      nodeStatusById,
+      prerequisiteSatisfied: (nodeId) => prerequisitesSatisfied(nodeId, nodeStatusById, learningContentPack),
+      seed: stableId("week-review", `${ownerId}:${currentPlan.weekKey}:${review.revisionCount}`).length,
+    });
+
+    const weeklyPlan: WeeklyPlan = {
+      id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${targetWeekKey}`),
+      ownerId,
+      routeId: profile.activeRouteId,
+      weekKey: targetWeekKey,
+      capacityMinutes: profile.weeklyMinutes,
+      status: "confirmed",
+      rationale: `${planDraft.rationale} 来源：${currentPlan.weekKey} 周复盘。${archived.summary} 下一步：${archived.nextBestMove}`,
+    };
+    await this.store.saveWeeklyPlan(weeklyPlan);
+    await this.store.clearOpenActivitiesForPlan(ownerId, weeklyPlan.id);
+    await this.createActivitiesFromPlanDraft(ownerId, weeklyPlan, planDraft.activities, 0);
+
+    const adjustment: AdjustmentRecord = {
+      id: stableId("adjustment", `${ownerId}:${currentPlan.weekKey}:next-week:${Date.now()}`),
+      ownerId,
+      routeId: profile.activeRouteId,
+      weeklyPlanId: weeklyPlan.id,
+      adjustmentType: "weekly_light",
+      reason: `基于 ${currentPlan.weekKey} 周复盘生成下一周计划`,
+      status: "accepted",
+      summary: `已生成 ${targetWeekKey} 计划：${planDraft.coreActivityCount} 个核心活动、${planDraft.optionalActivityCount} 个可选活动。`,
+      actionJson: JSON.stringify([{ action: "continue", description: review.nextBestMove }]),
+    };
+    await this.store.saveAdjustment(adjustment);
+
+    return this.getWorkspace(ownerId, { weekKey: targetWeekKey });
+  }
+
+  async archiveCurrentWeekReview(ownerId: string, weekKey = currentWeekKey()): Promise<Workspace> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    const normalized = normalizeWeekKey(weekKey);
+    if (!normalized) throw new LearningError("weekKey 格式应为 YYYY-Www", 400);
+    const plan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, normalized);
+    if (!plan) throw new LearningError("周计划不存在", 404);
+    const activities = await this.store.listActivitiesByPlan(plan.id);
+    const evidence: Evidence[] = [];
+    for (const activity of activities) {
+      evidence.push(...(await this.store.listEvidenceByActivity(activity.id)));
+    }
+    const adjustments = await this.store.listAdjustments(ownerId);
+    await this.archiveWeekReview(ownerId, profile.activeRouteId, this.buildWeekReview(plan, activities, evidence, adjustments));
+    return this.getWorkspace(ownerId, { weekKey: normalized });
+  }
+
+  // ── POST /api/learning/artifact ─────────────────────
+  // 作品任务：把阶段路径里的作品目标正式沉入活动链，复用 integrated_task
+  // 的证据评审与掌握确认机制，不新建一套作品状态机。
+  async createPortfolioArtifactActivity(ownerId: string): Promise<Workspace> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    if (profile.status !== "confirmed") throw new LearningError("路线尚未确认，不能生成作品任务", 400);
+
+    const weekKey = currentWeekKey();
+    let plan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, weekKey);
+    if (!plan) {
+      plan = {
+        id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${weekKey}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weekKey,
+        capacityMinutes: profile.weeklyMinutes,
+        status: "confirmed",
+        rationale: "为阶段作品任务创建的本周计划。",
+      };
+      await this.store.saveWeeklyPlan(plan);
+    }
+
+    const existing = await this.store.listActivitiesByPlan(plan.id);
+    const current = existing.find(isPortfolioArtifactActivity);
+    if (current) return this.getWorkspace(ownerId);
+
+    const artifactDecision = this.kernel.artifactTaskDecision(ownerId);
+    const node = this.pickPortfolioArtifactNode(profile.activeRouteId);
+    const resourceIds = learningContentPack.resourceMappings
+      .filter((mapping) => mapping.nodeId === node.id)
+      .map((mapping) => mapping.resourceId);
+    const draft = this.agents.activityComposer.composeActivity({
+      nodeId: node.id,
+      nodeTitle: node.title,
+      nodeDescription: node.description,
+      activityType: "integrated_task",
+      isSkipValidation: false,
+      resourceIds,
+      estimatedMinutes: Math.min(120, Math.max(60, Math.round(profile.weeklyMinutes / 3 / 15) * 15)),
+    });
+    const sequence = existing.length
+      ? Math.max(...existing.map((activity) => activity.sequence)) + 1
+      : 0;
+    const activity: LearningActivity = {
+      id: stableId("activity", `${plan.id}:portfolio-artifact:${node.id}`),
+      ownerId,
+      weeklyPlanId: plan.id,
+      nodeId: node.id,
+      title: artifactDecision.output.title,
+      activityType: "integrated_task",
+      goal: "把本阶段学习转成可评审作品：围绕一个 AI Agent 产品，说明用户问题、能力边界、评测方案和产品取舍。",
+      estimatedMinutes: draft.estimatedMinutes,
+      isCore: true,
+      status: "planned",
+      isSkipValidation: false,
+      inputRefs: await this.resourceRefsForNode(ownerId, node.id, draft.inputRefs),
+      steps: [
+        "对齐阶段里程碑：Week 3 确认作品方向，Week 5 提交作品 v1。",
+        "选定一个 AI Agent 产品场景，写清用户、场景、痛点和成功标准。",
+        "拆出核心 AI 能力清单，定义输入、输出、边界和人工兜底。",
+        "设计最小评测方案：样例、指标、失败标准、上线/回滚判断。",
+        "写出 PRD v1 或案例拆解报告，并标出主要产品取舍。",
+        "提交作品正文或链接，并附一段对照评估标准的自评。",
+      ].join("\n"),
+      expectedEvidence: `${artifactDecision.output.expectedEvidence} 证据必须可被第三方复核。`,
+      evaluationCriteria: "作品说明用户问题、用户场景、成功标准、能力清单、输入输出、能力边界、人工兜底、评测指标、失败标准、上线回滚判断和产品取舍；自评与作品一致。",
+      nextAdvice: `对应 StagePath Week 3/5 里程碑。${artifactDecision.output.nextAdvice}`,
+      sequence,
+    };
+    await this.store.saveActivity(activity);
+    return this.getWorkspaceForPlan(ownerId, activity.weeklyPlanId);
   }
 
   // ── POST /api/learning/resources/inbox ───────────────
   async saveUserResource(
     ownerId: string,
-    input: { title: string; type: UserResource["type"]; content?: string; sourceUrl?: string },
+    input: { title: string; type: UserResource["type"]; content?: string; sourceUrl?: string; relatedNodeIds?: string[] },
   ): Promise<Workspace> {
     if (!input.title.trim()) throw new LearningError("标题不能为空", 400);
     const resource: UserResource = {
@@ -995,10 +1509,13 @@ export class LearningApplicationService {
       type: input.type,
       content: input.content?.trim() ?? "",
       sourceUrl: input.sourceUrl?.trim() ?? "",
-      relatedNodeIds: [],
+      relatedNodeIds: (input.relatedNodeIds ?? []).filter((nodeId) =>
+        learningContentPack.nodes.some((node) => node.id === nodeId),
+      ),
       createdAt: new Date().toISOString(),
     };
     await this.store.saveUserResource(resource);
+    await this.attachResourceToCurrentActivities(ownerId, resource);
     return this.getWorkspace(ownerId);
   }
 
@@ -1007,50 +1524,6 @@ export class LearningApplicationService {
   async resetLearner(ownerId: string): Promise<Workspace> {
     await this.store.resetLearner(ownerId);
     return this.getWorkspace(ownerId);
-  }
-
-  // ── LLM API 配置 ────────────────────────────────────
-  // 保存用户自配的 API（key 存服务端表）；读取时脱敏，绝不下发前端。
-  async saveApiConfig(
-    ownerId: string,
-    input: { baseUrl: string; apiKey: string; model: string; enabled: boolean },
-  ): Promise<{ configured: boolean; baseUrl: string; model: string; enabled: boolean; keyMasked: boolean }> {
-    const existing = await this.store.getApiConfig(ownerId);
-    const config = {
-      id: existing?.id ?? stableId("apiconfig", ownerId),
-      ownerId,
-      baseUrl: input.baseUrl.trim(),
-      // key 为空时保留旧值（允许只改 baseUrl/model 不改 key）
-      apiKey: input.apiKey.trim() || existing?.apiKey || "",
-      model: input.model.trim() || "deepseek-chat",
-      enabled: input.enabled,
-    };
-    await this.store.saveApiConfig(config);
-    return {
-      configured: Boolean(config.apiKey),
-      baseUrl: config.baseUrl,
-      model: config.model,
-      enabled: config.enabled,
-      keyMasked: Boolean(config.apiKey),
-    };
-  }
-
-  // 读取配置状态（key 脱敏）：前端只看到是否已配置 + 模型 + 地址
-  async getApiConfigStatus(ownerId: string): Promise<{
-    configured: boolean;
-    enabled: boolean;
-    baseUrl: string;
-    model: string;
-    keyMasked: boolean;
-  }> {
-    const config = await this.store.getApiConfig(ownerId);
-    return {
-      configured: Boolean(config?.apiKey),
-      enabled: config?.enabled ?? false,
-      baseUrl: config?.baseUrl ?? "",
-      model: config?.model ?? "",
-      keyMasked: Boolean(config?.apiKey),
-    };
   }
 
   // ── POST /api/learning/adjustments/propose ─────────
@@ -1134,7 +1607,7 @@ export class LearningApplicationService {
       isCore: false,
       status: "planned",
       isSkipValidation: true,
-      inputRefs: draft.inputRefs,
+      inputRefs: await this.resourceRefsForNode(ownerId, nodeId, draft.inputRefs),
       steps: draft.steps.join("\n"),
       expectedEvidence: draft.expectedEvidence,
       evaluationCriteria: draft.evaluationCriteria,
@@ -1201,6 +1674,20 @@ export class LearningApplicationService {
       weeksRemaining: 2,
       capabilityLevelById: input.selfReport,
     });
+    const stagePath = planPortfolioStagePath({
+      goal: input.goal,
+      situation: learningDecision.situation,
+      decision: learningDecision,
+      adaptivePlan,
+      materialReviews,
+    });
+    const dynamicSimulation = simulateDynamicSprint({
+      stagePath,
+      situation: learningDecision.situation,
+      decision: learningDecision,
+      adaptivePlan,
+      materialReviews,
+    });
     return {
       // analysis 暴露 planner 实际消费的 goalAnalysis（含回填的目标能力 id）
       goalAnalysis: goalAnalysisForPlan,
@@ -1209,9 +1696,66 @@ export class LearningApplicationService {
       capabilityMap,
       learningDecision,
       adaptivePlan,
+      stagePath,
+      dynamicSimulation,
       plannerMode: input.plannerMode,
       mode: "rule",
     };
+  }
+
+  async getLearningQuality(ownerId: string): Promise<LearningQualityMonitor> {
+    const workspace = await this.getWorkspace(ownerId);
+    const snapshot = await this.store.getDiagnostic(ownerId);
+    let materialReviews: MaterialReview[] = [];
+    let fallbackMode = false;
+    if (snapshot) {
+      const answers = parseAnswersJson(snapshot.answersJson);
+      const analysis = this.buildAnalysis({
+        goal: snapshot.goal,
+        weeklyMinutes: snapshot.weeklyMinutes,
+        materialIds: parseJsonStringArray(snapshot.materialsJson),
+        selfReport: parseJsonNumberRecord(snapshot.selfReportJson),
+        preference: answers.preference,
+        plannerMode: answers.plannerMode,
+      });
+      materialReviews = analysis.materialReviews;
+      fallbackMode = analysis.capabilityMap.strategy === "generic_fallback";
+    }
+    return summarizeLearningQuality({
+      weeklyPlan: workspace.weeklyPlan,
+      activities: workspace.activities,
+      evidence: workspace.evidence,
+      nodeProgress: workspace.nodeProgress,
+      materialReviews,
+      fallbackMode,
+      nextStagePlanExists: Boolean(workspace.nextStagePlan),
+      artifactIteration: workspace.artifactIteration,
+    });
+  }
+
+  async getLearningMemory(ownerId: string): Promise<LearningMemorySnapshot> {
+    const workspace = await this.getWorkspace(ownerId);
+    const snapshot = await this.store.getDiagnostic(ownerId);
+    let materialReviews: MaterialReview[] = [];
+    if (snapshot) {
+      const answers = parseAnswersJson(snapshot.answersJson);
+      materialReviews = this.buildAnalysis({
+        goal: snapshot.goal,
+        weeklyMinutes: snapshot.weeklyMinutes,
+        materialIds: parseJsonStringArray(snapshot.materialsJson),
+        selfReport: parseJsonNumberRecord(snapshot.selfReportJson),
+        preference: answers.preference,
+        plannerMode: answers.plannerMode,
+      }).materialReviews;
+    }
+    return this.kernel.memory({
+      ownerId,
+      activities: workspace.activities,
+      evidence: workspace.evidence,
+      nodeProgress: workspace.nodeProgress,
+      adjustments: workspace.adjustments,
+      materialReviews,
+    });
   }
 
   // Full Chain Phase 3：adaptive 活动落库。adaptivePlan.weeklyPlan.activities 与
@@ -1283,7 +1827,7 @@ export class LearningApplicationService {
         isCore: item.isCore,
         status: "planned",
         isSkipValidation: false,
-        inputRefs: draft.inputRefs,
+        inputRefs: await this.resourceRefsForNode(ownerId, item.nodeId, draft.inputRefs),
         steps: draft.steps.join("\n"),
         expectedEvidence: draft.expectedEvidence,
         evaluationCriteria: draft.evaluationCriteria,
@@ -1298,6 +1842,11 @@ export class LearningApplicationService {
   private async executeAdjustmentActions(ownerId: string, adjustment: AdjustmentRecord): Promise<void> {
     const actions = parseAdjustmentActions(adjustment.actionJson);
     const hasInsert = actions.some((action) => action.action === "insert_activity" && action.targetNodeId);
+
+    if (isPortfolioNextStageAdjustment(adjustment)) {
+      await this.createNextStageActivities(ownerId, adjustment);
+      return;
+    }
 
     // weekly_light 无 insert_activity（continue/空动作）：不插活动不删活动，
     // 仅把采纳说明追加到本周计划 rationale，让采纳有可观察、低风险的副作用。
@@ -1367,7 +1916,7 @@ export class LearningApplicationService {
         isCore: false,
         status: "planned",
         isSkipValidation: false,
-        inputRefs: draft.inputRefs,
+        inputRefs: await this.resourceRefsForNode(ownerId, node.id, draft.inputRefs),
         steps: draft.steps.join("\n"),
         expectedEvidence: draft.expectedEvidence,
         evaluationCriteria: draft.evaluationCriteria,
@@ -1377,6 +1926,779 @@ export class LearningApplicationService {
       await this.store.saveActivity(activity);
       sequence += 1;
     }
+  }
+
+  private async createNextStageActivities(ownerId: string, adjustment: AdjustmentRecord): Promise<void> {
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) throw new LearningError("尚未完成诊断", 404);
+    const nextStagePlan = buildPortfolioNextStagePlan(adjustment);
+    if (!nextStagePlan) return;
+    const weekKey = currentWeekKey();
+    let weeklyPlan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, weekKey);
+    if (!weeklyPlan) {
+      weeklyPlan = {
+        id: stableId("plan", `${ownerId}:${profile.activeRouteId}:${weekKey}`),
+        ownerId,
+        routeId: profile.activeRouteId,
+        weekKey,
+        capacityMinutes: profile.weeklyMinutes,
+        status: "confirmed",
+        rationale: "为作品集下一阶段创建的本周计划。",
+      };
+      await this.store.saveWeeklyPlan(weeklyPlan);
+    } else {
+      weeklyPlan.rationale = `${weeklyPlan.rationale} 已进入作品集下一阶段：${nextStagePlan.title}。`;
+      await this.store.saveWeeklyPlan(weeklyPlan);
+    }
+
+    const existing = await this.store.listActivitiesByPlan(weeklyPlan.id);
+    const existingIds = new Set(existing.map((activity) => activity.id));
+    let sequence = existing.length
+      ? Math.max(...existing.map((activity) => activity.sequence)) + 1
+      : 0;
+    const node = this.pickPortfolioArtifactNode(profile.activeRouteId);
+    const activityTypes = ["integrated_task", "integrated_task", "reflection"] as const;
+
+    for (const [index, module] of nextStagePlan.modules.entries()) {
+      const id = stableId("activity", `${weeklyPlan.id}:${adjustment.id}:${module.id}:next-stage`);
+      if (existingIds.has(id)) continue;
+      const activity: LearningActivity = {
+        id,
+        ownerId,
+        weeklyPlanId: weeklyPlan.id,
+        nodeId: node.id,
+        title: `下一阶段：${module.title}`,
+        activityType: activityTypes[index] ?? "integrated_task",
+        goal: module.goal,
+        estimatedMinutes: 60,
+        isCore: true,
+        status: "planned",
+        isSkipValidation: false,
+        inputRefs: await this.resourceRefsForNode(ownerId, node.id, []),
+        steps: [
+          `基于已通过评审的 AI Agent 产品 PRD v1，完成「${module.title}」。`,
+          ...module.outputs.map((output) => `产出：${output}`),
+          ...module.rubric.map((criterion) => `评审标准：${criterion}`),
+          "提交作品链接、正文片段或截图说明，并说明它如何继承上一阶段 evidence。",
+        ].join("\n"),
+        expectedEvidence: `${module.outputs.join(" / ")}，并附与原作品证据的连接说明。必须覆盖：${module.rubric.join("；")}`,
+        evaluationCriteria: `第三方评审应能确认：${module.rubric.join("；")} 同时看懂「${module.title}」与原 PRD 作品的关系。`,
+        nextAdvice: "提交后继续走 Evidence Review；通过不自动代表掌握，仍按 Trellis 证据规则确认。",
+        sequence,
+      };
+      await this.store.saveActivity(activity);
+      sequence += 1;
+    }
+  }
+
+  private pickPortfolioArtifactNode(routeId: string): LearningNode {
+    const preferredIds = [
+      "ai-product.capability-design",
+      "ai-product.eval-decision",
+      "ai-product.problem-def",
+      "ai-app-dev.eval-harness",
+      "ai-literacy.evaluation",
+    ];
+    for (const id of preferredIds) {
+      const node = learningContentPack.nodes.find((item) => item.id === id);
+      if (node) return node;
+    }
+    const routeNode = learningContentPack.nodes.find((node) =>
+      node.routeId === routeId && node.activityTemplates.includes("integrated_task"),
+    );
+    if (routeNode) return routeNode;
+    return learningContentPack.nodes.find((node) => node.activityTemplates.includes("integrated_task"))!;
+  }
+
+  private buildContentJudgment(input: {
+    routeId: string;
+    activities: LearningActivity[];
+    resources: Workspace["workbench"]["resources"];
+    userResources: UserResource[];
+    materialReviews: MaterialReview[];
+  }): ContentJudgment[] {
+    const activeRefs = new Set(input.activities.flatMap((activity) => activity.inputRefs));
+    const routeNodeIds = new Set(
+      learningContentPack.nodes
+        .filter((node) => node.routeId === input.routeId)
+        .map((node) => node.id),
+    );
+    const reviewById = new Map(input.materialReviews.map((review) => [review.materialId, review]));
+
+    const systemJudgments = input.resources
+      .filter((resource) => routeNodeIds.has(resource.nodeId))
+      .map((resource): ContentJudgment => {
+        const review = reviewById.get(resource.resourceId);
+        const entersCurrentWeek = activeRefs.has(resource.resourceId);
+        const role = this.contentRole({
+          entersCurrentWeek,
+          hasMapping: true,
+          credibilityLevel: resource.credibilityLevel,
+          materialVerdict: review?.verdict,
+        });
+        return {
+          resourceId: resource.resourceId,
+          title: resource.title,
+          professionalVerdict: this.professionalVerdict(resource.credibilityLevel, review),
+          fitVerdict: this.fitVerdict(role),
+          role,
+          recommendedSegment: entersCurrentWeek
+            ? resource.segmentFocus ?? `本周只用和「${nodeFor(resource.nodeId)?.title ?? resource.nodeId}」相关的片段：${resource.usage}`
+            : `先留作后续材料；需要推进「${nodeFor(resource.nodeId)?.title ?? resource.nodeId}」时再打开。`,
+          skipReason: role === "暂不碰"
+            ? resource.skipGuidance ?? "当前可信度、练习密度或阶段适配不足，先不把它放进本周任务。"
+            : "",
+          useFor: resource.learnerAction ?? resource.usage,
+          qualityRationale: resource.qualityRationale ?? "已通过 Trellis 内置内容池的来源可信度与节点适配判断。",
+          skipGuidance: resource.skipGuidance ?? "",
+          conceptsIntroduced: conceptHintsForNode(resource.nodeId),
+          entersCurrentWeek,
+          rawContent: "",
+        };
+      });
+
+    const uniqueUserResources = Array.from(
+      new Map(input.userResources.map((resource) => [
+        `${resource.title.trim().toLowerCase()}::${resource.content.trim().slice(0, 120)}::${resource.relatedNodeIds.join(",")}`,
+        resource,
+      ])).values(),
+    );
+
+    const userJudgments = uniqueUserResources.map((resource): ContentJudgment => {
+      const mappedNodes = resource.relatedNodeIds.filter((nodeId) => routeNodeIds.has(nodeId));
+      const entersCurrentWeek = activeRefs.has(resource.id);
+      const role = this.contentRole({
+        entersCurrentWeek,
+        hasMapping: mappedNodes.length > 0,
+        credibilityLevel: mappedNodes.length > 0 ? 3 : 1,
+      });
+      const firstNode = mappedNodes[0] ? nodeFor(mappedNodes[0]) : null;
+      return {
+        resourceId: resource.id,
+        title: resource.title,
+        professionalVerdict: mappedNodes.length > 0 ? "基本可用" : "需要谨慎",
+        fitVerdict: this.fitVerdict(role),
+        role,
+        recommendedSegment: firstNode
+          ? `只截取能帮助「${firstNode.title}」的一小段；先服务当前行动，不整理整门课。`
+          : "暂时不进入本周活动；先补一个明确节点映射。",
+        skipReason: mappedNodes.length === 0 ? "还没有映射到当前路线节点，容易变成泛收藏。" : "",
+        useFor: firstNode ? `补充「${firstNode.title}」的例子、材料或个人上下文。` : "待处理材料。",
+        qualityRationale: mappedNodes.length > 0
+          ? "用户材料已映射到当前路线节点，可作为补充上下文；专业性仍低于内置权威材料。"
+          : "尚未映射到能力节点，Trellis 暂不把它当作本周学习依据。",
+        skipGuidance: mappedNodes.length === 0 ? "先补节点映射，再决定是否进入活动输入。" : "",
+        conceptsIntroduced: mappedNodes.flatMap((nodeId) => conceptHintsForNode(nodeId)).slice(0, 2),
+        entersCurrentWeek,
+        rawContent: resource.content,
+      };
+    });
+
+    const rank: Record<ContentJudgmentRole, number> = {
+      本周主线: 0,
+      只作参考: 1,
+      后续再用: 2,
+      暂不碰: 3,
+    };
+    return [...systemJudgments, ...userJudgments]
+      .sort((a, b) => rank[a.role] - rank[b.role] || a.title.localeCompare(b.title))
+      .slice(0, 12);
+  }
+
+  private contentRole(input: {
+    entersCurrentWeek: boolean;
+    hasMapping: boolean;
+    credibilityLevel: number;
+    materialVerdict?: MaterialReview["verdict"];
+  }): ContentJudgmentRole {
+    if (input.entersCurrentWeek) return "本周主线";
+    if (!input.hasMapping || input.credibilityLevel <= 1 || input.materialVerdict === "not_recommended") return "暂不碰";
+    if (input.materialVerdict === "reference") return "只作参考";
+    return "后续再用";
+  }
+
+  private professionalVerdict(credibilityLevel: number, review?: MaterialReview): ContentJudgment["professionalVerdict"] {
+    if (credibilityLevel >= 5 || (review?.qualityScore ?? 0) >= 75) return "专业可信";
+    if (credibilityLevel >= 3 || (review?.qualityScore ?? 0) >= 55) return "基本可用";
+    return "需要谨慎";
+  }
+
+  private fitVerdict(role: ContentJudgmentRole): ContentJudgment["fitVerdict"] {
+    if (role === "本周主线") return "适合本周";
+    if (role === "后续再用") return "适合稍后";
+    if (role === "只作参考") return "仅供参考";
+    return "暂不适合";
+  }
+
+  private buildCourseSlices(input: {
+    activities: LearningActivity[];
+    contentJudgment: ContentJudgment[];
+  }): CourseSlice[] {
+    const activitiesByRef = new Map<string, LearningActivity[]>();
+    for (const activity of input.activities) {
+      for (const refId of activity.inputRefs) {
+        activitiesByRef.set(refId, [...(activitiesByRef.get(refId) ?? []), activity]);
+      }
+    }
+    return input.contentJudgment.flatMap((judgment) => {
+      const linkedActivities = activitiesByRef.get(judgment.resourceId) ?? [];
+      const nodeIds = linkedActivities.length > 0
+        ? [...new Set(linkedActivities.map((activity) => activity.nodeId))]
+        : judgment.conceptsIntroduced[0]?.id
+          ? []
+          : [];
+      const fallbackNodeId = linkedActivities[0]?.nodeId
+        ?? this.nodeIdFromJudgment(judgment)
+        ?? "unmapped";
+      const targets = nodeIds.length > 0 ? nodeIds : [fallbackNodeId];
+      const outlinedSlices = this.outlineSlicesFromJudgment(judgment, linkedActivities, fallbackNodeId);
+      if (outlinedSlices.length > 0) return outlinedSlices;
+      return targets.map((nodeId) => {
+        const node = nodeFor(nodeId);
+        const activityIds = linkedActivities
+          .filter((activity) => activity.nodeId === nodeId || nodeId === "unmapped")
+          .map((activity) => activity.id);
+        return {
+          id: stableId("slice", `${judgment.resourceId}:${nodeId}:${judgment.role}`),
+          resourceId: judgment.resourceId,
+          title: this.sliceTitle(judgment, node?.title),
+          resourceTitle: judgment.title,
+          nodeId,
+          role: judgment.role,
+          sourceRange: judgment.recommendedSegment,
+          whyThisSlice: judgment.qualityRationale,
+          estimatedMinutes: judgment.entersCurrentWeek ? 30 : 15,
+          difficulty: this.sliceDifficulty(judgment.recommendedSegment),
+          learnerAction: judgment.useFor,
+          afterWatchingPrompt: this.afterWatchingPrompt(judgment, node?.title),
+          skipReason: judgment.skipReason || judgment.skipGuidance,
+          entersCurrentWeek: judgment.entersCurrentWeek,
+          activityIds,
+        };
+      });
+    });
+  }
+
+  private outlineSlicesFromJudgment(
+    judgment: ContentJudgment,
+    linkedActivities: LearningActivity[],
+    fallbackNodeId: string,
+  ): CourseSlice[] {
+    const lines = this.extractOutlineLines(judgment.rawContent ?? "");
+    if (lines.length < 2) return [];
+    const activeNodeIds = new Set(linkedActivities.map((activity) => activity.nodeId));
+    return lines.slice(0, 8).map((line, index) => {
+      const nodeId = this.nodeIdForOutlineLine(line, activeNodeIds) ?? fallbackNodeId;
+      const node = nodeFor(nodeId);
+      const role = this.sliceRoleForOutlineLine(line, index, judgment.entersCurrentWeek);
+      const activityIds = linkedActivities
+        .filter((activity) => activity.nodeId === nodeId || role === "本周主线")
+        .map((activity) => activity.id)
+        .slice(0, role === "本周主线" ? 2 : 0);
+      return {
+        id: stableId("slice", `${judgment.resourceId}:outline:${index}:${line}`),
+        resourceId: judgment.resourceId,
+        title: `${role === "本周主线" ? "本周只看" : role === "暂不碰" ? "先跳过" : role}：${line.title}`,
+        resourceTitle: judgment.title,
+        nodeId,
+        role,
+        sourceRange: line.range,
+        whyThisSlice: role === "本周主线"
+          ? `这段最接近「${node?.title ?? "当前节点"}」，适合先推进一个判断。`
+          : role === "暂不碰"
+          ? "这段对初学者偏深或偏工具细节，当前先不进入本周行动。"
+          : "这段有参考价值，但不是本周启动的最短路径。",
+        estimatedMinutes: role === "本周主线" ? 30 : 15,
+        difficulty: this.sliceDifficulty(line.title),
+        learnerAction: role === "本周主线"
+          ? `看完后留下一个关于「${node?.title ?? "当前节点"}」的判断。`
+          : "暂不生成正式行动。",
+        afterWatchingPrompt: this.afterWatchingPrompt(judgment, node?.title),
+        skipReason: role === "暂不碰" ? "先完成本周主线片段，再回来看这段。" : "",
+        entersCurrentWeek: role === "本周主线",
+        activityIds,
+      };
+    });
+  }
+
+  private extractOutlineLines(content: string): Array<{ title: string; range: string }> {
+    return content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) =>
+        line.length >= 4 &&
+        (/^(\d+[\).、]|第[一二三四五六七八九十\d]+[章节课]|[-*]\s+|\d{1,2}:\d{2})/.test(line) || /chapter|lesson|module|week|section/i.test(line)),
+      )
+      .map((line) => {
+        const cleaned = line.replace(/^[-*]\s+/, "").replace(/^\d+[\).、]\s*/, "");
+        const time = cleaned.match(/\d{1,2}:\d{2}(?::\d{2})?(?:\s*[-–]\s*\d{1,2}:\d{2}(?::\d{2})?)?/);
+        return {
+          title: cleaned.replace(/\s+/g, " ").slice(0, 80),
+          range: time ? `视频时间 ${time[0]}：${cleaned}` : `目录片段：${cleaned}`,
+        };
+      });
+  }
+
+  private nodeIdForOutlineLine(line: { title: string }, activeNodeIds: Set<string>): string | null {
+    const text = line.title.toLowerCase();
+    const matched = learningContentPack.nodes.find((node) =>
+      (activeNodeIds.size === 0 || activeNodeIds.has(node.id)) &&
+      [node.title, node.description, ...node.signals].some((item) => text.includes(item.toLowerCase().slice(0, 8))),
+    );
+    if (matched) return matched.id;
+    if (/eval|评测|测试|metric|failure|风险/.test(text)) return "ai-literacy.evaluation";
+    if (/agent|tool|workflow|能力|边界/.test(text)) return "ai-product.capability-design";
+    if (/problem|user|scenario|场景|需求|痛点/.test(text)) return "ai-product.problem-def";
+    if (/model|llm|machine learning|generalization|hallucination|模型|幻觉/.test(text)) return "ai-literacy.mechanism";
+    return null;
+  }
+
+  private sliceRoleForOutlineLine(line: { title: string }, index: number, entersCurrentWeek: boolean): ContentJudgmentRole {
+    const text = line.title.toLowerCase();
+    if (/advanced|深入|源码|部署|fine[- ]?tuning|微调|数学|证明|benchmark/.test(text)) return "暂不碰";
+    if (!entersCurrentWeek) return index < 2 ? "后续再用" : "只作参考";
+    return index < 2 ? "本周主线" : index < 5 ? "后续再用" : "只作参考";
+  }
+
+  private sliceDifficulty(text: string): CourseSlice["difficulty"] {
+    if (/advanced|深入|源码|部署|fine[- ]?tuning|微调|数学|证明|benchmark|架构/.test(text.toLowerCase())) return "偏难";
+    if (/practice|案例|project|eval|评测|实战|练习/.test(text.toLowerCase())) return "适中";
+    return "入门";
+  }
+
+  private nodeIdFromJudgment(judgment: ContentJudgment): string | null {
+    const label = judgment.conceptsIntroduced[0]?.label;
+    return learningContentPack.nodes.find((node) => node.title === label)?.id ?? null;
+  }
+
+  private sliceTitle(judgment: ContentJudgment, nodeTitle?: string): string {
+    if (judgment.role === "暂不碰") return `先跳过：${judgment.title}`;
+    if (judgment.role === "只作参考") return `参考：${judgment.title}`;
+    if (judgment.role === "后续再用") return `稍后：${judgment.title}`;
+    return nodeTitle ? `本周只看：${nodeTitle}` : `本周只看：${judgment.title}`;
+  }
+
+  private afterWatchingPrompt(judgment: ContentJudgment, nodeTitle?: string): string {
+    if (judgment.role === "暂不碰") return "暂不学习；先把本周主线材料推进完。";
+    if (judgment.role === "只作参考") return "只摘一个能帮助判断的例子，不把它变成新任务。";
+    const topic = nodeTitle ?? "当前节点";
+    return `看完后只回答一个问题：这段材料如何帮助你判断「${topic}」的适用场景、边界或下一步？`;
+  }
+
+  private buildWeeklyActionPlan(input: {
+    weeklyPlan: WeeklyPlan;
+    activities: LearningActivity[];
+    contentJudgment: ContentJudgment[];
+    courseSlices: CourseSlice[];
+    evidence: Evidence[];
+  }): WeeklyActionCard[] {
+    const judgmentByRef = new Map(input.contentJudgment.map((judgment) => [judgment.resourceId, judgment]));
+    const slicesByActivity = new Map<string, CourseSlice[]>();
+    for (const slice of input.courseSlices) {
+      for (const activityId of slice.activityIds) {
+        slicesByActivity.set(activityId, [...(slicesByActivity.get(activityId) ?? []), slice]);
+      }
+    }
+    const evidenceByActivity = new Map<string, Evidence[]>();
+    for (const item of input.evidence) {
+      evidenceByActivity.set(item.activityId, [...(evidenceByActivity.get(item.activityId) ?? []), item]);
+    }
+
+    const mainActionIds = this.pickMainActionIds(input.activities, evidenceByActivity, input.weeklyPlan.capacityMinutes);
+
+    return this.orderActivitiesForWeeklyRhythm(input.activities, evidenceByActivity, mainActionIds)
+      .map((activity) => {
+        const accepted = (evidenceByActivity.get(activity.id) ?? []).some((item) => item.status === "accepted");
+        const concepts = conceptHintsForNode(activity.nodeId);
+        const resourceSegments = activity.inputRefs
+          .map((refId) => judgmentByRef.get(refId)?.recommendedSegment)
+          .filter((segment): segment is string => Boolean(segment))
+          .slice(0, 2);
+        const courseSlices = (slicesByActivity.get(activity.id) ?? []).slice(0, 2);
+        const sliceSegments = courseSlices.map((slice) => `${slice.resourceTitle}：${slice.sourceRange}`);
+        return {
+          id: stableId("action", `${input.weeklyPlan.id}:${activity.id}`),
+          activityId: activity.id,
+          weekKey: input.weeklyPlan.weekKey,
+          title: actionCardTitleOf(activity),
+          tier: this.actionTier(activity, accepted, mainActionIds),
+          actionType: actionTypeOf(activity),
+          whyNow: activity.goal,
+          materialSlice: sliceSegments.length > 0
+            ? sliceSegments.join("；")
+            : resourceSegments.length > 0
+            ? resourceSegments.join("；")
+            : "使用 Trellis 内置内容池中与当前节点相关的一小段，不需要先补完整门课。",
+          courseSliceIds: courseSlices.map((slice) => slice.id),
+          estimatedMinutes: normalizeActionMinutes(activity.estimatedMinutes),
+          conceptHints: concepts,
+          feedbackMode: feedbackModeOf(activity),
+          scenarioQuestion: this.scenarioQuestionFor(activity, concepts),
+          nextIfClear: accepted
+            ? "这一步已经有 accepted 证据，可以继续下一张本周行动卡。"
+            : "用一句话留下你的判断或小产出，再让 Trellis 决定是否需要修订。",
+          nextIfStuck: "把范围缩到 30 分钟：只看指定片段，只回答当前判断，不补整门课。",
+        };
+      });
+  }
+
+  private pickMainActionIds(
+    activities: LearningActivity[],
+    evidenceByActivity: Map<string, Evidence[]>,
+    capacityMinutes: number,
+  ): Set<string> {
+    const mainLimit = capacityMinutes <= 240 ? 4 : capacityMinutes <= 480 ? 5 : 6;
+    const eligible = [...activities]
+      .filter((activity) => {
+        const accepted = (evidenceByActivity.get(activity.id) ?? []).some((item) => item.status === "accepted");
+        return activity.isCore && activity.status !== "completed" && !accepted;
+      })
+      .sort((a, b) => this.activityRhythmRank(a) - this.activityRhythmRank(b) || a.sequence - b.sequence);
+    const selected = new Set<string>();
+    const usedTypes = new Set<string>();
+    for (const activity of eligible) {
+      if (selected.size >= mainLimit) break;
+      if (usedTypes.has(activity.activityType) && selected.size >= 3) continue;
+      selected.add(activity.id);
+      usedTypes.add(activity.activityType);
+    }
+    for (const activity of eligible) {
+      if (selected.size >= Math.min(3, eligible.length) || selected.size >= mainLimit) break;
+      selected.add(activity.id);
+    }
+    return selected;
+  }
+
+  private orderActivitiesForWeeklyRhythm(
+    activities: LearningActivity[],
+    evidenceByActivity: Map<string, Evidence[]>,
+    mainActionIds: Set<string>,
+  ): LearningActivity[] {
+    return [...activities].sort((a, b) =>
+      this.activityUrgencyRank(a, evidenceByActivity, mainActionIds)
+      - this.activityUrgencyRank(b, evidenceByActivity, mainActionIds)
+      || this.activityRhythmRank(a) - this.activityRhythmRank(b)
+      || a.sequence - b.sequence,
+    );
+  }
+
+  private activityUrgencyRank(
+    activity: LearningActivity,
+    evidenceByActivity: Map<string, Evidence[]>,
+    mainActionIds: Set<string>,
+  ): number {
+    const evidence = evidenceByActivity.get(activity.id) ?? [];
+    if (evidence.some((item) => item.status === "needs_revision")) return 0;
+    if (evidence.some((item) => item.status === "submitted")) return 1;
+    if (activity.status === "in_progress") return 2;
+    if (mainActionIds.has(activity.id)) return 3;
+    if (!activity.isCore) return 5;
+    if (activity.status === "completed") return 6;
+    return 4;
+  }
+
+  private activityRhythmRank(activity: LearningActivity): number {
+    const rank: Record<LearningActivity["activityType"], number> = {
+      follow_demo: 0,
+      build_model: 1,
+      quiz: 2,
+      independent_practice: 3,
+      integrated_task: 4,
+      reflection: 5,
+      retest: 6,
+    };
+    return rank[activity.activityType] ?? 9;
+  }
+
+  private actionTier(activity: LearningActivity, accepted: boolean, mainActionIds: Set<string>): ActionTier {
+    if (accepted || activity.status === "completed") return "补充推进";
+    if (!activity.isCore) return activity.activityType === "quiz" || activity.activityType === "reflection" ? "低精力备选" : "补充推进";
+    return mainActionIds.has(activity.id) ? "主推进" : "补充推进";
+  }
+
+  private scenarioQuestionFor(activity: LearningActivity, concepts: ConceptHint[]): ScenarioQuestion | null {
+    if (activity.activityType === "reflection") return null;
+    const conceptLabel = concepts[0]?.label ?? nodeFor(activity.nodeId)?.title ?? "当前概念";
+    const prompt = activity.activityType === "integrated_task"
+      ? `完成「${activity.title}」后，哪种判断最能说明你可以继续推进？`
+      : `看完这一步后，哪种反应更像你真正理解了「${conceptLabel}」？`;
+    return {
+      id: stableId("scenario", activity.id),
+      prompt,
+      options: [
+        {
+          id: "a",
+          label: "继续补课",
+          text: `我想先把「${conceptLabel}」相关课程完整看完，包括定义、背景、案例和工具细节。等我感觉知识点都补齐以后，再开始判断它适合什么场景、失败边界在哪里，或者要不要进入产出。`,
+        },
+        {
+          id: "b",
+          label: "先做判断",
+          text: `我先用当前片段做一个小判断：它适合什么场景，不适合什么场景，失败时会造成什么代价，以及下一步应该看材料、拆案例还是做小模板。即使还没学完整门课，也能留下可复核判断。`,
+        },
+        {
+          id: "c",
+          label: "换更难材料",
+          text: `这个内容看起来太基础，我想直接跳到更高阶材料，例如系统架构、评测平台或 Agent 工具链。当前基础概念我大概懂，但还没有把它和实际产品场景、能力边界或评测标准连起来。`,
+        },
+        {
+          id: "d",
+          label: "只收藏",
+          text: `我先把链接、摘要和重点全部存起来，之后再统一整理。现在还不确定它服务哪个节点、哪个任务或哪个判断，只觉得以后可能有用，所以暂时不把它转成具体行动。`,
+        },
+      ],
+      preferredOptionId: "b",
+      diagnosisByOption: {
+        a: "这通常是启动阻力：你在等待完整输入，而不是推进最小判断。",
+        b: "这是 Trellis 想保留的学习信号：材料已经能支持一个具体判断。",
+        c: "可能可以跳，但需要先留下一条能解释边界或风险的信号。",
+        d: "这会增加材料债；收藏不是本周进展，除非它服务当前行动。",
+      },
+      nextActionByOption: {
+        a: "不要补整门课，回到卡片指定片段，写下一个 3 句话判断。",
+        b: "提交这条判断；如果通过，就进入下一张行动卡。",
+        c: "先提交一条跳学理由，Trellis 再决定是否进入验证或补前置。",
+        d: "先把材料映射到一个节点；未映射材料暂不进入本周任务。",
+      },
+    };
+  }
+
+  private pickNextAction(
+    weeklyActionPlan: WeeklyActionCard[],
+    activities: LearningActivity[],
+    evidence: Evidence[],
+  ): WeeklyActionCard | null {
+    const activityById = new Map(activities.map((activity) => [activity.id, activity]));
+    const needsRevisionIds = new Set(evidence.filter((item) => item.status === "needs_revision").map((item) => item.activityId));
+    const submittedIds = new Set(evidence.filter((item) => item.status === "submitted").map((item) => item.activityId));
+    return weeklyActionPlan.find((card) => card.activityId && needsRevisionIds.has(card.activityId))
+      ?? weeklyActionPlan.find((card) => card.activityId && submittedIds.has(card.activityId))
+      ?? weeklyActionPlan.find((card) => card.activityId && activityById.get(card.activityId)?.status === "in_progress")
+      ?? weeklyActionPlan.find((card) => card.tier === "主推进" && card.activityId && activityById.get(card.activityId)?.status === "planned")
+      ?? weeklyActionPlan.find((card) => card.activityId && activityById.get(card.activityId)?.status !== "completed")
+      ?? null;
+  }
+
+  private collectConceptHints(
+    weeklyActionPlan: WeeklyActionCard[],
+    contentJudgment: ContentJudgment[],
+  ): ConceptHint[] {
+    const seen = new Set<string>();
+    const result: ConceptHint[] = [];
+    for (const hint of [
+      ...weeklyActionPlan.flatMap((action) => action.conceptHints),
+      ...contentJudgment.flatMap((judgment) => judgment.conceptsIntroduced),
+    ]) {
+      if (seen.has(hint.id)) continue;
+      seen.add(hint.id);
+      result.push(hint);
+      if (result.length >= 8) break;
+    }
+    return result;
+  }
+
+  private buildLearningOutputs(
+    weeklyPlan: WeeklyPlan,
+    activities: LearningActivity[],
+    evidence: Evidence[],
+  ): LearningOutput[] {
+    const activityById = new Map(activities.map((activity) => [activity.id, activity]));
+    return evidence
+      .filter((item) => item.status === "accepted" || item.status === "needs_revision")
+      .map((item): LearningOutput => {
+        const activity = activityById.get(item.activityId);
+        const kind: LearningOutput["kind"] = item.evidenceType === "artifact"
+          ? "作品片段"
+          : item.evidenceType === "judgment"
+            ? "判断记录"
+            : item.status === "accepted"
+              ? "学习产出"
+              : "进展记录";
+        const summary = item.feedback || item.content || "这条记录已经进入本周学习状态。";
+        return {
+          id: stableId("output", `${weeklyPlan.id}:${item.id}`),
+          kind,
+          title: activity ? activity.title : "学习记录",
+          sourceActionId: activity?.id ?? null,
+          weekKey: weeklyPlan.weekKey,
+          summary: summary.length > 140 ? `${summary.slice(0, 140)}...` : summary,
+        };
+      })
+      .slice(-8);
+  }
+
+  private buildWeekReview(
+    weeklyPlan: WeeklyPlan,
+    activities: LearningActivity[],
+    evidence: Evidence[],
+    adjustments: AdjustmentRecord[],
+    archived?: WeekReviewRecord | null,
+  ): WeekReview {
+    if (archived) {
+      const parsed = parseWeekReviewJson(archived.reviewJson, archived);
+      return {
+        ...parsed,
+        generatedNextWeek: adjustments.some((adjustment) =>
+          adjustment.status === "accepted" &&
+          adjustment.reason.includes(`${archived.weekKey} 周复盘生成下一周计划`),
+        ),
+      };
+    }
+    const completedCount = activities.filter((activity) => activity.status === "completed").length;
+    const acceptedEvidenceCount = evidence.filter((item) => item.status === "accepted").length;
+    const revisionCount = evidence.filter((item) => item.status === "needs_revision").length;
+    const openActivityCount = activities.filter((activity) =>
+      activity.status === "planned" || activity.status === "in_progress" || activity.status === "evidence_submitted",
+    ).length;
+    const plannedMinutes = activities.filter((activity) => activity.isCore)
+      .reduce((sum, activity) => sum + activity.estimatedMinutes, 0);
+    const materialMismatchCount = adjustments.filter((adjustment) =>
+      /材料|资料|错配|不适合/.test(`${adjustment.reason} ${adjustment.summary}`),
+    ).length;
+    const completionRate = activities.length ? completedCount / activities.length : 0;
+    const nextBestMove = revisionCount > 0
+      ? "优先修订未通过证据，补齐能力信号或作品 rubric 缺口。"
+      : openActivityCount > 0
+        ? "先完成一个开放核心活动，并提交可评审证据。"
+        : "可以生成下一周计划，继续沿当前路线推进。";
+    const summary = `完成 ${completedCount}/${activities.length} 个活动，接受 ${acceptedEvidenceCount} 条证据，${revisionCount} 条证据需要修订。`;
+    return {
+      weekKey: weeklyPlan.weekKey,
+      completedCount,
+      acceptedEvidenceCount,
+      openActivityCount,
+      revisionCount,
+      materialMismatchCount,
+      capacityMinutes: weeklyPlan.capacityMinutes,
+      plannedMinutes,
+      completionRate,
+      summary,
+      nextBestMove,
+      nextWeekProposal: {
+        title: `生成 ${nextWeekKey(weeklyPlan.weekKey)} 计划`,
+        summary: revisionCount > 0
+          ? "下周会保留当前路线，但优先安排补强、修订和继续练习。"
+          : "下周会基于已验证证据继续推进可执行活动。",
+        actionCount: Math.max(1, Math.min(4, activities.filter((activity) => activity.isCore).length || 2)),
+        canGenerate: completedCount > 0 || acceptedEvidenceCount > 0 || revisionCount > 0,
+      },
+      archivedAt: null,
+      generatedNextWeek: adjustments.some((adjustment) =>
+        adjustment.status === "accepted" &&
+        adjustment.reason.includes(`${weeklyPlan.weekKey} 周复盘生成下一周计划`),
+      ),
+    };
+  }
+
+  private async archiveWeekReview(ownerId: string, routeId: string, review: WeekReview): Promise<WeekReviewRecord> {
+    const now = new Date().toISOString();
+    const record: WeekReviewRecord = {
+      id: stableId("weekreview", `${ownerId}:${routeId}:${review.weekKey}`),
+      ownerId,
+      routeId,
+      weekKey: review.weekKey,
+      summary: review.summary,
+      completedCount: review.completedCount,
+      acceptedEvidenceCount: review.acceptedEvidenceCount,
+      revisionCount: review.revisionCount,
+      openActivityCount: review.openActivityCount,
+      nextBestMove: review.nextBestMove,
+      reviewJson: JSON.stringify({ ...review, archivedAt: now }),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.store.saveWeekReview(record);
+    return record;
+  }
+
+  private async attachResourceToCurrentActivities(ownerId: string, resource: UserResource): Promise<void> {
+    if (resource.relatedNodeIds.length === 0) return;
+    const profile = await this.store.getProfile(ownerId);
+    if (!profile) return;
+    const plans = await this.store.listWeeklyPlans(ownerId, profile.activeRouteId);
+    const related = new Set(resource.relatedNodeIds);
+    for (const plan of plans) {
+      const activities = await this.store.listActivitiesByPlan(plan.id);
+      for (const activity of activities) {
+        if (!related.has(activity.nodeId) || activity.inputRefs.includes(resource.id)) continue;
+        activity.inputRefs = [...activity.inputRefs, resource.id];
+        activity.nextAdvice = `${activity.nextAdvice} 已加入工作台材料「${resource.title}」，可作为本次活动输入。`;
+        await this.store.saveActivity(activity);
+      }
+    }
+  }
+
+  private async resourceRefsForNode(ownerId: string, nodeId: string, baseRefs: string[]): Promise<string[]> {
+    const userRefs = (await this.store.listUserResources(ownerId))
+      .filter((resource) => resource.relatedNodeIds.includes(nodeId))
+      .map((resource) => resource.id);
+    return [...new Set([...baseRefs, ...userRefs])];
+  }
+
+  private async buildWeeklyPlanHistory(ownerId: string, routeId: string): Promise<WeeklyPlanSummary[]> {
+    const nowKey = currentWeekKey();
+    const plans = await this.store.listWeeklyPlans(ownerId, routeId);
+    const result: WeeklyPlanSummary[] = [];
+    for (const plan of plans) {
+      const activities = await this.store.listActivitiesByPlan(plan.id);
+      const evidence: Evidence[] = [];
+      for (const activity of activities) {
+        evidence.push(...(await this.store.listEvidenceByActivity(activity.id)));
+      }
+      const review = await this.store.getWeekReview(ownerId, routeId, plan.weekKey);
+      result.push({
+        weekKey: plan.weekKey,
+        status: plan.status,
+        capacityMinutes: plan.capacityMinutes,
+        activityCount: activities.length,
+        coreActivityCount: activities.filter((activity) => activity.isCore).length,
+        completedCount: activities.filter((activity) => activity.status === "completed").length,
+        acceptedEvidenceCount: evidence.filter((item) => item.status === "accepted").length,
+        isCurrentWeek: plan.weekKey === nowKey,
+        isFutureWeek: plan.weekKey > nowKey,
+        reviewSummary: review?.summary ?? null,
+        reviewArchivedAt: review?.updatedAt ?? null,
+        generatedFromReview: /周复盘/.test(plan.rationale),
+      });
+    }
+    return result;
+  }
+
+  private async proposeNextStageAfterPortfolioMastery(
+    ownerId: string,
+    profile: LearnerProfile,
+    nodeId: string,
+  ): Promise<void> {
+    const plan = await this.store.getWeeklyPlanByWeek(ownerId, profile.activeRouteId, currentWeekKey());
+    if (!plan) return;
+    const activities = await this.store.listActivitiesByPlan(plan.id);
+    const artifact = activities.find((activity) =>
+      activity.nodeId === nodeId && isPortfolioArtifactActivity(activity),
+    );
+    if (!artifact) return;
+    const evidence = await this.store.listEvidenceByActivity(artifact.id);
+    if (!evidence.some((item) => item.status === "accepted")) return;
+    const existing = await this.store.listAdjustments(ownerId);
+    if (existing.some((item) =>
+      item.status === "proposed"
+      && item.adjustmentType === "route_revision"
+      && item.reason.includes("作品已通过掌握确认"),
+    )) {
+      return;
+    }
+    const nextStageDecision = this.kernel.nextStageDecision(ownerId);
+    const adjustment: AdjustmentRecord = {
+      id: stableId("adjustment", `${ownerId}:${artifact.id}:next-stage:${Date.now()}`),
+      ownerId,
+      routeId: profile.activeRouteId,
+      weeklyPlanId: plan.id,
+      adjustmentType: "route_revision",
+      reason: nextStageDecision.output.reason,
+      status: "proposed",
+      summary: nextStageDecision.output.summary,
+      actionJson: JSON.stringify(nextStageDecision.output.actions),
+    };
+    await this.store.saveAdjustment(adjustment);
   }
 
   private async getOwnedActivity(ownerId: string, activityId: string): Promise<LearningActivity> {

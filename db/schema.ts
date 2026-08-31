@@ -208,6 +208,11 @@ export const learningResourceMappings = sqliteTable("learning_resource_mappings"
   id: integer("id").primaryKey({ autoIncrement: true }),
   resourceId: text("resource_id").notNull().references(() => learningResources.id),
   nodeId: text("node_id").notNull().references(() => learningNodes.id),
+  curriculumId: text("curriculum_id"),
+  courseVersionId: text("course_version_id"),
+  courseId: text("course_id"),
+  unitKey: text("unit_key"),
+  canonicalNodeId: text("canonical_node_id"),
   usage: text("usage").notNull().default(""), // 学习用途说明
 }, (table) => [
   uniqueIndex("learning_resource_mappings_unique_idx").on(table.resourceId, table.nodeId),
@@ -280,15 +285,34 @@ export const learningWeeklyPlans = sqliteTable("learning_weekly_plans", {
   index("learning_weekly_plans_owner_idx").on(table.ownerId),
 ]);
 
+export const learningWeekReviews = sqliteTable("learning_week_reviews", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  routeId: text("route_id").notNull().references(() => learningRoutes.id),
+  weekKey: text("week_key").notNull(),
+  summary: text("summary").notNull(),
+  completedCount: integer("completed_count").notNull().default(0),
+  acceptedEvidenceCount: integer("accepted_evidence_count").notNull().default(0),
+  revisionCount: integer("revision_count").notNull().default(0),
+  openActivityCount: integer("open_activity_count").notNull().default(0),
+  nextBestMove: text("next_best_move").notNull(),
+  reviewJson: text("review_json").notNull().default("{}"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("learning_week_reviews_owner_week_idx").on(table.ownerId, table.routeId, table.weekKey),
+  index("learning_week_reviews_owner_idx").on(table.ownerId),
+]);
+
 export const learningActivities = sqliteTable("learning_activities", {
   id: text("id").primaryKey(),
   ownerId: text("owner_id").notNull(),
   weeklyPlanId: text("weekly_plan_id").notNull().references(() => learningWeeklyPlans.id),
   nodeId: text("node_id").notNull().references(() => learningNodes.id),
   title: text("title").notNull(),
-  // 活动类型：build_model 建立模型 / follow_demo 跟随示范 / independent_practice 独立练习
+  // 活动类型：理解、示范、练习、判断、复盘、综合任务、复测。
   activityType: text("activity_type", {
-    enum: ["build_model", "follow_demo", "independent_practice"],
+    enum: ["build_model", "follow_demo", "independent_practice", "quiz", "reflection", "integrated_task", "retest"],
   }).notNull(),
   goal: text("goal").notNull().default(""),
   estimatedMinutes: integer("estimated_minutes").notNull().default(30),
@@ -396,4 +420,154 @@ export const learningUserResources = sqliteTable("learning_user_resources", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("learning_user_resources_owner_idx").on(table.ownerId),
+]);
+
+// Course Intelligence：公开内容版本与个人课程组合。候选内容与用户运行状态分离。
+export const learningCiSources = sqliteTable("learning_ci_sources", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  sourceClass: text("source_class").notNull(),
+  purposesJson: text("purposes_json").notNull().default("[]"),
+  provider: text("provider").notNull(),
+  status: text("status").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const learningContentSeedVersions = sqliteTable("learning_content_seed_versions", {
+  id: text("id").primaryKey(),
+  appliedAt: text("applied_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const learningCiCatalogReleases = sqliteTable("learning_ci_catalog_releases", {
+  id: text("id").primaryKey(),
+  appliedAt: text("applied_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const learningCiSourceSnapshots = sqliteTable("learning_ci_source_snapshots", {
+  id: text("id").primaryKey(),
+  sourceId: text("source_id").notNull().references(() => learningCiSources.id),
+  contentHash: text("content_hash").notNull(),
+  retrievedAt: text("retrieved_at").notNull(),
+  contentJson: text("content_json").notNull().default("{}"),
+  status: text("status").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("learning_ci_snapshot_source_hash_idx").on(table.sourceId, table.contentHash)]);
+
+export const learningCiGraphVersions = sqliteTable("learning_ci_graph_versions", {
+  id: text("id").primaryKey(),
+  version: text("version").notNull(),
+  title: text("title").notNull(),
+  status: text("status").notNull(),
+  graphJson: text("graph_json").notNull(),
+  publishedAt: text("published_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const learningCiCourses = sqliteTable("learning_ci_courses", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  tagsJson: text("tags_json").notNull().default("[]"),
+  publishedVersionId: text("published_version_id"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const learningCiCourseVersions = sqliteTable("learning_ci_course_versions", {
+  id: text("id").primaryKey(),
+  courseId: text("course_id").notNull().references(() => learningCiCourses.id),
+  version: text("version").notNull(),
+  status: text("status").notNull(),
+  genomeJson: text("genome_json").notNull(),
+  sourceSnapshotId: text("source_snapshot_id"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("learning_ci_course_version_idx").on(table.courseId, table.version)]);
+
+export const learningCiCourseCandidates = sqliteTable("learning_ci_course_candidates", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  title: text("title").notNull(),
+  sourceUrl: text("source_url").notNull().default(""),
+  outlineJson: text("outline_json").notNull().default("[]"),
+  analysisJson: text("analysis_json").notNull(),
+  status: text("status").notNull().default("candidate"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("learning_ci_candidates_status_idx").on(table.status, table.updatedAt)]);
+
+export const learningCiCourseUnits = sqliteTable("learning_ci_course_units", {
+  id: text("id").primaryKey(),
+  courseVersionId: text("course_version_id").notNull().references(() => learningCiCourseVersions.id),
+  unitKey: text("unit_key").notNull(),
+  title: text("title").notNull(),
+  sequence: integer("sequence").notNull(),
+  estimatedMinutes: integer("estimated_minutes"),
+  unitJson: text("unit_json").notNull(),
+}, (table) => [uniqueIndex("learning_ci_course_unit_idx").on(table.courseVersionId, table.unitKey)]);
+
+export const learningCiUnitNodeMappings = sqliteTable("learning_ci_unit_node_mappings", {
+  id: text("id").primaryKey(),
+  courseVersionId: text("course_version_id").notNull().references(() => learningCiCourseVersions.id),
+  unitKey: text("unit_key").notNull(),
+  nodeId: text("node_id").notNull(),
+  depth: integer("depth").notNull(),
+  relation: text("relation").notNull(),
+  confidence: integer("confidence").notNull(),
+  mappingJson: text("mapping_json").notNull(),
+}, (table) => [index("learning_ci_mapping_node_idx").on(table.nodeId)]);
+
+export const learningCiCurricula = sqliteTable("learning_ci_curricula", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  status: text("status").notNull(),
+  activationStatus: text("activation_status").notNull().default("inactive"),
+  activationError: text("activation_error").notNull().default(""),
+  intakeJson: text("intake_json").notNull(),
+  assemblyJson: text("assembly_json").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("learning_ci_curricula_owner_idx").on(table.ownerId, table.updatedAt)]);
+
+export const learningCiAnalysisRuns = sqliteTable("learning_ci_analysis_runs", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id"),
+  kind: text("kind").notNull(),
+  inputHash: text("input_hash").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  status: text("status").notNull(),
+  outputJson: text("output_json").notNull().default(""),
+  error: text("error").notNull().default(""),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  completionTokens: integer("completion_tokens").notNull().default(0),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("learning_ci_analysis_cache_idx").on(table.kind, table.inputHash, table.model, table.status)]);
+
+export const learningCiKnowledgeStates = sqliteTable("learning_ci_knowledge_states", {
+  ownerId: text("owner_id").notNull(),
+  nodeId: text("node_id").notNull(),
+  status: text("status").notNull().default("not_started"),
+  confidence: integer("confidence").notNull().default(0),
+  latestSignalId: text("latest_signal_id"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("learning_ci_knowledge_state_owner_node_idx").on(table.ownerId, table.nodeId)]);
+
+export const learningCiLearningSignals = sqliteTable("learning_ci_learning_signals", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  activityId: text("activity_id").notNull(),
+  curriculumId: text("curriculum_id").notNull(),
+  canonicalNodeId: text("canonical_node_id").notNull(),
+  signalType: text("signal_type").notNull(),
+  valueJson: text("value_json").notNull(),
+  note: text("note").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("learning_ci_signals_owner_idx").on(table.ownerId, table.createdAt),
+  index("learning_ci_signals_activity_idx").on(table.activityId),
 ]);

@@ -13,7 +13,7 @@ import type {
   WeeklyPlan,
 } from "../domain/types.ts";
 import { learningContentPack } from "../domain/content.ts";
-import type { ApiConfig, DiagnosticSnapshot, LearningStore, LearnerProfile } from "./store.ts";
+import type { DiagnosticSnapshot, LearningStore, LearnerProfile, WeekReviewRecord } from "./store.ts";
 
 // D1 实例类型：D1Database 全局类型依赖未安装的 @miniflare/d1，
 // 这里用 any 桥接（仓库 pre-existing 问题，worker/index.ts 同样受影响）。
@@ -33,6 +33,9 @@ export class D1LearningStore implements LearningStore {
   // 内容层表，保证状态层外键（active_route_id 等）有真实引用。
   async seedContent(): Promise<void> {
     const pack = learningContentPack;
+    const seedId = `legacy-content-pack@${pack.version}`;
+    const seeded = await this.db.prepare("SELECT id FROM learning_content_seed_versions WHERE id=? LIMIT 1").bind(seedId).first();
+    if (seeded) return;
 
     for (const route of pack.routes) {
       await this.db
@@ -136,6 +139,8 @@ export class D1LearningStore implements LearningStore {
         .bind(mapping.toolId, mapping.nodeId, mapping.usage, mapping.activityContext)
         .run();
     }
+
+    await this.db.prepare("INSERT OR IGNORE INTO learning_content_seed_versions (id) VALUES (?)").bind(seedId).run();
   }
 
   // ── 学习者画像 ──────────────────────────────────────
@@ -238,50 +243,6 @@ export class D1LearningStore implements LearningStore {
       .run();
   }
 
-  // ── LLM API 配置 ────────────────────────────────────
-  async getApiConfig(ownerId: string): Promise<ApiConfig | null> {
-    const row = await this.db
-      .prepare("SELECT * FROM learning_api_config WHERE owner_id = ? LIMIT 1")
-      .bind(ownerId)
-      .first();
-    return row
-      ? {
-          id: row.id,
-          ownerId: row.owner_id,
-          baseUrl: row.base_url,
-          apiKey: row.api_key,
-          model: row.model,
-          enabled: Boolean(row.enabled),
-        }
-      : null;
-  }
-
-  async saveApiConfig(config: ApiConfig): Promise<void> {
-    const now = new Date().toISOString();
-    await this.db
-      .prepare(
-        `INSERT INTO learning_api_config
-           (id, owner_id, base_url, api_key, model, enabled, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (id) DO UPDATE SET
-           base_url = excluded.base_url,
-           api_key = excluded.api_key,
-           model = excluded.model,
-           enabled = excluded.enabled,
-           updated_at = excluded.updated_at`,
-      )
-      .bind(
-        config.id,
-        config.ownerId,
-        config.baseUrl,
-        config.apiKey,
-        config.model,
-        config.enabled ? 1 : 0,
-        now,
-      )
-      .run();
-  }
-
   // ── 周计划 ────────────────────────────────────────
   async getWeeklyPlanByWeek(ownerId: string, routeId: string, weekKey: string): Promise<WeeklyPlan | null> {
     const row = await this.db
@@ -329,6 +290,66 @@ export class D1LearningStore implements LearningStore {
       .run();
   }
 
+  async listWeeklyPlans(ownerId: string, routeId: string): Promise<WeeklyPlan[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_weekly_plans WHERE owner_id = ? AND route_id = ? ORDER BY week_key ASC")
+      .bind(ownerId, routeId)
+      .all();
+    return (rows.results ?? []).map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      ownerId: String(row.owner_id),
+      routeId: String(row.route_id),
+      weekKey: String(row.week_key),
+      capacityMinutes: Number(row.capacity_minutes),
+      status: row.status as WeeklyPlan["status"],
+      rationale: String(row.rationale),
+    }));
+  }
+
+  async getWeekReview(ownerId: string, routeId: string, weekKey: string): Promise<WeekReviewRecord | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_week_reviews WHERE owner_id = ? AND route_id = ? AND week_key = ? LIMIT 1")
+      .bind(ownerId, routeId, weekKey)
+      .first();
+    return row ? weekReviewFromRow(row) : null;
+  }
+
+  async saveWeekReview(review: WeekReviewRecord): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_week_reviews
+           (id, owner_id, route_id, week_key, summary, completed_count,
+            accepted_evidence_count, revision_count, open_activity_count,
+            next_best_move, review_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (owner_id, route_id, week_key) DO UPDATE SET
+           summary = excluded.summary,
+           completed_count = excluded.completed_count,
+           accepted_evidence_count = excluded.accepted_evidence_count,
+           revision_count = excluded.revision_count,
+           open_activity_count = excluded.open_activity_count,
+           next_best_move = excluded.next_best_move,
+           review_json = excluded.review_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        review.id,
+        review.ownerId,
+        review.routeId,
+        review.weekKey,
+        review.summary,
+        review.completedCount,
+        review.acceptedEvidenceCount,
+        review.revisionCount,
+        review.openActivityCount,
+        review.nextBestMove,
+        review.reviewJson,
+        now,
+      )
+      .run();
+  }
+
   // ── 活动 ──────────────────────────────────────────
   async listActivitiesByPlan(planId: string): Promise<LearningActivity[]> {
     const rows = await this.db
@@ -351,14 +372,21 @@ export class D1LearningStore implements LearningStore {
     await this.db
       .prepare(
         `INSERT INTO learning_activities
-           (id, owner_id, weekly_plan_id, node_id, title, activity_type, goal,
+           (id, owner_id, weekly_plan_id, node_id, curriculum_id, course_version_id,
+            course_id, unit_key, canonical_node_id, title, activity_type, goal,
             estimated_minutes, is_core, status, is_skip_validation, input_refs,
             steps, expected_evidence, evaluation_criteria, next_advice, sequence,
             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
          ON CONFLICT (id) DO UPDATE SET
            status = excluded.status,
+           input_refs = excluded.input_refs,
            next_advice = excluded.next_advice,
+           curriculum_id = excluded.curriculum_id,
+           course_version_id = excluded.course_version_id,
+           course_id = excluded.course_id,
+           unit_key = excluded.unit_key,
+           canonical_node_id = excluded.canonical_node_id,
            updated_at = excluded.updated_at`,
       )
       .bind(
@@ -366,6 +394,11 @@ export class D1LearningStore implements LearningStore {
         activity.ownerId,
         activity.weeklyPlanId,
         activity.nodeId,
+        activity.curriculumId ?? null,
+        activity.courseVersionId ?? null,
+        activity.courseId ?? null,
+        activity.unitId ?? null,
+        activity.canonicalNodeId ?? null,
         activity.title,
         activity.activityType,
         activity.goal,
@@ -601,6 +634,7 @@ async resetLearner(ownerId: string): Promise<void> {
     await this.db.batch([
       this.db.prepare("DELETE FROM learning_evidence WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_adjustments WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_week_reviews WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_activities WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_node_progress WHERE owner_id = ?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_weekly_plans WHERE owner_id = ?").bind(ownerId),
@@ -610,6 +644,24 @@ async resetLearner(ownerId: string): Promise<void> {
   }
 }
 
+function weekReviewFromRow(row: Record<string, unknown>): WeekReviewRecord {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    routeId: String(row.route_id),
+    weekKey: String(row.week_key),
+    summary: String(row.summary),
+    completedCount: Number(row.completed_count),
+    acceptedEvidenceCount: Number(row.accepted_evidence_count),
+    revisionCount: Number(row.revision_count),
+    openActivityCount: Number(row.open_activity_count),
+    nextBestMove: String(row.next_best_move),
+    reviewJson: String(row.review_json ?? "{}"),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
 // ── 行映射辅助 ──────────────────────────────────────
 function activityFromRow(row: Record<string, unknown>): LearningActivity {
   return {
@@ -617,6 +669,11 @@ function activityFromRow(row: Record<string, unknown>): LearningActivity {
     ownerId: String(row.owner_id),
     weeklyPlanId: String(row.weekly_plan_id),
     nodeId: String(row.node_id),
+    curriculumId: row.curriculum_id ? String(row.curriculum_id) : undefined,
+    courseVersionId: row.course_version_id ? String(row.course_version_id) : undefined,
+    courseId: row.course_id ? String(row.course_id) : undefined,
+    unitId: row.unit_key ? String(row.unit_key) : undefined,
+    canonicalNodeId: row.canonical_node_id ? String(row.canonical_node_id) : undefined,
     title: String(row.title),
     activityType: row.activity_type as LearningActivity["activityType"],
     goal: String(row.goal),

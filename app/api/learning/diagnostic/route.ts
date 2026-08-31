@@ -24,6 +24,10 @@ export async function POST(request: Request) {
           ? (payload.selfReport as Record<string, number>)
           : undefined,
       preference: payload.preference === "build_first" ? "build_first" : "breadth_first",
+      plannerMode:
+        payload.plannerMode === "adaptive_preview" || payload.plannerMode === "adaptive_existing_content"
+          ? payload.plannerMode
+          : "legacy",
     });
     return Response.json({ workspace });
   } catch (error) {

@@ -21,6 +21,14 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 生成/运行时目录：不应被 lint（Mastra CLI 输出、Chrome 自动化 profile、wrangler/miniflare 状态）
+    ".mastra/**",
+    ".tmp-next-stage-chrome/**",
+    ".tmp-next-stage-chrome-*/**",
+    ".tmp-mastra-studio-chrome/**",
+    ".tmp-chrome-*/**",
+    ".wrangler/**",
+    ".sites-runtime/**",
   ]),
 ]);
 

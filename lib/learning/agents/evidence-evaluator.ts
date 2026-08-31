@@ -9,6 +9,7 @@ import type {
   EvidenceAssessment,
   EvidenceEvaluatorPort,
   ReviewDimensionScore,
+  RubricReview,
   SignalReview,
 } from "./types.ts";
 import { extractEvidenceCard } from "./evidence-extractor.ts";
@@ -23,13 +24,15 @@ export class RuleEvidenceEvaluator implements EvidenceEvaluatorPort {
     const evidenceCard = extractEvidenceCard(input);
     const signals = resolveSignals(input);
     const signalReviews = buildSignalReviews(content, signals);
+    const rubricReviews = buildRubricReviews(content, extractRubricCriteria(input.criteria));
     const covered = signalReviews.filter((signal) => signal.status === "covered");
     const partialCount = signalReviews.filter((signal) => signal.status === "partial").length;
     const coverage = signals.length === 0 ? 1 : (covered.length + partialCount * 0.5) / signals.length;
+    const rubricCoverage = coverageRatio(rubricReviews);
     const signalCoverageScore = signals.length === 0
       ? 100
       : Math.round(coverage * 100);
-    const dimensionScores = buildDimensionScores(input, signalCoverageScore);
+    const dimensionScores = buildDimensionScores(input, signalCoverageScore, Math.round(rubricCoverage * 100));
     const score = weightedScore(dimensionScores);
 
     const reasons: string[] = [];
@@ -73,8 +76,21 @@ export class RuleEvidenceEvaluator implements EvidenceEvaluatorPort {
     if (partialSignals.length > 0) {
       missing.push(`部分信号需要补强：${partialSignals.slice(0, 3).join("、")}`);
     }
+    const missingRubrics = rubricReviews
+      .filter((rubric) => rubric.status === "missing")
+      .map((rubric) => rubric.criterion);
+    const partialRubrics = rubricReviews
+      .filter((rubric) => rubric.status === "partial")
+      .map((rubric) => rubric.criterion);
+    if (missingRubrics.length > 0) {
+      missing.push(`缺少 rubric 标准：${missingRubrics.slice(0, 3).join("；")}`);
+    }
+    if (partialRubrics.length > 0) {
+      missing.push(`rubric 标准需要补强：${partialRubrics.slice(0, 2).join("；")}`);
+    }
 
-    const accepted = score >= (isSkipValidation ? 72 : 58) && content.length >= MIN_CONTENT_LENGTH;
+    const rubricPass = rubricReviews.length === 0 || rubricCoverage >= 0.66;
+    const accepted = score >= (isSkipValidation ? 72 : 58) && content.length >= MIN_CONTENT_LENGTH && rubricPass;
     const suggestedLevel = accepted
       ? Math.min(input.targetLevel, score >= 85 ? 3 : 2)
       : Math.max(0, input.targetLevel - 1);
@@ -86,11 +102,14 @@ export class RuleEvidenceEvaluator implements EvidenceEvaluatorPort {
       score,
       evidenceCard,
       signalReviews,
+      rubricReviews,
       dimensionScores,
       reasons,
       missing,
       rationale: accepted
         ? "当前材料已经形成可复核证据，能支持该能力节点的阶段性成长。"
+        : rubricReviews.length > 0 && !rubricPass
+          ? "当前材料尚未充分覆盖活动 rubric，不能稳定证明该作品活动已经达标。"
         : "当前材料还不足以稳定证明该能力，需要补充缺失信号或更具体的可复核产出。",
       credibilityNote: input.externalUrl && content.length < MIN_CONTENT_LENGTH
         ? "MVP 阶段尚未真实解析外部链接，因此该评审是低可信度初评。"
@@ -107,6 +126,25 @@ export class RuleEvidenceEvaluator implements EvidenceEvaluatorPort {
             : "revise_and_resubmit",
     };
   }
+}
+
+function extractRubricCriteria(criteria: string): string[] {
+  const source = criteria.includes("第三方评审应能确认：")
+    ? criteria.split("第三方评审应能确认：")[1]?.split(" 同时看懂")[0] ?? criteria
+    : criteria.includes("必须覆盖：")
+      ? criteria.split("必须覆盖：")[1] ?? criteria
+      : "";
+  if (!source) return [];
+  return Array.from(new Set(source
+    .split(/[；;\n]/)
+    .map((part) => part.trim().replace(/[。.]$/, ""))
+    .filter((part) => part.length >= 8)
+    .filter((part) => /Learning Situation-first|runtime fallback|10-15|Mastra|Evidence Review|eval|边界|失败|回退|面试|讲述|作品|截图|读者/.test(part))));
+}
+
+function coverageRatio<T extends { status: "covered" | "partial" | "missing" }>(items: T[]): number {
+  if (items.length === 0) return 1;
+  return items.reduce((sum, item) => sum + (item.status === "covered" ? 1 : item.status === "partial" ? 0.5 : 0), 0) / items.length;
 }
 
 function resolveSignals(input: EvaluateEvidenceInput): string[] {
@@ -149,6 +187,35 @@ function buildSignalReviews(content: string, signals: string[]): SignalReview[] 
   });
 }
 
+function buildRubricReviews(content: string, criteria: string[]): RubricReview[] {
+  const normalized = content.toLowerCase();
+  return criteria.map((criterion, index) => {
+    const tokens = signalTokens(criterion);
+    const latinTokens = tokens.filter((token) => /^[a-z0-9-]+$/.test(token));
+    const latinHits = latinTokens.filter((token) => normalized.includes(token));
+    const hitCount = tokens.filter((token) => normalized.includes(token)).length;
+    const directHit = normalized.includes(criterion.toLowerCase());
+    const status = directHit
+      || (latinTokens.length > 0 && latinHits.length === latinTokens.length && hitCount >= Math.ceil(tokens.length * 0.35))
+      || (latinTokens.length === 0 && hitCount >= Math.ceil(tokens.length * 0.45))
+      ? "covered"
+      : latinHits.length > 0 || hitCount >= Math.min(2, tokens.length)
+        ? "partial"
+        : "missing";
+    return {
+      rubricId: `rubric-${index + 1}`,
+      criterion,
+      status,
+      reason: status === "covered"
+        ? "证据覆盖了该作品评审标准。"
+        : status === "partial"
+          ? "证据触及该标准，但还缺少完整说明。"
+          : "证据中未识别到该作品评审标准。",
+      evidenceRefs: status === "missing" ? [] : [excerpt(content, latinHits[0] ?? tokens[0] ?? criterion)],
+    };
+  });
+}
+
 function signalTokens(label: string): string[] {
   const parts = label
     .toLowerCase()
@@ -168,7 +235,11 @@ function signalTokens(label: string): string[] {
   return Array.from(tokens).filter((token) => token.length >= 2);
 }
 
-function buildDimensionScores(input: EvaluateEvidenceInput, signalCoverage: number): ReviewDimensionScore[] {
+function buildDimensionScores(
+  input: EvaluateEvidenceInput,
+  signalCoverage: number,
+  rubricCoverage: number,
+): ReviewDimensionScore[] {
   const content = input.content.trim();
   const hasUrl = Boolean(input.externalUrl?.trim());
   const parseability = content.length >= MIN_CONTENT_LENGTH ? 90 : hasUrl ? 45 : 35;
@@ -190,6 +261,7 @@ function buildDimensionScores(input: EvaluateEvidenceInput, signalCoverage: numb
   return [
     dimension("parseability", "材料可解析性", parseability, "根据正文长度和外部链接可读性估计。"),
     dimension("criteriaCompleteness", "完成标准完整性", criteriaCompleteness, "根据活动评估标准在材料中的覆盖情况估计。"),
+    dimension("rubricCoverage", "Rubric 覆盖度", rubricCoverage, "根据作品级 rubric 在证据中的覆盖情况估计。"),
     dimension("signalCoverage", "信号覆盖度", signalCoverage, "根据节点能力信号在证据中的覆盖情况估计。"),
     dimension("contentQuality", "内容质量", contentQuality, "根据具体程度、篇幅和可复核表达估计。"),
     dimension("credibility", "证据可信度", credibility, "根据是否有链接、正文是否可读和材料类型估计。"),
@@ -210,12 +282,13 @@ function dimension(
 function weightedScore(dimensions: ReviewDimensionScore[]): number {
   const weights: Record<ReviewDimensionScore["id"], number> = {
     parseability: 0.15,
-    criteriaCompleteness: 0.2,
+    criteriaCompleteness: 0.15,
+    rubricCoverage: 0.12,
     signalCoverage: 0.25,
-    contentQuality: 0.15,
+    contentQuality: 0.12,
     credibility: 0.1,
-    capabilityProof: 0.1,
-    nextStepClarity: 0.05,
+    capabilityProof: 0.08,
+    nextStepClarity: 0.03,
   };
   return Math.round(dimensions.reduce((sum, item) => sum + item.score * weights[item.id], 0));
 }

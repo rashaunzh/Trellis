@@ -24,18 +24,19 @@ test("renders development preview metadata", async () => {
   assert.match(await response.text(),developmentPreviewMeta);
 });
 
-test("renders the Trellis adaptive learning MVP entry", async () => {
+test("renders the Trellis course-intelligence entry", async () => {
   const response = await renderHome();
   const html = await response.text();
   assert.match(html,/Trellis/);
-  assert.match(html,/正在准备你的学习环境/);
+  assert.match(html,/正在读取已发布课程目录与学习状态/);
+  assert.match(html,/课程与本周/);
 });
 
-test("renders the independent Chinese learning entry", async () => {
+test("renders the Chinese course-intelligence loading state", async () => {
   const response = await renderPath("/learn");
   const html = await response.text();
   assert.equal(response.status,200);
-  assert.match(html,/正在准备你的学习环境/);
+  assert.match(html,/正在读取已发布课程目录与学习状态/);
 });
 
 test("build artifact includes V0.2 API routes", async () => {
@@ -47,7 +48,13 @@ test("build artifact includes V0.2 API routes", async () => {
   const testDir = path.dirname(fileURLToPath(import.meta.url));
   const serverFile = path.join(testDir, "..", "dist", "server", "index.js");
   const src = fs.readFileSync(serverFile, "utf-8");
-  for (const route of ["api/learning/workspace", "api/learning/replan", "api/learning/resources/inbox", "api/learning/api-config"]) {
+  for (const route of [
+    "api/learning/intelligence/state",
+    "api/learning/intake",
+    "api/learning/materials/analyze",
+    "api/learning/curricula/:id",
+    "api/learning/curricula/:id/confirm",
+  ]) {
     assert.ok(src.includes(route), `build 产物应包含路由 ${route}`);
   }
 });

@@ -178,7 +178,7 @@ test("evidenceEvaluator 规则版：篇幅不足 needs_revision", async () => {
 });
 
 // ── Evidence Review Engine：不同质量提交材料的评审行为 ──────────
-// 以下断言全部基于规则引擎现有输出（未修改任何评分逻辑）。
+// 以下断言锁定规则引擎对不同证据质量的核心判定。
 
 test("evidenceEvaluator 空泛材料：篇幅够但零信号覆盖 → needs_revision + 插前置", async () => {
   const assessment = await agents.evidenceEvaluator.evaluateEvidence({

@@ -65,6 +65,77 @@ test("confirm 后 workspace 能读到已确认计划和活动", async () => {
   }
 });
 
+test("workspace 暴露内容判断、本周行动卡、概念提示和学习产出读模型", async () => {
+  const service = createService();
+  await service.runDiagnostic({
+    ownerId: OWNER,
+    goal: "建立 AI PM 入门判断框架，能拆一个 AI Agent 产品场景",
+    weeklyMinutes: 180,
+    materialIds: ["res.gml-crash-course", "res.openai-evals"],
+    preference: "breadth_first",
+  });
+  const ws = await service.confirmProposal(OWNER);
+
+  assert.ok(ws.contentJudgment.length > 0, "应返回内容判断");
+  assert.ok(ws.contentJudgment.some((judgment) => judgment.role === "本周主线"), "本周材料应被标记为主线");
+  assert.ok(
+    ws.contentJudgment.every((judgment) => judgment.professionalVerdict && judgment.fitVerdict),
+    "材料判断应包含专业性和阶段适配",
+  );
+  assert.ok(ws.courseSlices.length > 0, "应返回课程切片");
+  assert.ok(ws.courseSlices.some((slice) => slice.entersCurrentWeek && slice.role === "本周主线"), "应有本周必看的课程切片");
+  assert.ok(
+    ws.courseSlices.some((slice) => !slice.entersCurrentWeek),
+    "应保留后续、参考或跳过片段，而不是把整门课塞进本周",
+  );
+  assert.ok(
+    ws.courseSlices.every((slice) => slice.sourceRange && slice.afterWatchingPrompt && slice.learnerAction),
+    "课程切片应说明看哪段、看完回答什么、做什么",
+  );
+
+  assert.ok(ws.weeklyActionPlan.length > 0, "应返回本周行动卡");
+  assert.ok(ws.nextAction, "应给出本次最小推进");
+  assert.ok(
+    ws.weeklyActionPlan.some((card) => /先搞懂|看例子|做一版|判断题/.test(card.title)),
+    "行动卡标题应表达学习节奏，而不是只重复节点名",
+  );
+  const mainCards = ws.weeklyActionPlan.filter((card) => card.tier === "主推进");
+  assert.ok(mainCards.length <= 4, "3 小时小周最多展示 4 张主推进卡");
+  assert.equal(ws.weeklyActionPlan[0]?.tier, "主推进", "本周行动卡应优先呈现主推进");
+  for (const card of ws.weeklyActionPlan) {
+    assert.ok(card.estimatedMinutes >= 30, "行动卡最小 30 分钟");
+    assert.equal(card.estimatedMinutes % 15, 0, "行动卡按 15 分钟递增");
+    assert.ok(card.materialSlice.length > 0, "行动卡应说明只看哪段材料");
+    assert.ok(card.courseSliceIds.length > 0, "行动卡应绑定具体课程切片");
+    assert.ok(card.nextIfStuck.length > 0, "行动卡应有卡住时缩小策略");
+  }
+
+  const scenarioCard = ws.weeklyActionPlan.find((card) => card.scenarioQuestion);
+  assert.ok(scenarioCard?.scenarioQuestion, "至少一个行动卡应提供轻量情景判断");
+  assert.equal(scenarioCard.scenarioQuestion.options.length, 4, "情景判断用四个选择降低启动成本");
+  assert.ok(
+    scenarioCard.scenarioQuestion.options.every((option) => option.text.length >= 50),
+    "情景判断选项应保留足够上下文，不让用户从零组织表达",
+  );
+  assert.ok(ws.conceptHints.length > 0, "应返回可点开的概念解释");
+
+  const activity = ws.activities.find((item) => item.id === scenarioCard.activityId)!;
+  await service.startActivity(OWNER, activity.id);
+  const ws2 = await service.submitEvidence(OWNER, activity.id, {
+    evidenceType: "judgment",
+    content:
+      "情景判断：我能判断当前 AI Agent 场景先用规则流程还是模型自动化。" +
+      "我会先确认用户任务是否高频、输入是否稳定、失败是否可兜底，" +
+      "再决定能力边界、人工确认点和评测方式。",
+  });
+  const evidence = ws2.evidence.find((item) => item.activityId === activity.id)!;
+  const { workspace: reviewed } = await service.reviewEvidence(OWNER, evidence.id);
+  assert.ok(
+    reviewed.learningOutputs.some((output) => output.kind === "判断记录" && output.sourceActionId === activity.id),
+    "通过或退回的判断应进入学习产出轨迹",
+  );
+});
+
 test("刷新不重排：重复 confirm 幂等，周计划不变", async () => {
   const service = createService();
   await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
@@ -463,6 +534,7 @@ test("用户主动提议 route_revision：确认后 accepted，空动作不插�
   const ws2 = await service.confirmAdjustment(OWNER, proposed!.id);
   assert.equal(ws2.adjustments.find((a) => a.id === proposed!.id)!.status, "accepted");
   assert.equal(ws2.activities.length, before, "确认主动提议不应插入活动");
+  assert.equal(ws2.nextStagePlan, null, "普通 route_revision 不生成作品集下一阶段");
 });
 
 test("用户主动提议 route_revision：忽略后 rejected", async () => {
@@ -682,4 +754,198 @@ test("采纳 route_revision（空动作）：不插活动，rationale 不变", a
   assert.equal(ws2.adjustments.find((a) => a.id === adjustment.id)!.status, "accepted");
   assert.equal(ws2.activities.length, activityCountBefore, "空动作不插活动");
   assert.equal(ws2.weeklyPlan!.rationale, rationaleBefore, "route_revision 不改 rationale");
+});
+
+test("workspace 返回周复盘：汇总完成、证据、修订和下一步", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const activity = (await service.getWorkspace(OWNER)).activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "短。" });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  const ws = await service.reviewEvidence(OWNER, evidence.id).then((result) => result.workspace);
+
+  assert.ok(ws.weekReview, "workspace 应返回周复盘");
+  assert.equal(ws.weekReview!.revisionCount, 1);
+  assert.equal(ws.weekReview!.nextWeekProposal.canGenerate, true);
+  assert.ok(ws.weekReview!.nextBestMove.includes("修订"), ws.weekReview!.nextBestMove);
+});
+
+test("生成下周计划：保留本周证据与作品版本，不清空当前周状态", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const activity = (await service.getWorkspace(OWNER)).activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, {
+    content: "训练机制解释：模型从大量数据中学习统计规律而非存储事实。概率推理说明：输出按概率分布采样，流畅不等于正确。幻觉风险识别：幻觉来自训练数据覆盖不足。泛化边界说明：泛化依赖训练数据分布，超出分布会失败。AI 与普通程序区分：普通程序按规则执行，AI 从数据学习。判断标准可操作：需要快速推理时适合用 AI，精确计算与隐私场景不适用。概念解释：机制、边界与失效条件都已说清。解释覆盖机制与边界，关系图包含至少 2 个相邻概念。",
+  });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const before = await service.getWorkspace(OWNER);
+
+  const after = await service.generateNextWeekPlan(OWNER);
+
+  const currentWeek = await service.getWorkspace(OWNER, { weekKey: before.weeklyPlan!.weekKey });
+  assert.equal(currentWeek.evidence.find((item) => item.id === evidence.id)!.status, "accepted");
+  assert.equal(currentWeek.activities.find((item) => item.id === activity.id)!.status, "completed");
+  assert.notEqual(after.weeklyPlan!.weekKey, before.weeklyPlan!.weekKey, "生成下周后应返回新周 workspace");
+  assert.ok(after.weeklyPlanHistory.some((week) => week.weekKey === before.weeklyPlan!.weekKey && week.reviewArchivedAt));
+  assert.ok(after.adjustments.some((item) => item.reason.includes("周复盘生成下一周计划")));
+});
+
+test("工作台资源进入当前阶段：映射节点后自动挂到同节点开放活动", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const activity = (await service.getWorkspace(OWNER)).activities.find((a) => a.status === "planned")!;
+
+  const ws = await service.saveUserResource(OWNER, {
+    type: "resource",
+    title: "我的课程笔记",
+    content: "这是一段用于当前节点的材料摘要。",
+    relatedNodeIds: [activity.nodeId],
+  });
+
+  const resource = ws.userResources.find((item) => item.title === "我的课程笔记")!;
+  assert.ok(resource.relatedNodeIds.includes(activity.nodeId));
+  assert.ok(ws.activities.find((item) => item.id === activity.id)!.inputRefs.includes(resource.id));
+
+  await service.saveUserResource(OWNER, {
+    type: "resource",
+    title: "我的课程笔记",
+    content: "这是一段用于当前节点的材料摘要。",
+    relatedNodeIds: [activity.nodeId],
+  });
+  const reread = await service.getWorkspace(OWNER);
+  assert.equal(
+    reread.contentJudgment.filter((judgment) => judgment.title === "我的课程笔记").length,
+    1,
+    "材料判断读模型应压掉同名同内容重复材料",
+  );
+});
+
+test("Course Slicer v2：用户课程目录切成多段，少数进入本周，高阶片段跳过", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI PM", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const activity = (await service.getWorkspace(OWNER)).activities.find((a) => a.status === "planned")!;
+
+  const ws = await service.saveUserResource(OWNER, {
+    type: "resource",
+    title: "AI PM 入门视频课目录",
+    content: [
+      "01. AI Agent 是什么：能力边界与失败场景",
+      "02. 用户场景：从痛点到任务定义",
+      "03. Eval metrics：怎么判断效果是否可上线",
+      "04. Advanced deployment：多 Agent 架构与生产部署",
+      "05. Fine-tuning benchmark：模型微调和数学证明",
+    ].join("\n"),
+    relatedNodeIds: [activity.nodeId],
+  });
+
+  const resource = ws.userResources.find((item) => item.title === "AI PM 入门视频课目录")!;
+  const slices = ws.courseSlices.filter((slice) => slice.resourceId === resource.id);
+  assert.ok(slices.length >= 5, "课程目录应被切成多个 slice");
+  assert.ok(slices.filter((slice) => slice.role === "本周主线").length <= 2, "本周只采用少数关键片段");
+  assert.ok(slices.some((slice) => slice.role === "暂不碰" && slice.difficulty === "偏难"), "高阶片段应先跳过");
+  assert.ok(
+    ws.weeklyActionPlan.some((card) => card.courseSliceIds.some((sliceId) => slices.some((slice) => slice.id === sliceId))),
+    "行动卡应绑定用户课程切片",
+  );
+});
+
+test("指定 weekKey 读取不同周：周历史聚合完成数和证据数", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const week1 = await service.getWorkspace(OWNER);
+  const activity = week1.activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, {
+    content: "训练机制解释：模型从大量数据中学习统计规律而非存储事实。概率推理说明：输出按概率分布采样。幻觉风险识别：幻觉来自覆盖不足。泛化边界说明：超出分布会失败。AI 与普通程序区分：普通程序按规则执行，AI 从数据学习。判断标准可操作：需要快速推理时适合用 AI，精确计算与隐私场景不适用。概念解释完整，关系图包含相邻概念。",
+  });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const week2 = await service.generateNextWeekPlan(OWNER, week1.weeklyPlan!.weekKey);
+
+  const rereadWeek1 = await service.getWorkspace(OWNER, { weekKey: week1.weeklyPlan!.weekKey });
+  const rereadWeek2 = await service.getWorkspace(OWNER, { weekKey: week2.weeklyPlan!.weekKey });
+
+  assert.equal(rereadWeek1.weeklyPlan!.weekKey, week1.weeklyPlan!.weekKey);
+  assert.equal(rereadWeek2.weeklyPlan!.weekKey, week2.weeklyPlan!.weekKey);
+  assert.ok(rereadWeek1.weeklyPlanHistory.find((week) => week.weekKey === week1.weeklyPlan!.weekKey)!.acceptedEvidenceCount >= 1);
+  assert.ok(rereadWeek2.activities.length > 0);
+});
+
+test("跨周活动操作返回活动所属周 workspace", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const week1 = await service.getWorkspace(OWNER);
+  const firstActivity = week1.activities.find((item) => item.status === "planned")!;
+  await service.startActivity(OWNER, firstActivity.id);
+  await service.submitEvidence(OWNER, firstActivity.id, { content: "先提交一条短证据，用来触发本周复盘和下周计划。" });
+  const firstEvidence = (await service.getWorkspace(OWNER)).evidence.find((item) => item.activityId === firstActivity.id)!;
+  await service.reviewEvidence(OWNER, firstEvidence.id);
+  const week2 = await service.generateNextWeekPlan(OWNER, week1.weeklyPlan!.weekKey);
+  const activity = week2.activities.find((item) => item.status === "planned")!;
+
+  const started = await service.startActivity(OWNER, activity.id);
+  assert.equal(started.weeklyPlan!.weekKey, week2.weeklyPlan!.weekKey);
+
+  const submitted = await service.submitEvidence(OWNER, activity.id, {
+    content: "短证据也应留在第 2 周视角等待评审。",
+  });
+  assert.equal(submitted.weeklyPlan!.weekKey, week2.weeklyPlan!.weekKey);
+
+  const evidence = submitted.evidence.find((item) => item.activityId === activity.id)!;
+  const reviewed = await service.reviewEvidence(OWNER, evidence.id).then((result) => result.workspace);
+  assert.equal(reviewed.weeklyPlan!.weekKey, week2.weeklyPlan!.weekKey);
+});
+
+test("周复盘归档：刷新后优先返回已归档复盘，可主动更新", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const week = await service.getWorkspace(OWNER);
+  await service.archiveCurrentWeekReview(OWNER, week.weeklyPlan!.weekKey);
+  const archived = await service.getWorkspace(OWNER, { weekKey: week.weeklyPlan!.weekKey });
+
+  assert.ok(archived.weekReview!.archivedAt);
+  assert.equal(archived.weekReview!.summary, week.weekReview!.summary);
+
+  const activity = archived.activities.find((a) => a.status === "planned")!;
+  await service.startActivity(OWNER, activity.id);
+  const updated = await service.archiveCurrentWeekReview(OWNER, week.weeklyPlan!.weekKey);
+  assert.ok(updated.weekReview!.summary.includes("完成 0/"));
+  assert.ok(updated.weekReview!.archivedAt);
+});
+
+test("用户资源被后续周同节点活动继承", async () => {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 180 });
+  await service.confirmProposal(OWNER);
+  const week1 = await service.getWorkspace(OWNER);
+  const activity = week1.activities.find((a) => a.status === "planned")!;
+  const withResource = await service.saveUserResource(OWNER, {
+    type: "resource",
+    title: "后续周也要使用的材料",
+    content: "这份材料绑定到当前节点。",
+    relatedNodeIds: [activity.nodeId],
+  });
+  const resource = withResource.userResources.find((item) => item.title === "后续周也要使用的材料")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: "短。" });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const week2 = await service.generateNextWeekPlan(OWNER, week1.weeklyPlan!.weekKey);
+
+  const inherited = week2.activities.find((item) => item.nodeId === activity.nodeId);
+  if (inherited) {
+    assert.ok(inherited.inputRefs.includes(resource.id));
+  } else {
+    assert.ok(week2.weeklyPlanHistory.some((week) => week.generatedFromReview));
+  }
 });

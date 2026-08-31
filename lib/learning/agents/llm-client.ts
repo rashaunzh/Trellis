@@ -13,7 +13,12 @@ export interface LLMConfig {
 }
 
 // 请求 LLM，返回文本内容。任何失败抛错（调用方负责回退）。
-export async function chatCompletion(config: LLMConfig, messages: ChatMessage[], maxTokens = 800): Promise<string> {
+export async function chatCompletion(
+  config: LLMConfig,
+  messages: ChatMessage[],
+  maxTokens = 800,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<string> {
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -26,6 +31,7 @@ export async function chatCompletion(config: LLMConfig, messages: ChatMessage[],
       max_tokens: maxTokens,
       temperature: 0.2,
     }),
+    signal: options.signal ?? AbortSignal.timeout(options.timeoutMs ?? 30_000),
   });
 
   if (!response.ok) {

@@ -3,7 +3,11 @@
 // ponytail: 先用透明规则覆盖高价值场景；未来接 LLM 时保留本规则作为 fallback。
 
 import type {
+  BehaviorPattern,
+  CapacityState,
   EvidencePolicy,
+  EnergyState,
+  EvidenceQuality,
   LearningDecision,
   LearningDecisionPolicyPort,
   LearningMode,
@@ -68,6 +72,44 @@ function motivationState(completionRate: number, skippedActivities: number): Lea
   return "steady";
 }
 
+function capacityState(input: LearningSituationInput): CapacityState {
+  const daily = input.dailyCapacitySignals ?? [];
+  if (daily.length > 0) {
+    const total = daily.reduce((sum, signal) => sum + Math.max(0, signal.availableMinutes), 0);
+    if (total < 60) return "critical";
+    if (total < 150) return "constrained";
+    if (total >= 420) return "ample";
+    return "normal";
+  }
+  if ((input.weeksRemaining ?? 3) <= 1) return "constrained";
+  return "normal";
+}
+
+function energyState(input: LearningSituationInput): EnergyState {
+  if (input.energyState) return input.energyState;
+  const daily = input.dailyCapacitySignals ?? [];
+  if (daily.some((signal) => signal.energy === "depleted")) return "depleted";
+  if (daily.some((signal) => signal.energy === "low")) return "low";
+  if (daily.some((signal) => signal.energy === "high")) return "high";
+  return "steady";
+}
+
+function behaviorPattern(input: LearningSituationInput): BehaviorPattern {
+  const notes = `${input.behaviorNotes?.join(" ") ?? ""} ${input.confusionNotes?.join(" ") ?? ""}`;
+  if (/(重启|重新开始|又放弃|换方向|restart)/i.test(notes)) return "restarting";
+  if ((input.skippedActivities ?? 0) >= 2 || /(拖延|没动|逃避|avoid)/i.test(notes)) return "avoidant";
+  if ((input.recentSoftSignalCount ?? 0) >= 3 && (input.recentHardEvidenceCount ?? 0) === 0) return "input_heavy";
+  if ((input.completionRate ?? 1) >= 0.7) return "consistent";
+  return "starting";
+}
+
+function evidenceQuality(input: LearningSituationInput): EvidenceQuality {
+  if (input.latestReviewVerdict === "needs_revision" || (input.missingSignals ?? []).length > 0) return "insufficient";
+  if ((input.recentHardEvidenceCount ?? 0) > 0) return "reviewable";
+  if ((input.recentSoftSignalCount ?? 0) > 0) return "soft_only";
+  return "none";
+}
+
 function stageFromDecision(input: LearningSituationInput, base: {
   goal: LearningSituation["goalClarity"];
   materials: LearningSituation["materialStatus"];
@@ -93,14 +135,22 @@ function buildSituation(input: LearningSituationInput): LearningSituation {
   const level = learnerLevel(input);
   const pressure = timePressure(input.weeksRemaining);
   const motivation = motivationState(completionRate, skippedActivities);
+  const capacity = capacityState(input);
+  const energy = energyState(input);
+  const behavior = behaviorPattern(input);
+  const evidence = evidenceQuality(input);
   const repeatedGaps = input.repeatedGaps ?? [];
   const activeRisks: string[] = [];
   if (goal === "vague") activeRisks.push("目标边界不清，直接排计划容易跑偏");
   if (materials === "risky") activeRisks.push("材料可能不适合当前目标，需先校准");
   if (motivation !== "steady") activeRisks.push("近期完成状态不稳，需要降低范围或加强陪伴");
+  if (capacity === "critical" || capacity === "constrained") activeRisks.push("本阶段可用时间不足，需要缩小承诺并保留缓冲");
+  if (energy === "low" || energy === "depleted") activeRisks.push("当前精力偏低，应降低认知负荷或拆小活动");
+  if (behavior === "input_heavy") activeRisks.push("近期输入多但缺少产出，需要转向可评审作品");
   if (repeatedGaps.length > 0) activeRisks.push(`反复缺口：${repeatedGaps.join("、")}`);
   if (pressure === "high") activeRisks.push("周期临近结束，应优先形成阶段成果");
 
+  const nextBestMove = activeRisks[0] ?? "继续推进一个可评审的独立练习。";
   return {
     goalClarity: goal,
     materialStatus: materials,
@@ -108,12 +158,17 @@ function buildSituation(input: LearningSituationInput): LearningSituation {
     currentStage: stageFromDecision(input, { goal, materials, pressure, level }),
     motivationState: motivation,
     timePressure: pressure,
+    capacityState: capacity,
+    energyState: energy,
+    behaviorPattern: behavior,
+    evidenceQuality: evidence,
     recentPattern: {
       completionRate,
       repeatedGaps,
       skippedActivities,
     },
     activeRisks,
+    nextBestMove,
   };
 }
 
@@ -213,6 +268,20 @@ export class RuleLearningDecisionPolicy implements LearningDecisionPolicyPort {
         0.72,
       );
     }
+    if (situation.capacityState === "critical" || situation.energyState === "depleted") {
+      return makeDecision(
+        situation,
+        "motivation_support",
+        "guided_practice",
+        "把本周改成一个 20-30 分钟的低负荷活动，只保留一个可观察信号。",
+        "时间或精力处于临界状态时，继续保留重任务会导致中断；先维持连续性更重要。",
+        "用户完成一个低阻力动作，留下 behavior signal 供下一次恢复计划。",
+        "behavior_signal",
+        ["behavior_signal"],
+        ["planner", "activityComposer"],
+        0.74,
+      );
+    }
     if (input.latestReviewVerdict === "needs_revision" || (input.missingSignals ?? []).length > 0) {
       return makeDecision(
         situation,
@@ -266,7 +335,7 @@ export class RuleLearningDecisionPolicy implements LearningDecisionPolicyPort {
         ["goalAnalyzer", "activityComposer"],
       );
     }
-    if ((input.recentHardEvidenceCount ?? 0) === 0) {
+    if ((input.recentHardEvidenceCount ?? 0) === 0 || situation.behaviorPattern === "input_heavy") {
       return makeDecision(
         situation,
         "produce_artifact",
