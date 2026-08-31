@@ -295,7 +295,7 @@ AGENTS.local.md
 .tmp-dev-server.err.log
 docs/learn-drawer-assessment.png
 docs/learn-drawer-assessment-bottom.png
-scripts/trellis-shot.mjs
+scripts/legacy/trellis-shot.mjs
 wrangler.migrate.json
 memory/sessions/2026-08-24-ponytail-dsh-integration.md
 ```
@@ -457,7 +457,7 @@ npx eslint . --ignore-pattern dist --ignore-pattern .next
 AGENTS.local.md
 .tmp-dev-server.*
 docs/learn-drawer-assessment*.png
-scripts/trellis-shot.mjs
+scripts/legacy/trellis-shot.mjs
 wrangler.migrate.json
 memory/sessions/2026-08-24-ponytail-dsh-integration.md
 ```

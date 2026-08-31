@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { validateArtifact } from "./validate-artifact.mjs";
 
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const RUNTIME_ROOT = resolve(process.env.SITES_RUNTIME_ROOT ?? ".sites-runtime");
 const BUILD_TIMEOUT_MS = Number(process.env.SITES_BUILD_TIMEOUT_MS ?? 180_000);
 const BUILD_KILL_AFTER_MS = Number(process.env.SITES_BUILD_KILL_AFTER_MS ?? 10_000);

@@ -66,6 +66,7 @@ __pycache__/
 /.mastra/
 /.tmp-next-stage-chrome/
 /.tmp-next-stage-chrome-*/
+/.tmp-trellis-browser-*/
 /.tmp-mastra-studio-chrome/
 **/.tmp-chrome-*/
 scripts/.tmp-*.mjs

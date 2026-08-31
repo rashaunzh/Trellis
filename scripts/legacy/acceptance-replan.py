@@ -1,5 +1,5 @@
 # Trellis V0.2 验收：温和重排本周（weekly replan）
-# 运行：python scripts/acceptance-replan.py
+# 运行：python scripts/legacy/acceptance-replan.py
 # 依赖：playwright（系统 Python 3.14 已装），dev server 运行在 3400 端口
 # 流程：观察入口 → 重新设置 → 诊断(8h/全局认知) → 确认路线 → 首周计划检查 →
 #       活动闭环(开始/足量证据/评估通过) → 成长页(节点/中文/相邻分支) →

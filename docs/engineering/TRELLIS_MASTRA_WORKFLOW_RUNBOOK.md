@@ -18,7 +18,7 @@
 - 已有 API 入口：`GET/POST /api/learning/mastra-runtime`；
 - `/learn` 作品级质量面板可运行 Mastra runtime 并展示 10-step trace；
 - 已有固定 demo trace，可用于作品集讲解和截图；
-- 已有 Studio 截图素材 `docs/mastra-studio-1-studio-home.png` / `-2-workflows-list.png` / `-3-workflow-graph.png` 与截图脚本 `scripts/mastra-studio-shot.mjs`；发布前可复跑更新。
+- 已有 Studio 截图素材 `docs/mastra-studio-1-studio-home.png` / `-2-workflows-list.png` / `-3-workflow-graph.png` 与截图脚本 `scripts/legacy/mastra-studio-shot.mjs`；发布前可复跑更新。
 - 已有 server API 运行的 step output 证据 `docs/mastra-studio-run-output.json`（10 步 trace + 5 个 HITL + stagePath/dynamicSimulation/qualitySummary/runtimeReadiness/resumeContract）。
 
 ## 运行命令
@@ -50,7 +50,7 @@ npm run mastra:studio
 
 ### Studio 截图（2026-08-28 已验收）
 
-由 `scripts/mastra-studio-shot.mjs` 对 `mastra dev` 生成，存入 `docs/`：
+由 `scripts/legacy/mastra-studio-shot.mjs` 对 `mastra dev` 生成，存入 `docs/`：
 
 | 文件 | 内容 |
 |---|---|
@@ -59,7 +59,7 @@ npm run mastra:studio
 | `docs/mastra-studio-3-workflow-graph.png` | workflow graph：10 个 step 节点 + HITL 标记（`Mastery Confirmation` 等） |
 | `docs/mastra-studio-run-output.json` | server API run 的 step output 证据（10 步 trace、5 HITL、stagePath、dynamicSimulation、qualitySummary、runtimeReadiness、resumeContract、fallbackMode=rule） |
 
-复跑更新：先 `npm run mastra:dev`，再 `node scripts/mastra-studio-shot.mjs`。
+复跑更新：先 `npm run mastra:dev`，再 `node scripts/legacy/mastra-studio-shot.mjs`。
 
 ### 边界（Studio 部分）
 
@@ -209,7 +209,7 @@ npm run acceptance:portfolio
 5. 确认视图验证：`/learn` 渲染 `NextStagePlan`、`已生成 3 个正式活动`、rubric 文案、作品级质量面板；点击 `运行 eval`（`100% pass`）与 `运行 Mastra runtime`（`week StagePath`）；检查无 error overlay / 浏览器异常。
 6. 截图：`docs/acceptance-portfolio-next-stage.png`。
 
-两脚本均无 npm 依赖（Node 原生 fetch / WebSocket + Chrome DevTools Protocol），`acceptance-portfolio-full-loop.mjs` 复用 `acceptance-next-stage-rubric.mjs` 导出的 CDP / API helpers。
+两脚本均无 npm 依赖（Node 原生 fetch / WebSocket + Chrome DevTools Protocol），共同复用 `scripts/lib/browser-cdp.mjs`。
 
 ## 已知边界
 

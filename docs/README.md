@@ -1,35 +1,44 @@
 # Trellis 文档索引
 
-此目录保存产品、架构、研究和开发文档。当前产品讨论以 V0.2 PRD 为唯一基线；旧版资料只用于追溯，不参与当前决策。
+文档按“当前契约、工程运行、历史兼容、归档”解释。文件仍存在不代表它仍定义产品；状态以本索引和 `memory/handoff/current.md` 为准。
 
-## 当前权威文档
+## 当前产品契约
 
-- `product/TRELLIS_PORTFOLIO_AGENTIC_LEARNING_COMPANION.md`：作品集目标：Agentic Learning Companion（Learning Situation-first dynamic learning adaptation）
-- `product/TRELLIS_PORTFOLIO_DEMO_SCRIPT.md`：作品集 10-15 分钟演示讲稿
-- `product/TRELLIS_PORTFOLIO_SCREENSHOTS.md`：作品集截图索引（含 `docs/learn-next-stage-rubric.png`）
-- `engineering/PORTFOLIO_AGENT_DISTRIBUTION.md`：作品级并发开发分发说明
-- `engineering/TRELLIS_PORTFOLIO_DELIVERY_MANIFEST.md`：作品级交付清单（运行入口、验收、截图、公开边界）
-- `architecture/TRELLIS_CORE_ARCHITECTURE.md`：作品级核心架构（Kernel / Tool Registry / Domain Agents 分层）
-- `engineering/TRELLIS_MASTRA_WORKFLOW_RUNBOOK.md`：Mastra workflow runtime 运行手册
-- `architecture/TRELLIS_DECISION_TRACE.md`：决策可解释性模型
-- `architecture/TRELLIS_LEARNING_MEMORY_MODEL.md`：学习记忆聚合读模型
-- `engineering/TRELLIS_TOOL_LAYER.md`：内部工具层标准化
-- `product/TRELLIS_V0.2_PRD.md`：当前产品方向和后续实现基线
-- `product/TRELLIS_V0.3_EVIDENCE_REVIEW_ENGINE.md`：证据评审引擎的产品逻辑与工程实现（四 Agent 角色、v0.3 已完成、v0.3-beta Proposal/Adjustment Engine 已进入 alpha、规则版先行理由）
-- `product/TRELLIS_PRODUCT_INTRODUCTION.md`：面向协作者和潜在用户的产品介绍
-- `product/TRELLIS_V0.2_MVP_DELIVERY.md`：Checkpoint 5 后的 MVP 交付、验收、产品复盘和下一阶段计划
-- `product/TRELLIS_V0.1_PRD.md`：生产版本的产品骨架与兼容边界
-- `architecture/TRELLIS_V0.2_ARCHITECTURE.md`：V0.2 学习编排内核架构基线（agent 接口边界、领域模型、状态机、API）
-- `architecture/MEMORY_ARCHITECTURE.md`：长期记忆分层和写入协议
-- `architecture/AI_INTERACTION_PROTOCOL.md`：AI 上下文与提案确认规则
-- `engineering/TRELLIS_V0.2_IMPLEMENTATION_PLAN.md`：V0.2 MVP 实施计划与检查点
-- `research/V0.2_MARKET_AND_LEARNING_FOUNDATIONS.md`：V0.2 的市场和学习科学依据
-- `development/LOCAL_DEVELOPMENT.md`：固定开发环境
-- `development/REPOSITORY_STRUCTURE.md`：仓库目录契约
+- `product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md`：当前 Course Intelligence 产品责任、用户链路与边界。
+- `architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md`：来源、领域图、Course Genome、课程组合与学习状态架构。
+- `engineering/TRELLIS_REMEDIATION_IMPLEMENTATION_2026-08-31.md`：本地功能 MVP 的 Conditional Go 状态与生产缺口。
+- `engineering/TRELLIS_FULL_ENGINEERING_AUDIT_2026-08-30.md`：全仓审计依据与风险底稿。
 
-## 历史资料
+## 当前工程入口
 
-- `archive/legacy-v0.1/`：Trellis 定名与 V0.2 方向确认前的资料。
-- `archive/v0.2-drafts/`：形成正式 V0.2 PRD 之前的产品与架构提案。
+- `engineering/LOCAL_DEVELOPMENT.md`：本地环境、迁移与验证。
+- `engineering/DEPLOYMENT_RUNBOOK.md`：远程 D1、环境变量、部署与 smoke。
+- `development/REPOSITORY_STRUCTURE.md`：目录职责和可重建边界。
+- `../scripts/README.md`：正式、兼容与历史脚本分类。
+- `architecture/MEMORY_ARCHITECTURE.md`：长期记忆分层与写入协议。
 
-归档内容只用于追溯，不参与当前产品或工程决策。需要实施时，以当前 PRD、正式架构文档和决策记录为准。
+## 交付材料
+
+- `product/TRELLIS_PORTFOLIO_CASE_STUDY.md`：当前作品集叙事草案。
+- `engineering/TRELLIS_3_MIN_DEMO_SCRIPT.md`：Course Intelligence 三分钟演示。
+- `architecture/TRELLIS_DELIVERY_ARCHITECTURE.md`：交付视角的功能与技术架构。
+- `acceptance-course-intelligence-*.png`：由正式浏览器验收生成的当前截图。
+
+## 历史兼容
+
+以下材料记录 StagePath、Evidence Review、Mastra 和旧作品闭环，仍可用于回归或理解演进，但不定义当前首次体验：
+
+- `product/TRELLIS_V0.2_PRD.md`
+- `product/TRELLIS_V0.3_EVIDENCE_REVIEW_ENGINE.md`
+- `product/TRELLIS_PORTFOLIO_AGENTIC_LEARNING_COMPANION.md`
+- `engineering/TRELLIS_MASTRA_WORKFLOW_RUNBOOK.md`
+- `engineering/TRELLIS_PORTFOLIO_DELIVERY_MANIFEST.md`
+- `engineering/PORTFOLIO_AGENT_DISTRIBUTION.md`
+
+## 归档
+
+- `archive/legacy-v0.1/`：Trellis 定名与 V0.2 方向确认前资料。
+- `archive/v0.2-drafts/`：正式 V0.2 PRD 之前的提案。
+- `archive/2026-08-13-mvp-proposals/`：早期 MVP 候选方案。
+
+归档内容只用于追溯。实施前先读当前产品契约、架构、remediation 状态和当前交接。

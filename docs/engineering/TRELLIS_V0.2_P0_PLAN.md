@@ -34,7 +34,7 @@
 - 活动类型 3 种：`build_model / follow_demo / independent_practice`（`types.ts` ACTIVITY_TYPES）。
 - 调整类型 3 种：`activity_replan / weekly_light / route_revision`，状态 `proposed/accepted/rejected/superseded`。
 - 表结构：内容层 9 张（0004）+ 状态层 5 张（profiles 0005 / api_config 0006）；**drizzle `text(enum)` 在 SQLite 是纯 TEXT、无 CHECK 约束**——新增枚举值只需改 TS 定义，不产生迁移；新增列才需要迁移。
-- 验证命令：`npm run test:domain`（42/42）、eslint 0 problems、`vinext build`、`node --test tests\*.test.mjs`（6/6）、`scripts/acceptance-replan.py`（32/32，Playwright）。
+- 验证命令：`npm run test:domain`（42/42）、eslint 0 problems、`vinext build`、`node --test tests\*.test.mjs`（6/6）、`scripts/legacy/acceptance-replan.py`（32/32，Playwright）。
 - 远程 D1 `<your-d1-database-name>` 已创建（uuid `<your-database-id>`）但 **num_tables=0，迁移从未应用**；本地 Miniflare D1 有完整状态。
 
 ## 数据模型改动
@@ -126,7 +126,7 @@ API/集成：
 
 浏览器验收：
 
-- `scripts/acceptance-replan.py` 扩展或新增 `scripts/acceptance-p0.py`：诊断 → 完成活动 → 综合任务 → 确认掌握 → 复测闭环 → 重排保留，全链路断言 + 截图。
+- `scripts/legacy/acceptance-replan.py` 扩展或新增兼容验收：诊断 → 完成活动 → 综合任务 → 确认掌握 → 复测闭环 → 重排保留，全链路断言 + 截图。
 
 验证命令（Windows 原生命令，规避 WSL 找不到 node）：
 

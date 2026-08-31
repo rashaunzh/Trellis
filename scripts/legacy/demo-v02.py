@@ -1,5 +1,5 @@
 # Trellis V0.2 演示脚本 — 从干净状态走完整核心叙事
-# 运行：TRELLIS_BASE=<URL> python scripts/demo-v02.py
+# 运行：TRELLIS_BASE=<URL> python scripts/legacy/demo-v02.py
 # 本地彩排：TRELLIS_BASE=http://localhost:3411（需先起 dev server）
 # 线上演示：TRELLIS_BASE=<your deployed URL>（需浏览器 UA 可直连）
 # 截图输出：.wrangler/demo-shots/

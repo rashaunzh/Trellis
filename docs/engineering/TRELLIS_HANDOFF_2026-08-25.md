@@ -136,7 +136,7 @@ Do not include the following local artifacts unless explicitly needed:
 - `AGENTS.local.md`
 - `docs/learn-drawer-assessment.png`
 - `docs/learn-drawer-assessment-bottom.png`
-- `scripts/trellis-shot.mjs`
+- `scripts/legacy/trellis-shot.mjs`
 - `wrangler.migrate.json`
 
 ## Product Direction Correction

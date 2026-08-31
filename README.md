@@ -42,7 +42,7 @@ npm ci
 npm run dev
 ```
 
-Vite 会打印实际地址。首次运行或 schema 更新需先应用 `drizzle/0013_course_intelligence.sql`，详见 [本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。
+Vite 会打印实际地址。首次运行或 schema 更新需按 `drizzle/migration-manifest.json` 应用完整迁移链；Course Intelligence 与 canonical runtime 分别位于 `0013/0014`。详见[本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。
 
 内置模型为可选增强：
 
@@ -95,4 +95,6 @@ npm run delivery:precheck
 - [复用与重建审计](docs/engineering/TRELLIS_REUSE_AND_REBUILD_AUDIT.md)
 - [本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)
 - [部署 Runbook](docs/engineering/DEPLOYMENT_RUNBOOK.md)
+- [仓库目录契约](docs/development/REPOSITORY_STRUCTURE.md)
+- [工程脚本分类](scripts/README.md)
 - [当前交接状态](memory/handoff/current.md)

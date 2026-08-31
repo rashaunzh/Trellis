@@ -1,7 +1,7 @@
 # Trellis V0.2 演示 Runbook
 
 > 演示对象：AI 学习编排系统（可信动态编排）。演示 URL：`<your deployed URL>`
-> 彩排脚本：`scripts/demo-v02.py`（一键走完整叙事，截图到 `.wrangler/demo-shots/`）
+> 彩排脚本：`scripts/legacy/demo-v02.py`（一键走旧 V0.2 叙事，截图到 `.wrangler/demo-shots/`）
 
 ## 演示前检查清单
 
@@ -13,7 +13,7 @@
 
 ## 演示脚本（8 步叙事）
 
-运行：`TRELLIS_BASE=<your deployed URL> python scripts/demo-v02.py`
+运行：`TRELLIS_BASE=<your deployed URL> python scripts/legacy/demo-v02.py`
 
 1. 干净起点（reset）
 2. 诊断：目标 + 6 小时 + 先建立全局认知 → 路线提案（AI 通识入门 3 模块）

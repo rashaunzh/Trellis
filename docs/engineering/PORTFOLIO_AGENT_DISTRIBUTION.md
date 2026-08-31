@@ -34,7 +34,7 @@ Learning Situation-first
 | Mastra runtime wrapper | 已可运行，不推翻 domain engine | `lib/learning/agents/mastra-workflow.ts`、`src/mastra/index.ts` |
 | Quality / Eval / Memory / Tool registry | 已有 API 和测试 | `app/api/learning/quality/route.ts`、`app/api/learning/eval/route.ts`、`lib/learning/architecture/` |
 | Rubric-aware Evidence Review | 已接入评审主链路 | `lib/learning/agents/evidence-evaluator.ts`、`lib/learning/agents/types.ts` |
-| Browser acceptance | 已有可复现截图与验收 | `scripts/acceptance-next-stage-rubric.mjs`、`scripts/acceptance-portfolio-full-loop.mjs` |
+| Browser acceptance | 已有可复现截图与验收 | `scripts/compatibility/acceptance-next-stage-rubric.mjs`、`scripts/compatibility/acceptance-portfolio-full-loop.mjs` |
 | Portfolio docs | 已有 README、讲稿、截图索引、发布清单 | `README.md`、`docs/product/`、`docs/engineering/` |
 
 ## 3. 必跑验收
@@ -84,7 +84,7 @@ npm run release:check
 
 3. **Mastra Studio verification**
    - 复跑 `npm run mastra:dev`。
-   - 用 `scripts/mastra-studio-shot.mjs` 更新 Studio 截图。
+   - 用 `scripts/legacy/mastra-studio-shot.mjs` 更新 Studio 截图。
    - 确认截图中能看见 workflow graph、steps、runs/traces。
    - 注意：`/api/learning/mastra-runtime` 已返回 `stepOutputs`、`hitlCheckpoints`、`resumeContract` 和 `runtimeReadiness`；不要重复另造 runtime report。
 

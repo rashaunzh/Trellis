@@ -23,7 +23,7 @@
 | `drizzle/`、`db/` | schema 与迁移 |
 | `docs/product/` | 产品介绍、作品集文档（除含个人标识的平台总览，见 §3） |
 | `docs/architecture/` | 架构与决策说明 |
-| `scripts/` | 验收/演示脚本（**需先做 §5 的路径脱敏**，见 `scripts/acceptance-replan.py:16`、`scripts/acceptance-v02-main-flow.py:15`、`scripts/browser-acceptance.py:12`、`scripts/demo-v02.py:16` 等硬编码本地绝对路径） |
+| `scripts/` | 验收/演示脚本（旧 Python 脚本已归入 `scripts/legacy/`，发布前仍需检查路径脱敏） |
 
 ## 3. 不建议公开文件（仅标记，不删除）
 
@@ -73,7 +73,7 @@ npm run release:check
 - [ ] 发布包不含 `memory/`（用 §6 白名单方式打包或独立分支）。
 - [ ] 以下文件中的邮箱/账号/域名/本地路径已替换为占位符（或整体排除）：
   - docs：`DEPLOYMENT_RUNBOOK.md`、`DEMO_RUNBOOK.md`、`LOCAL_DEVELOPMENT.md`、`TRELLIS_V0.2_PLATFORM_OVERVIEW.md`（已初步脱敏）
-  - scripts：`acceptance-replan.py`、`acceptance-v02-main-flow.py`、`browser-acceptance.py`、`demo-v02.py`（已改为 `TRELLIS_SHOTS_DIR` / 相对路径）
+  - `scripts/legacy/`：`acceptance-replan.py`、`acceptance-v02-main-flow.py`、`browser-acceptance.py`、`demo-v02.py`（已改为 `TRELLIS_SHOTS_DIR` / 相对路径）
   - memory（若保留）：`handoff/current.md`、`sessions/2026-08-20-v0.2-replan-acceptance.md`
 - [ ] `memory/handoff/current.md` 编码损坏已由维护方修复（当前无效 UTF-8，不随发布包）。
 - [ ] 截图（`docs/learn-*.png`）确认为作品集素材而非中间文件；中间截图目录已被忽略。

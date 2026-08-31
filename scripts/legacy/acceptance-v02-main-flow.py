@@ -1,5 +1,5 @@
 # Trellis V0.2 工程可用 MVP 主流程验收 — 12 场景
-# 运行：TRELLIS_BASE=http://localhost:3410 python scripts/acceptance-v02-main-flow.py
+# 运行：TRELLIS_BASE=http://localhost:3410 python scripts/legacy/acceptance-v02-main-flow.py
 # 依赖：playwright（系统 Python 3.14），dev server 运行中
 # 场景：新用户进入 → 目标/6h → 多活动 → 抽屉 6 段 → 短证据退回 → 修订通过 →
 #       节点验证 → 重排保留证据 → 多 owner 隔离 → reset 只清当前 owner

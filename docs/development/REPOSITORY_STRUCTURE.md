@@ -2,7 +2,7 @@
 
 ## 原则
 
-仓库按“运行代码、工程支持、产品资料、长期记忆”分工。Next/Vinext、Drizzle 和 Worker 依赖若干根目录约定，因此 V0.2 架构确认前不为视觉整齐移动运行代码。
+仓库按“运行代码、工程支持、产品资料、长期记忆”分工。Next/Vinext、Drizzle 和 Worker 依赖若干根目录约定，不为视觉整齐移动框架入口。
 
 ## 运行代码
 
@@ -20,15 +20,20 @@
 | 路径 | 职责 |
 |---|---|
 | `build/` | Sites/Vinext 构建适配代码，不是构建产物 |
-| `scripts/` | 安装、构建、环境与产物验证脚本 |
-| `tests/` | 自动化验证 |
+| `scripts/acceptance/` | 浏览器和端到端验收；Course Intelligence 是当前正式纵向链路 |
+| `scripts/release/` | 构建、迁移、交付预检、生产 smoke 与产物验证 |
+| `scripts/lib/` | 多脚本共享的内部基础设施，不提供独立命令 |
+| `scripts/compatibility/` | 旧 StagePath、三周链和作品闭环的兼容回归 |
+| `scripts/legacy/` | 旧 V0.2、作品集和 Mastra 演示兼容脚本，不进入默认 CI |
+| `tests/learning-domain/` | 领域、应用与持久化模块测试 |
+| `tests/*.test.mjs` | 编译产物和路由 smoke 测试 |
 | `.github/` | CI 工作流 |
 | `.openai/` | 当前托管平台的非秘密配置 |
 | `.vscode/` | 仓库级编辑器与终端约束 |
 
 ## 产品资料与记忆
 
-- `docs/` 保存可评审的产品、架构、研究和开发文档；`docs/product/TRELLIS_V0.2_PRD.md` 是当前产品基线。
+- `docs/` 保存可评审的产品、架构、研究和开发文档；当前实现以 Course Intelligence 产品契约、架构和 remediation 状态为准，V0.2 PRD 只保留产品沿革与兼容约束。
 - `memory/` 保存已确认偏好、路线、决策、会话结果和当前交接；它不是文档归档区，也不复制外部知识原文。
 - `docs/archive/` 只保存已失效但仍有追溯价值的旧版资料和设计草案；归档文件不能作为实现依据。
 
@@ -38,4 +43,4 @@
 
 ## 何时允许重构目录
 
-只有当 V0.2 实现规格明确了领域边界，且移动能改善依赖方向或测试隔离时，才评估引入 `src/` 或重新组织 `app/db/worker`。目录迁移必须单独提交，并在每批移动后运行完整测试。
+只有当移动能改善依赖方向或测试隔离时，才重新组织 `app/db/worker`。目录迁移必须单独提交，并在每批移动后运行完整测试。

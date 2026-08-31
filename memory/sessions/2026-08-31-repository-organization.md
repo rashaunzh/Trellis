@@ -22,5 +22,14 @@
 
 - `npm run check`、课程智能浏览器验收与交付预检均通过。
 - GitHub 只计划推送修缮分支，不自动合并到 `main`。
-- 首次 push 被隐私安全门拦截：提交包含私有 `memory/`，当前无法由 CLI 确认远端仓库可见性。需用户明确确认该远端为私有且允许同步 memory 后再推送。
+- 用户确认远端为私有并授权同步 `memory/` 后，修缮分支已推送到 GitHub。
 - 本地仅 `feat/evidence-review-engine-v03` 已完全合并进 `main` 且远端已删除；未擅自删除本地分支。
+
+## 工程化分类补充
+
+- `scripts/` 分为 `acceptance/`、`release/`、`compatibility/`、`legacy/` 与 `lib/`，正式发布门槛不再和旧作品集脚本混在一起。
+- 提取中立 `scripts/lib/browser-cdp.mjs`；Course Intelligence 不再反向依赖旧 next-stage 验收脚本。
+- `docs/README.md` 改为当前契约、当前工程、交付材料、历史兼容和归档五类；V0.2 PRD 不再被误写为当前唯一实现基线。
+- 清理 38 个临时 Chrome profile 与 Python cache；运行中的两份 dev server 日志因文件占用保留。
+- 安全删除已完全合并且远端已移除的本地 `feat/evidence-review-engine-v03` 分支。
+- 目录迁移后 `npm run check`、Course Intelligence 浏览器验收和 delivery precheck 全部通过。

@@ -50,5 +50,5 @@
 ## 演示方式
 
 - 线上：`<your deployed URL>`（浏览器直接开；如平台启用 Bot Fight Mode，非浏览器 UA 可能被拦）
-- 一键演示：`TRELLIS_BASE=<URL> python scripts/demo-v02.py`（8 步叙事 + 截图）
+- 一键演示：`TRELLIS_BASE=<URL> python scripts/legacy/demo-v02.py`（8 步旧版叙事 + 截图）
 - 详见 docs/engineering/DEMO_RUNBOOK.md

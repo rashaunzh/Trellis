@@ -14,7 +14,7 @@ import {
   waitForJsonVersion,
   waitForPageTarget,
   connectCdp,
-} from "./acceptance-next-stage-rubric.mjs";
+} from "../lib/browser-cdp.mjs";
 
 const OWNER_ID = "three-week-loop-owner";
 const SHOT_LEARN = resolve("docs/acceptance-three-week-learn.png");

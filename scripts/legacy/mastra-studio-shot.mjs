@@ -1,5 +1,5 @@
 // Mastra Studio screenshot via CDP. No npm dependency.
-// Usage: node scripts/mastra-studio-shot.mjs [baseUrl] [outPrefix]
+// Usage: node scripts/legacy/mastra-studio-shot.mjs [baseUrl] [outPrefix]
 //   baseUrl   default http://localhost:4111  (mastra dev server, Studio root)
 //   outPrefix default docs/mastra-studio
 // Requires `mastra dev` running (npm run mastra:dev). Starts one workflow run

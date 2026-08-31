@@ -1,9 +1,9 @@
 // Trellis portfolio full-loop browser acceptance via Chrome DevTools Protocol.
 // 作品级主链路：reset → diagnostic（页面表单）→ StagePath/DynamicSimulation → confirm
 // → artifact → evidence → review → mastery → next stage → /learn 渲染 → quality/eval。
-// 无 npm 依赖；复用 acceptance-next-stage-rubric.mjs 的 CDP/API helpers。
+// 无 npm 依赖；复用 scripts/lib/browser-cdp.mjs 的 CDP/API helpers。
 // Run with dev server active:
-//   node scripts/acceptance-portfolio-full-loop.mjs
+//   node scripts/compatibility/acceptance-portfolio-full-loop.mjs
 import { statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -18,7 +18,7 @@ import {
   waitForJsonVersion,
   waitForPageTarget,
   connectCdp,
-} from "./acceptance-next-stage-rubric.mjs";
+} from "../lib/browser-cdp.mjs";
 
 const OWNER_ID = "portfolio-full-loop-owner";
 const SHOT_ONBOARDING = resolve("docs/acceptance-portfolio-onboarding.png");

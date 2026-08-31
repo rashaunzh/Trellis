@@ -103,7 +103,7 @@ Learning Situation
 
 ## 当前边界
 
-- 当前安装的是 `@mastra/core@1.62.0`，并已补 Mastra CLI / Studio 入口；仓库已有 Studio 截图素材与截图脚本，但作品集验收以 `npm run demo:mastra`、`/api/learning/mastra-runtime` 和浏览器 acceptance 为准。若更换机器，需复跑 `npm run mastra:dev` 与 `scripts/mastra-studio-shot.mjs` 更新截图。
+- 当前安装的是 `@mastra/core@1.62.0`，并已补 Mastra CLI / Studio 入口；仓库已有 Studio 截图素材与截图脚本，但作品集验收以 `npm run demo:mastra`、`/api/learning/mastra-runtime` 和浏览器 acceptance 为准。若更换机器，需复跑 `npm run mastra:dev` 与 `scripts/legacy/mastra-studio-shot.mjs` 更新截图。
 - Mastra runtime 已有作品级 report 语义：`runId` / `traceId` / `stepOutputs` / `hitlCheckpoints` / `resumeContract` / `runtimeReadiness`。当前 `resumeContract` 指向 Trellis API 状态机恢复，不宣称 Mastra 原生长任务持久恢复。
 - Artifact loop 已完成正式闭环切片：阶段作品可生成活动、提交 hard evidence、进入评审和掌握确认；确认后能提出下一阶段建议；采纳后会进入下一阶段行动视图并生成带 rubric 的正式活动。当前已能通过 `artifactIteration` 表达多轮修订状态和版本历史；后续仍需更完整的阶段版本管理。
 - Tool Layer 目前是内部 tools 标准化，不是外部 MCP 工具生态。

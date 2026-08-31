@@ -1,5 +1,5 @@
 # Trellis V0.2 MVP 浏览器验收 — 完整用户旅程
-# 运行：TRELLIS_BASE=http://localhost:3400 python scripts/browser-acceptance.py
+# 运行：TRELLIS_BASE=http://localhost:3400 python scripts/legacy/browser-acceptance.py
 # 依赖：playwright（系统 Python 3.14 已装），dev server 运行在 3400 端口
 import json
 import os

@@ -14,7 +14,7 @@ import {
   waitForJsonVersion,
   waitForPageTarget,
   connectCdp,
-} from "./acceptance-next-stage-rubric.mjs";
+} from "../lib/browser-cdp.mjs";
 
 const OWNER_ID = "course-intelligence-acceptance-owner";
 const SHOTS = {

@@ -69,7 +69,6 @@ node --test --test-isolation=none "tests/learning-domain/*.test.ts"
 node --test tests/*.test.mjs
 npm run lint
 npm run build
-npm run acceptance:three-week-loop
 npm run delivery:precheck
 TRELLIS_BASE=<your deployed URL> npm run smoke:production
 ```
@@ -80,7 +79,7 @@ TRELLIS_BASE=<your deployed URL> npm run smoke:production
 TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intelligence
 ```
 
-`delivery:precheck` 只检查交付资产是否齐备；`smoke:production` 才检查线上 URL。
+`acceptance:three-week-loop`、`acceptance:portfolio` 和 `acceptance:next-stage` 只用于旧兼容链回归，不是当前部署门槛。`delivery:precheck` 只检查交付资产是否齐备；`smoke:production` 才检查线上 URL。
 
 ## 演示数据管理
 

@@ -59,7 +59,7 @@
 - output: `{ workspace }`
 - state effect: 保留证据/节点进度/已产生证据活动；删除本周无证据的 planned/in_progress 活动；重新生成活动；写 activity_replan(accepted) 调整记录
 - errors: 404（未诊断）、400（路线未确认）
-- tests: api-loop "重排本周"、acceptance-replan.py 32/32
+- tests: api-loop "重排本周"、`scripts/legacy/acceptance-replan.py` 32/32
 
 ### POST /api/learning/adjustments/:id/confirm
 - input: `{}`

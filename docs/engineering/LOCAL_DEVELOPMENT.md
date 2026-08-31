@@ -63,4 +63,4 @@ TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intellige
 - **dev server 端口残留**：新起用 `--strictPort` 换端口（3406/3407/…），不要杀旧进程。
 - **worker 端 lib 代码更新**：vite HMR 对 worker 端模块不可靠，改 lib/ 后重启 dev server 再验证。
 - **drizzle text enum**：SQLite 无 CHECK 约束，改 TS 枚举值不需迁移；新增列才需要。
-- **验收脚本**：`scripts/acceptance-replan.py`（重排本周 32 项）；`TRELLIS_BASE` 环境变量指定端口，`TRELLIS_SHOTS_DIR` 可指定截图目录。Python 脚本需 `py_compile` 通过。
+- **正式验收**：`npm run acceptance:course-intelligence`；`TRELLIS_BASE` 指定实际端口。旧 Python 验收位于 `scripts/legacy/`，只在回归 V0.2 兼容行为时运行。

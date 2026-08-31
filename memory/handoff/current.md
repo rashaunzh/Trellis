@@ -59,8 +59,10 @@ Trellis 负责把用户目标和已有课程转化为有限课程组合、准确
 - 已创建 `codex/trellis-production-remediation`，相对 `origin/main` 拆成三笔可审阅提交：运行时、产品界面、交付证据。
 - 本地工作树干净；`npm run check`、`acceptance:course-intelligence` 和 `delivery:precheck` 全部通过。
 - `.agents/`、`AGENTS.local.md`、`skills-lock.json` 与旧生成截图已隔离为本地工具/产物，不进入 Trellis 产品提交。
-- GitHub push 尚未执行：提交包含 `memory/` 私有记录，需要用户明确确认远端 `rashaunzh/AI-Learning-OS` 为私有且允许同步这些记录。
-- 不自动合并 `main`，也不删除本地旧分支；`feat/evidence-review-engine-v03` 是当前唯一已并入 main 且远端已删除的清理候选。
+- 用户已确认远端为私有并授权同步 `memory/`；`codex/trellis-production-remediation` 已推送，仍未自动合并 `main`。
+- 脚本已按 `acceptance / release / compatibility / legacy / lib` 分类，当前 Course Intelligence 不再依赖旧作品集验收模块。
+- 文档索引已按当前契约、当前工程、交付、历史兼容和归档重写；本地临时浏览器产物已清理。
+- 已安全删除完全并入 main 且远端已删除的 `feat/evidence-review-engine-v03` 本地分支；其他未合并分支保留。
 
 ## 2026-08-30 全工程审计
 

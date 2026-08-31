@@ -10,7 +10,7 @@
 ### 1. `docs/acceptance-portfolio-onboarding.png`（主截图，可自动复现）
 
 - **内容**：`/learn` 未诊断页的作品级 intake：作品方向、阶段成果、时间/精力/基础、资料适配，以及 Learning Situation-first 用户旅程。
-- **来源**：`npm run acceptance:portfolio`（`scripts/acceptance-portfolio-full-loop.mjs`）自动生成。
+- **来源**：`npm run acceptance:portfolio`（`scripts/compatibility/acceptance-portfolio-full-loop.mjs`）自动生成。
 - **复现方式**：
 
   ```bash
@@ -38,7 +38,7 @@
 ### 4. `docs/learn-next-stage-rubric.png`（主截图，可自动复现）
 
 - **内容**：`/learn` 已确认页的 AI PM 作品集包装阶段（NextStagePlan）面板：Learning Situation-first、runtime fallback、10-15 分钟项目讲述三个作品级 rubric，「已生成 3 个正式活动」的下一阶段活动清单，以及作品迭代状态 / 修订轮次 / 版本历史。
-- **来源**：`npm run acceptance:next-stage`（`scripts/acceptance-next-stage-rubric.mjs`）自动生成。
+- **来源**：`npm run acceptance:next-stage`（`scripts/compatibility/acceptance-next-stage-rubric.mjs`）自动生成。
 - **复现方式**：
 
   ```bash
