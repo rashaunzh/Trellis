@@ -162,8 +162,32 @@ export default function WorkbenchPage() {
           <label>类型<select value={type} onChange={(event) => setType(event.target.value as WorkspaceUserResource["type"])}>{Object.entries(typeLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>名称<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="给以后能认出来的名称" /></label>
           <label className="wide">链接（可选）<input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." /></label>
-          <label className="wide">备注（可选）<textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="为什么保留、以后可能怎么用。" /></label>
+          <label className="wide">材料正文或课程目录<textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="粘贴课程介绍、章节目录或正文。仅提供链接时，暂不能判断内容质量；请不要粘贴密码或其他敏感信息。" /></label>
           <button className="t2-primary" disabled={busy || (!title.trim() && !content.trim() && !url.trim())} onClick={() => void save()}>进入来源中心</button>
+        </div>
+      </section>
+
+      <section className="wb-section wb-source-objects">
+        <header><div><p className="t2-kicker">来源对象</p><h2>{contentSources.length ? `${contentSources.length} 个来源正在处理` : "还没有可拆解来源"}</h2></div><span>接入 → 拆分 → 确认</span></header>
+        <div className="wb-triage-list">
+          {contentSources.map(({ source, analysis }) => <article key={source.id}>
+            <span>{sourceStatusLabel(source.status)}</span><h3>{source.title}</h3>
+            <p>{analysis?.rationale ?? "来源已接入，等待内容拆解。"}</p>
+            <small>{analysis ? `${analysis.mode === "model" ? "AI语义审阅" : "规则拆分 · 尚未完成语义审阅"} · ${analysis.fragments.length} 个片段 · 版本 ${analysis.version} · ${analysis.readingScope === "provided_text" ? "仅分析提供文本" : "未核验完整内容"}` : "还没有分析结果"}</small>
+            {analysis?.review && <section className="wb-source-review">
+              <h4>是否适合现在学</h4>
+              <small>{analysis.review.goal ? `参考目标：${analysis.review.goal}` : "尚未设置学习目标，暂不判断个人适配性"}</small>
+              <p>{analysis.review.suitability}</p>
+              {analysis.review.findings.map((finding, index) => <div key={index} className={`wb-source-finding ${finding.kind}`}>
+                <strong>{finding.kind === "claim" ? "需核验的说法" : finding.kind === "prerequisite" ? "前置要求" : "实际覆盖"}</strong>
+                <blockquote>{finding.quote}</blockquote><p>{finding.explanation}</p>
+              </div>)}
+              {analysis.review.questions.length > 0 && <details><summary>还需要补哪些信息</summary><ul>{analysis.review.questions.map(question => <li key={question}>{question}</li>)}</ul></details>}
+            </section>}
+            {analysis?.limitations?.map(item => <p key={item}>{item}</p>)}
+            {analysis?.fragments.map(fragment => <details key={fragment.id} className="wb-fragment"><summary>{fragment.title} · {fragment.status === "confirmed" ? "已确认" : fragment.status === "rejected" ? "已排除" : "待审阅"}</summary><p>{fragment.summary}</p>{fragment.sourceQuote && <blockquote>{fragment.sourceQuote}</blockquote>}<p>预期成果：{fragment.evidenceRequirements.join("；")}</p><small>{fragment.locator.label} · {fragment.capabilityNodeIds.length ? `关联 ${fragment.capabilityNodeIds.length} 项能力，路线提案中查看取舍` : "暂未找到有依据的能力关联"}</small>{fragment.status === "candidate" && <footer><button disabled={busy || !fragment.capabilityNodeIds.length} onClick={() => void updateSource(source.id, fragment.id, "confirmed")}>确认作为路线候选</button><button disabled={busy} onClick={() => void updateSource(source.id, fragment.id, "rejected")}>暂不采用</button></footer>}</details>)}
+            <footer><button disabled={busy} className="t2-primary" onClick={() => void updateSource(source.id)}>{busy ? "处理中…" : analysis ? "重新分析，生成待确认版本" : "分析来源"}</button></footer>
+          </article>)}
         </div>
       </section>
 
@@ -215,20 +239,6 @@ export default function WorkbenchPage() {
           </section>
         </>
       )}
-
-      <section className="wb-section wb-source-objects">
-        <header><div><p className="t2-kicker">来源对象</p><h2>{contentSources.length ? `${contentSources.length} 个来源正在处理` : "还没有可拆解来源"}</h2></div><span>接入 → 拆分 → 确认</span></header>
-        <div className="wb-triage-list">
-          {contentSources.map(({ source, analysis }) => <article key={source.id}>
-            <span>{sourceStatusLabel(source.status)}</span><h3>{source.title}</h3>
-            <p>{analysis?.rationale ?? "来源已接入，等待内容拆解。"}</p>
-            <small>{analysis ? `${analysis.fragments.length} 个片段 · 版本 ${analysis.version} · ${analysis.readingScope === "provided_text" ? "仅分析提供文本" : "未核验完整内容"}` : "还没有分析结果"}</small>
-            {analysis?.limitations?.map(item => <p key={item}>{item}</p>)}
-            {analysis?.fragments.map(fragment => <details key={fragment.id} className="wb-fragment"><summary>{fragment.title} · {fragment.status === "confirmed" ? "已确认" : fragment.status === "rejected" ? "已排除" : "待审阅"}</summary><p>{fragment.summary}</p><p>关联能力：{fragment.capabilityNodeIds.join("、") || "信息不足，暂未映射"}</p><p>预期成果：{fragment.evidenceRequirements.join("；")}</p><small>{fragment.locator.label}</small>{fragment.status === "candidate" && <footer><button disabled={busy} onClick={() => void updateSource(source.id, fragment.id, "confirmed")}>确认此片段</button><button disabled={busy} onClick={() => void updateSource(source.id, fragment.id, "rejected")}>排除此片段</button></footer>}</details>)}
-            <footer>{!analysis && <button disabled={busy} className="t2-primary" onClick={() => void updateSource(source.id)}>分析来源</button>}</footer>
-          </article>)}
-        </div>
-      </section>
 
       <section className="wb-section">
         <header><div><p className="t2-kicker">输入记录</p><h2>{resources.length ? `${resources.length} 项个人输入` : "还没有个人输入"}</h2></div><span>保留旧附加能力</span></header>

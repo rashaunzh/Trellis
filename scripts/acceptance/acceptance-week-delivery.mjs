@@ -27,6 +27,7 @@ try {
   }
   const { source } = await post("/api/learning/sources", { title: "演示材料 · AI 能力边界", rawContent: "# AI 能力边界\n解释 AI 能力边界，识别不确定性。\n# Agent\nAgent 工具调用需要人工确认。" });
   const { analysis } = await post(`/api/learning/sources/${source.id}/analyze`);
+  checks.push({ route: "source-analysis", mode: analysis.mode, passed: process.env.TRELLIS_REQUIRE_MODEL === "1" ? analysis.mode === "model" : true });
   await post(`/api/learning/sources/${source.id}/confirm`, { fragmentIds: [analysis.fragments[0].id], decision: "confirmed" });
   const { curriculum } = await post("/api/learning/intake", { goal: "理解 AI 产品能力边界", weeklyCapacity: "light", materials: [] });
   checks.push({ route: "source-to-route", passed: curriculum.assembly.sourceSelections?.length === 1 });

@@ -19,6 +19,21 @@ export const contentFragmentSchema = z.object({
   capabilityNodeIds: z.array(z.string()), prerequisiteNodeIds: z.array(z.string()),
   evidenceRequirements: z.array(z.string()), confidence: z.number().min(0).max(1),
   status: contentFragmentStatusSchema,
+  sourceQuote: z.string().optional(),
+});
+export const sourceReviewSchema = z.object({
+  summary: z.string().min(1).max(1000),
+  suitability: z.string().min(1).max(1000),
+  questions: z.array(z.string().max(500)).max(10),
+  findings: z.array(z.object({
+    kind: z.enum(["claim", "prerequisite", "scope"]),
+    quote: z.string().min(4).max(500), explanation: z.string().min(1).max(1000),
+  })).max(12),
+  fragments: z.array(z.object({
+    title: z.string().min(1).max(200), summary: z.string().min(1).max(1000),
+    quote: z.string().min(4).max(500), capabilityNodeIds: z.array(z.string()).max(4),
+    evidenceRequirements: z.array(z.string().max(500)).min(1).max(4),
+  })).min(1).max(12),
 });
 export const contentAnalysisSchema = z.object({
   id: z.string().min(1), sourceId: z.string().min(1), version: z.number().int().positive(),
@@ -27,11 +42,24 @@ export const contentAnalysisSchema = z.object({
   confidence: z.number().min(0).max(1), rationale: z.string(), createdAt: z.string(),
   readingScope: z.enum(["metadata_only", "provided_text"]).optional(),
   limitations: z.array(z.string()).optional(),
+  review: sourceReviewSchema.omit({ fragments: true }).extend({ goal: z.string().nullable() }).optional(),
+  modelRequestId: z.string().optional(),
 });
 
 export type ContentSource = z.infer<typeof contentSourceSchema>;
 export type ContentFragment = z.infer<typeof contentFragmentSchema>;
 export type ContentAnalysis = z.infer<typeof contentAnalysisSchema>;
+
+export function groundSourceReview(value: z.infer<typeof sourceReviewSchema>, text: string, graph: DomainGraph) {
+  const issues: string[] = [];
+  for (const item of [...value.findings, ...value.fragments]) {
+    if (!text.includes(item.quote)) issues.push("判断引用不在实际提供文本内");
+  }
+  for (const fragment of value.fragments) {
+    if (fragment.capabilityNodeIds.some(id => !graph.nodes.some(node => node.id === id))) issues.push("未知能力节点");
+  }
+  return { passed: issues.length === 0, issues };
+}
 
 export function inferSourceType(url: string, content: string): ContentSource["type"] {
   const value = url.toLowerCase();

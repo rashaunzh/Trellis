@@ -195,6 +195,7 @@ export const curriculumAssemblySchema = z.object({
     sourceId: nonEmpty, analysisVersion: z.number().int().positive(), fragmentId: nonEmpty,
     title: nonEmpty, url: z.string().nullable(), nodeIds: z.array(nonEmpty),
     role: z.enum(["supplement", "defer"]), rationale: nonEmpty,
+    sourceQuote: z.string().optional(), reviewCautions: z.array(z.string()).optional(),
   })).optional(),
   rationale: nonEmpty,
   generatedAt: nonEmpty,

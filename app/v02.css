@@ -3266,3 +3266,12 @@
 
 .cl-start-button, .t2-primary, .cl-timeline .current i { color: #092015; }
 .cl-week-contract p, .cl-week-contract li, .cl-package p, .cl-package small { color: var(--t2-muted); }
+/* 材料判断先呈现原文证据，再给出有条件的解释。 */
+.wb-source-review { margin: 18px 0; padding: 18px; border: 1px solid rgba(109, 231, 154, .2); border-radius: 16px; background: rgba(37, 83, 55, .12); }
+.wb-source-review h4 { margin: 0 0 8px; font-size: 17px; }
+.wb-source-finding { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .09); }
+.wb-source-finding.claim strong { color: #efc587; }
+.wb-source-review blockquote, .wb-fragment blockquote { margin: 10px 0; padding: 10px 14px; border-left: 2px solid #65dc95; background: rgba(255, 255, 255, .035); color: #d2ded5; line-height: 1.7; overflow-wrap: anywhere; }
+.wb-source-review p, .wb-source-review li { line-height: 1.7; }
+.wb-source-objects article { min-width: 0; overflow-wrap: anywhere; }
+.wb-source-objects .wb-triage-list { grid-template-columns: 1fr; }
