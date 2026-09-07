@@ -112,7 +112,7 @@ export class InMemoryLearningStore implements LearningStore {
         .map((e) => e.activityId),
     );
     for (const [key, activity] of this.activities) {
-      const isOpen = activity.status === "planned" || activity.status === "in_progress";
+      const isOpen = activity.status === "planned" || activity.status === "in_progress" || activity.status === "paused";
       if (
         activity.ownerId === ownerId
         && activity.weeklyPlanId === planId

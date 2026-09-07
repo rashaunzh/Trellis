@@ -1,3 +1,4 @@
+import { requireLegacyRuntime, jsonError } from "../learning/_shared";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { records } from "../../../db/schema";
@@ -17,8 +18,9 @@ function toCard(row:typeof records.$inferSelect) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    await requireLegacyRuntime(request);
     const db = await getDb();
     await db.insert(records).values(starterConcepts.map((card) => ({
       id:card.id,
@@ -45,12 +47,13 @@ export async function GET() {
       .orderBy(asc(records.title));
     return Response.json({ concepts:rows.map(toCard) });
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "读取概念卡失败" },{status:500});
+    return jsonError(error);
   }
 }
 
 export async function POST(request:Request) {
   try {
+    await requireLegacyRuntime(request);
     const payload = await request.json() as Record<string,unknown>;
     const title = String(payload.title ?? "").trim();
     const officialDefinition = String(payload.officialDefinition ?? "").trim();
@@ -78,6 +81,6 @@ export async function POST(request:Request) {
     }).returning();
     return Response.json({concept:toCard(row)},{status:201});
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "创建概念卡失败" },{status:500});
+    return jsonError(error);
   }
 }

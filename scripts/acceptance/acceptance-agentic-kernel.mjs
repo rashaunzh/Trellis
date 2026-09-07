@@ -83,6 +83,23 @@ const feedback = await request(`/api/learning/runs/${encodeURIComponent(activity
 } });
 check("learning adaptation advances with canonical state", feedback.status === 200 && feedback.json?.state?.status === "has_signal" && feedback.json?.interpretation?.outcome === "advance");
 
+const afterAdvance = await request("/api/learning/current");
+const nextActivity = afterAdvance.json?.current?.activities?.find((item) => item.status !== "completed");
+const scenario = await request(`/api/learning/runs/${encodeURIComponent(nextActivity?.id)}/check`, { method: "POST", body: {} });
+check("optional scenario check hides the answer", scenario.status === 200 && scenario.json?.check?.options?.length >= 3 && !("correctOptionId" in (scenario.json?.check ?? {})));
+const scenarioFeedback = await request(`/api/learning/runs/${encodeURIComponent(nextActivity?.id)}/feedback`, { method: "POST", body: {
+  type: "scenario_choice", value: "automatic", note: "", questionId: scenario.json?.check?.id,
+} });
+check("scenario gap materializes targeted review", scenarioFeedback.status === 200
+  && scenarioFeedback.json?.interpretation?.outcome === "review"
+  && scenarioFeedback.json?.materializedAdaptation?.applied === true);
+const weekKey = afterAdvance.json?.current?.weeklyPlan?.weekKey;
+const closed = await request(`/api/learning/weeks/${encodeURIComponent(weekKey)}/close`, { method: "POST", body: {} });
+check("learning signals generate a second-week draft", closed.status === 201 && closed.json?.nextWeek?.status === "draft" && closed.json?.activities?.length > 0);
+const nextWeekKey = closed.json?.nextWeek?.weekKey;
+const confirmedWeek = await request(`/api/learning/weeks/${encodeURIComponent(nextWeekKey)}/confirm`, { method: "POST", body: {} });
+check("second week waits for light confirmation", confirmedWeek.status === 200 && confirmedWeek.json?.plan?.status === "confirmed");
+
 const legacy = await request("/api/learning/diagnostic", { method: "POST", body: { goal: "legacy" } });
 check("legacy mutation is disabled by default", legacy.status === 410);
 

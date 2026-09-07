@@ -18,11 +18,27 @@ export interface ChatCompletionResult {
   completionTokens: number;
 }
 
+export class LLMHTTPError extends Error {
+  readonly status: number;
+
+  constructor(status: number, detail: string) {
+    super(`LLM request failed: ${status} ${detail}`);
+    this.name = "LLMHTTPError";
+    this.status = status;
+  }
+}
+
 export async function chatCompletionDetailed(
   config: LLMConfig,
   messages: ChatMessage[],
   maxTokens = 800,
-  options: { timeoutMs?: number; signal?: AbortSignal } = {},
+  options: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    responseFormat?: Record<string, unknown>;
+    temperature?: number;
+    extraBody?: Record<string, unknown>;
+  } = {},
 ): Promise<ChatCompletionResult> {
   const response = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
@@ -34,13 +50,15 @@ export async function chatCompletionDetailed(
       model: config.model,
       messages,
       max_tokens: maxTokens,
-      temperature: 0.2,
+      ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+      ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
+      ...(options.extraBody ?? {}),
     }),
     signal: options.signal ?? AbortSignal.timeout(options.timeoutMs ?? 30_000),
   });
 
   if (!response.ok) {
-    throw new Error(`LLM request failed: ${response.status} ${await response.text()}`);
+    throw new LLMHTTPError(response.status, (await response.text()).slice(0, 500));
   }
 
   const data = (await response.json()) as {

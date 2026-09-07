@@ -71,6 +71,15 @@ export const learningIntakeSchema = z.object({
   })).max(8).default([]),
 });
 
+export const curriculumConstraintSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("pin_course"), courseId: nonEmpty }),
+  z.object({ type: z.literal("exclude_course"), courseId: nonEmpty }),
+  z.object({ type: z.literal("defer_course"), courseId: nonEmpty }),
+  z.object({ type: z.literal("select_units"), courseId: nonEmpty, unitIds: z.array(nonEmpty).min(1) }),
+  z.object({ type: z.literal("include_node"), nodeId: nonEmpty }),
+  z.object({ type: z.literal("exclude_node"), nodeId: nonEmpty }),
+]);
+
 export const curriculumRecordStatusSchema = z.enum(["draft", "confirmed", "superseded"]);
 
 export const sourceCitationSchema = z.object({
@@ -88,10 +97,17 @@ export const courseUnitSchema = z.object({
   prerequisites: z.array(nonEmpty).default([]),
   learningOutcomes: z.array(nonEmpty).default([]),
   formats: z.array(z.enum(["video", "reading", "quiz", "lab", "project", "discussion"])).default([]),
+  sourceLocator: z.object({
+    url: z.string().url().optional(),
+    label: z.string().trim().max(240).default(""),
+    startAt: z.string().trim().max(120).default(""),
+    endAt: z.string().trim().max(120).default(""),
+    missingReason: z.string().trim().max(240).default(""),
+  }).optional(),
 });
 
 export const courseGenomeSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   id: nonEmpty,
   title: nonEmpty,
   provider: nonEmpty,
@@ -136,21 +152,59 @@ export const curriculumStageSchema = z.object({
   stopAfterUnitId: nonEmpty.optional(),
 });
 
+export const courseComparisonSchema = z.object({
+  courseId: nonEmpty,
+  coveredNodeIds: z.array(nonEmpty),
+  overlapUnitIds: z.array(nonEmpty),
+  prerequisiteBurden: z.number().int().nonnegative(),
+  estimatedMinutes: z.number().int().nonnegative(),
+  sourceFit: z.enum(["defining", "systematic", "practice", "reference", "current"]),
+  recommendation: z.enum(["adopt", "partial", "supplement", "defer", "exclude"]),
+  rationale: nonEmpty,
+});
+
+export const studySegmentSchema = z.object({
+  id: nonEmpty,
+  courseId: nonEmpty,
+  courseVersionId: nonEmpty,
+  unitId: nonEmpty,
+  nodeIds: z.array(nonEmpty).min(1),
+  title: nonEmpty,
+  sourceUrl: z.string().url().optional(),
+  locatorLabel: z.string().default(""),
+  locatorMissing: z.boolean().default(false),
+  estimatedMinutes: z.number().int().min(30).max(90).refine((value) => value % 15 === 0),
+  stopCondition: nonEmpty,
+  completionSignal: nonEmpty,
+  sequence: z.number().int().positive(),
+});
+
 export const curriculumAssemblySchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   id: nonEmpty,
   learnerIntent: nonEmpty,
   targetNodeIds: z.array(nonEmpty).min(1),
   decisions: z.array(courseDecisionSchema).min(1),
   mappings: z.array(unitNodeMappingSchema).min(1),
   stages: z.array(curriculumStageSchema).min(1),
+  constraints: z.array(curriculumConstraintSchema).default([]),
+  comparisons: z.array(courseComparisonSchema).default([]),
+  segments: z.array(studySegmentSchema).default([]),
   unresolvedGaps: z.array(nonEmpty).default([]),
+  sourceSelections: z.array(z.object({
+    sourceId: nonEmpty, analysisVersion: z.number().int().positive(), fragmentId: nonEmpty,
+    title: nonEmpty, url: z.string().nullable(), nodeIds: z.array(nonEmpty),
+    role: z.enum(["supplement", "defer"]), rationale: nonEmpty,
+  })).optional(),
   rationale: nonEmpty,
   generatedAt: nonEmpty,
 });
 
 export type CourseGenome = z.infer<typeof courseGenomeSchema>;
 export type CurriculumAssembly = z.infer<typeof curriculumAssemblySchema>;
+export type CurriculumConstraint = z.infer<typeof curriculumConstraintSchema>;
+export type CourseComparison = z.infer<typeof courseComparisonSchema>;
+export type StudySegment = z.infer<typeof studySegmentSchema>;
 export type UnitNodeMapping = z.infer<typeof unitNodeMappingSchema>;
 export type TrustedSource = z.infer<typeof trustedSourceSchema>;
 export type DomainGraph = z.infer<typeof domainGraphSchema>;
@@ -178,7 +232,7 @@ export interface CourseCandidateRecord {
   evalJson?: string;
   impactJson?: string;
   workflowRunId?: string | null;
-  status: "candidate" | "validated" | "rejected" | "published";
+  status: "candidate" | "personal_ready" | "validated" | "rejected" | "published";
   createdAt: string;
   updatedAt: string;
 }
@@ -228,9 +282,15 @@ export interface CurriculumRecord {
 }
 
 export const learningSignalInputSchema = z.object({
-  type: z.enum(["understanding", "quiz_result", "stuck", "judgment"]),
+  type: z.enum(["understanding", "quiz_result", "stuck", "judgment", "scenario_choice"]),
   value: z.union([z.string().trim().min(1).max(1200), z.number().min(0).max(100), z.boolean()]),
   note: z.string().trim().max(1200).default(""),
+  questionId: z.string().trim().max(160).optional(),
+  submissionId: z.string().trim().min(1).max(160).optional(),
+  understanding: z.enum(["understood", "uncertain", "blocked"]).optional(),
+  context: z.record(z.string(), z.unknown()).optional(),
+  actualMinutes: z.number().int().min(1).max(720).optional(),
+  completionIntent: z.enum(["auto", "complete", "keep_open"]).optional(),
 });
 
 export type LearningSignalInput = z.infer<typeof learningSignalInputSchema>;
@@ -244,7 +304,33 @@ export interface LearningSignal {
   type: LearningSignalInput["type"];
   value: LearningSignalInput["value"];
   note: string;
+  questionId: string | null;
+  context: Record<string, unknown>;
   createdAt: string;
+}
+
+export const scenarioCheckSchema = z.object({
+  id: nonEmpty,
+  activityId: nonEmpty,
+  nodeId: nonEmpty,
+  prompt: z.string().trim().min(20).max(1600),
+  options: z.array(z.object({ id: nonEmpty, text: z.string().trim().min(20).max(1200) })).min(3).max(4),
+  correctOptionId: nonEmpty,
+  rationale: z.string().trim().min(20).max(1600),
+  contractVersion: z.literal("scenario_check.v1"),
+});
+
+export type ScenarioCheck = z.infer<typeof scenarioCheckSchema>;
+export type PublicScenarioCheck = Omit<ScenarioCheck, "correctOptionId" | "rationale">;
+export type LearningIntakeV2 = LearningIntake;
+export type CurriculumAssemblyV3 = CurriculumAssembly;
+export type LearningSignalInputV2 = LearningSignalInput;
+
+export interface MaterializedAdaptation {
+  outcome: "advance" | "review" | "repair_prerequisite" | "change_material" | "reduce_scope" | "replan";
+  applied: boolean;
+  activityId: string | null;
+  summary: string;
 }
 
 export interface CanonicalKnowledgeState {

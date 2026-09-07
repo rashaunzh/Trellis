@@ -7,7 +7,7 @@
 - [ ] 当前交付分支已 commit + push
 - [ ] 全量验证绿：test:domain / eslint / build / node --test / 验收脚本
 - [ ] wrangler 已登录（`npx wrangler whoami`，OAuth 有效）
-- [ ] 远程 D1 迁移已应用到 `0016`（见下）
+- [ ] 远程 D1 迁移已应用到 `0019`（见下）
 - [ ] `TRELLIS_ADMIN_EMAILS` 已配置为课程内容评审管理员邮箱
 - [ ] `TRELLIS_IDENTITY_MODE=chatgpt-hosted` 且 `TRELLIS_TRUSTED_HOSTS` 只列托管域名
 - [ ] `workers.dev` 已关闭；每周来源 Cron `0 18 * * sun` 已注册
@@ -30,9 +30,12 @@ npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0013_cou
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0014_canonical_learning_runtime.sql
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0015_production_control_plane.sql
 npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0016_agentic_decision_kernel.sql
+npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0017_model_runtime_trace.sql
+npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0018_functional_learning_loop.sql
+npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0019_learning_continuity.sql
 ```
 
-若启用内置模型，在服务端配置 `TRELLIS_AI_PRIMARY_*` 与 `TRELLIS_AI_FALLBACK_*`；不要把 Key 写入仓库。未配置模型时生产环境仍应通过已发布基线 smoke，但带模型的正式发布必须让两槽分别通过 benchmark。
+若启用内置模型，在服务端配置 `TRELLIS_AI_PRIMARY_*` 与 `TRELLIS_AI_FALLBACK_*`；不要把 Key 写入仓库。具体参数和发布门见[模型运行架构](../architecture/MODEL_RUNTIME.md)。未配置模型时生产环境仍应通过已发布基线 smoke，但带模型的正式发布必须让两槽分别通过 benchmark。
 
 ## 构建与部署
 
@@ -94,7 +97,7 @@ TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intellige
 
 - **重置**：页面右上角"重新设置"（清学习状态，不清 API 配置与收集箱）
 - **API 直调**：生产请求必须经过 ChatGPT 托管身份；`x-trellis-owner-id` 只在 localhost 有效。
-- 验证用的真实 LLM key 测完必须清除（`DELETE FROM learning_api_config`）
+- 验证用的真实 LLM Key 只配置在服务端环境，测试后按部署平台的 secret 管理流程轮换或清除。
 
 ## 回滚
 

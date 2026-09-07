@@ -37,7 +37,17 @@ export class D1LearningStore implements LearningStore {
     nodeProgress: NodeProgress[];
   }): Promise<void> {
     const now = new Date().toISOString();
+    const canonicalRouteId = input.profile.activeRouteId;
+    const canonicalNodeIds = [...new Set(input.activities.map((activity) => activity.nodeId))];
     const statements = [
+      this.db.prepare(`INSERT OR IGNORE INTO learning_routes (id,version,title,description)
+        VALUES (?,1,'AI 学习领域图','由已发布领域图投影出的正式学习路线')`)
+        .bind(canonicalRouteId),
+      ...canonicalNodeIds.map((nodeId) => this.db.prepare(`INSERT OR IGNORE INTO learning_nodes
+        (id,route_id,title,module_id,title_en,description,outcomes,source_refs,activity_templates,
+          assessment_rubric,target_level,is_key_milestone)
+        VALUES (?,?,?,'canonical',?,?,'[]','[]','[]','',1,0)`)
+        .bind(nodeId, canonicalRouteId, nodeId, nodeId, "由 Trellis 领域图管理的 canonical node")),
       this.db.prepare(`INSERT INTO learning_profiles
         (id,owner_id,goal,active_route_id,weekly_minutes,status,created_at,updated_at)
         VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
@@ -59,16 +69,18 @@ export class D1LearningStore implements LearningStore {
         .bind(input.ownerId, input.weeklyPlan.id, input.ownerId),
       ...input.activities.map((activity) => this.db.prepare(`INSERT INTO learning_activities
         (id,owner_id,weekly_plan_id,node_id,curriculum_id,course_version_id,course_id,unit_key,
-          canonical_node_id,title,activity_type,goal,estimated_minutes,is_core,status,is_skip_validation,
+          canonical_node_id,scope_json,title,activity_type,goal,estimated_minutes,is_core,status,is_skip_validation,
           input_refs,steps,expected_evidence,evaluation_criteria,next_advice,sequence,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
         ON CONFLICT(id) DO UPDATE SET status=excluded.status,input_refs=excluded.input_refs,
           next_advice=excluded.next_advice,curriculum_id=excluded.curriculum_id,
           course_version_id=excluded.course_version_id,course_id=excluded.course_id,
-          unit_key=excluded.unit_key,canonical_node_id=excluded.canonical_node_id,updated_at=excluded.updated_at`)
+          unit_key=excluded.unit_key,canonical_node_id=excluded.canonical_node_id,
+          scope_json=excluded.scope_json,updated_at=excluded.updated_at`)
         .bind(activity.id, activity.ownerId, activity.weeklyPlanId, activity.nodeId,
           activity.curriculumId ?? null, activity.courseVersionId ?? null, activity.courseId ?? null,
-          activity.unitId ?? null, activity.canonicalNodeId ?? null, activity.title, activity.activityType,
+          activity.unitId ?? null, activity.canonicalNodeId ?? null, JSON.stringify(activity.scope ?? {}),
+          activity.title, activity.activityType,
           activity.goal, activity.estimatedMinutes, activity.isCore ? 1 : 0, activity.status,
           activity.isSkipValidation ? 1 : 0, activity.inputRefs.join(","), activity.steps,
           activity.expectedEvidence, activity.evaluationCriteria, activity.nextAdvice, activity.sequence, now)),
@@ -433,22 +445,34 @@ export class D1LearningStore implements LearningStore {
     const now = new Date().toISOString();
     await this.db
       .prepare(
-        `INSERT INTO learning_activities
+         `INSERT INTO learning_activities
            (id, owner_id, weekly_plan_id, node_id, curriculum_id, course_version_id,
-            course_id, unit_key, canonical_node_id, title, activity_type, goal,
+            course_id, unit_key, canonical_node_id, scope_json, title, activity_type, goal,
             estimated_minutes, is_core, status, is_skip_validation, input_refs,
             steps, expected_evidence, evaluation_criteria, next_advice, sequence,
+            started_at, last_opened_at, paused_at, completed_at, pause_reason, actual_minutes,
             created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
          ON CONFLICT (id) DO UPDATE SET
            status = excluded.status,
            input_refs = excluded.input_refs,
+           estimated_minutes = excluded.estimated_minutes,
+           steps = excluded.steps,
+           expected_evidence = excluded.expected_evidence,
+           evaluation_criteria = excluded.evaluation_criteria,
            next_advice = excluded.next_advice,
            curriculum_id = excluded.curriculum_id,
            course_version_id = excluded.course_version_id,
            course_id = excluded.course_id,
            unit_key = excluded.unit_key,
            canonical_node_id = excluded.canonical_node_id,
+           scope_json = excluded.scope_json,
+           started_at = excluded.started_at,
+           last_opened_at = excluded.last_opened_at,
+           paused_at = excluded.paused_at,
+           completed_at = excluded.completed_at,
+           pause_reason = excluded.pause_reason,
+           actual_minutes = excluded.actual_minutes,
            updated_at = excluded.updated_at`,
       )
       .bind(
@@ -461,6 +485,7 @@ export class D1LearningStore implements LearningStore {
         activity.courseId ?? null,
         activity.unitId ?? null,
         activity.canonicalNodeId ?? null,
+        JSON.stringify(activity.scope ?? {}),
         activity.title,
         activity.activityType,
         activity.goal,
@@ -474,6 +499,12 @@ export class D1LearningStore implements LearningStore {
         activity.evaluationCriteria,
         activity.nextAdvice,
         activity.sequence,
+        activity.startedAt ?? null,
+        activity.lastOpenedAt ?? null,
+        activity.pausedAt ?? null,
+        activity.completedAt ?? null,
+        activity.pauseReason ?? "",
+        activity.actualMinutes ?? null,
         now,
       )
       .run();
@@ -485,7 +516,7 @@ export class D1LearningStore implements LearningStore {
         `DELETE FROM learning_activities
          WHERE owner_id = ?
            AND weekly_plan_id = ?
-           AND status IN ('planned', 'in_progress')
+           AND status IN ('planned', 'in_progress', 'paused')
            AND id NOT IN (
              SELECT activity_id FROM learning_evidence WHERE owner_id = ?
            )`,
@@ -677,7 +708,13 @@ export class D1LearningStore implements LearningStore {
       .prepare(
         `INSERT INTO learning_user_resources
            (id, owner_id, title, type, content, source_url, related_node_ids, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           title = excluded.title,
+           type = excluded.type,
+           content = excluded.content,
+           source_url = excluded.source_url,
+           related_node_ids = excluded.related_node_ids`,
       )
       .bind(
         resource.id,
@@ -736,6 +773,7 @@ function activityFromRow(row: Record<string, unknown>): LearningActivity {
     courseId: row.course_id ? String(row.course_id) : undefined,
     unitId: row.unit_key ? String(row.unit_key) : undefined,
     canonicalNodeId: row.canonical_node_id ? String(row.canonical_node_id) : undefined,
+    scope: row.scope_json ? JSON.parse(String(row.scope_json)) as LearningActivity["scope"] : undefined,
     title: String(row.title),
     activityType: row.activity_type as LearningActivity["activityType"],
     goal: String(row.goal),
@@ -749,6 +787,12 @@ function activityFromRow(row: Record<string, unknown>): LearningActivity {
     evaluationCriteria: String(row.evaluation_criteria),
     nextAdvice: String(row.next_advice),
     sequence: Number(row.sequence),
+    startedAt: row.started_at ? String(row.started_at) : null,
+    lastOpenedAt: row.last_opened_at ? String(row.last_opened_at) : null,
+    pausedAt: row.paused_at ? String(row.paused_at) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    pauseReason: String(row.pause_reason ?? ""),
+    actualMinutes: row.actual_minutes == null ? null : Number(row.actual_minutes),
   };
 }
 

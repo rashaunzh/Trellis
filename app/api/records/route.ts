@@ -1,3 +1,4 @@
+import { requireLegacyRuntime, jsonError } from "../learning/_shared";
 import { desc, isNull } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { records } from "../../../db/schema";
@@ -7,8 +8,9 @@ const allowedTypes = new Set(["goal", "project", "task", "resource", "artifact",
 const allowedLines = new Set(["G", "J", "B", "I"]);
 const allowedStatuses = new Set(["active", "near", "later", "paused", "done", "proposal"]);
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    await requireLegacyRuntime(request);
     const db = await getDb();
     // D1 limits the number of bound parameters in one statement. Each starter
     // record supplies many columns, so inserting the full route map at once
@@ -25,12 +27,13 @@ export async function GET() {
         .map((row) => ({ ...row, status: normalizeHorizon(row.status) })),
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "读取记录失败" }, { status: 500 });
+    return jsonError(error);
   }
 }
 
 export async function POST(request: Request) {
   try {
+    await requireLegacyRuntime(request);
     const payload = await request.json() as Record<string, unknown>;
     const title = String(payload.title ?? "").trim();
     const recordType = String(payload.recordType ?? "task");
@@ -69,6 +72,6 @@ export async function POST(request: Request) {
     }).returning();
     return Response.json({ record }, { status:201 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "创建记录失败" }, { status:500 });
+    return jsonError(error);
   }
 }

@@ -29,6 +29,14 @@ type CandidateDraft = {
 
 type GraphNode = { id: string; title: string };
 
+type ModelAttempt = {
+  id: string; requestId: string; workflowRunId: string | null; decisionId: string | null;
+  taskKind: string; contractVersion: string; slot: "primary" | "fallback" | "baseline"; attempt: number;
+  provider: string; model: string; status: "success" | "failed" | "needs_review";
+  failureClass: string; fallbackReason: string; cacheHit: boolean; latencyMs: number;
+  promptTokens: number; completionTokens: number; evalJson: string; createdAt: string;
+};
+
 function adminHeaders(json = false): HeadersInit {
   const headers: Record<string, string> = {};
   if (json) headers["content-type"] = "application/json";
@@ -39,21 +47,25 @@ function adminHeaders(json = false): HeadersInit {
 }
 
 export default function CourseIntelligenceReviewPage() {
+  const [view, setView] = useState<"candidates" | "models">("candidates");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [reason, setReason] = useState("");
   const [draft, setDraft] = useState<CandidateDraft | null>(null);
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [message, setMessage] = useState("正在读取候选内容...");
+  const [modelAttempts, setModelAttempts] = useState<ModelAttempt[]>([]);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/internal/course-intelligence/candidates", {
-      headers: adminHeaders(),
-      cache: "no-store",
-    });
-    const body = await response.json() as { candidates?: Candidate[]; graph?: { nodes: GraphNode[] }; error?: string };
-    if (!response.ok) {
-      setMessage(body.error ?? "无法读取候选内容");
+    const [candidateResponse, modelResponse] = await Promise.all([
+      fetch("/api/internal/course-intelligence/candidates", { headers: adminHeaders(), cache: "no-store" }),
+      fetch("/api/internal/course-intelligence/model-runs?limit=150", { headers: adminHeaders(), cache: "no-store" }),
+    ]);
+    const body = await candidateResponse.json() as { candidates?: Candidate[]; graph?: { nodes: GraphNode[] }; error?: string };
+    const modelBody = await modelResponse.json() as { attempts?: ModelAttempt[] };
+    if (!candidateResponse.ok) {
+      setMessage(body.error ?? "无法读取内部内容治理数据");
       return;
     }
     setCandidates(body.candidates ?? []);
@@ -65,6 +77,8 @@ export default function CourseIntelligenceReviewPage() {
       setDraft(parseDraft(next?.candidateJson));
       return next;
     });
+    setModelAttempts(modelBody.attempts ?? []);
+    setSelectedRequestId((current) => current ?? modelBody.attempts?.[0]?.requestId ?? null);
     setMessage((body.candidates?.length ?? 0) > 0 ? "" : "目前没有待评审课程。");
   }, []);
 
@@ -100,12 +114,15 @@ export default function CourseIntelligenceReviewPage() {
       <header className="review-header">
         <div>
           <p>内部内容治理</p>
-          <h1>课程候选评审</h1>
+          <h1>{view === "candidates" ? "课程候选评审" : "模型运行追踪"}</h1>
         </div>
-        <span>{candidates.length} 个候选</span>
+        <div className="review-tabs" role="tablist" aria-label="内部治理视图">
+          <button aria-selected={view === "candidates"} onClick={() => setView("candidates")} role="tab" type="button">候选评审</button>
+          <button aria-selected={view === "models"} onClick={() => setView("models")} role="tab" type="button">模型运行</button>
+        </div>
       </header>
       {message ? <p className="review-message" role="status">{message}</p> : null}
-      <div className="review-layout">
+      {view === "candidates" ? <div className="review-layout">
         <nav className="candidate-list" aria-label="课程候选">
           {candidates.map((candidate) => (
             <button
@@ -187,7 +204,7 @@ export default function CourseIntelligenceReviewPage() {
             ) : null}
           </section>
         ) : null}
-      </div>
+      </div> : <ModelTrace attempts={modelAttempts} selectedRequestId={selectedRequestId} onSelect={setSelectedRequestId} />}
     </main>
   );
 
@@ -233,6 +250,48 @@ export default function CourseIntelligenceReviewPage() {
     setMessage(response.ok ? "结构化草稿和发布检查已更新。" : body.error ?? "保存失败");
     if (response.ok) await load();
   }
+}
+
+function ModelTrace({ attempts, selectedRequestId, onSelect }: {
+  attempts: ModelAttempt[]; selectedRequestId: string | null; onSelect: (requestId: string) => void;
+}) {
+  const requestIds = Array.from(new Set(attempts.map((item) => item.requestId)));
+  const selected = attempts
+    .filter((item) => item.requestId === selectedRequestId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.attempt - b.attempt);
+  return (
+    <div className="review-layout model-trace">
+      <nav className="candidate-list" aria-label="模型请求">
+        {requestIds.map((requestId) => {
+          const group = attempts.filter((item) => item.requestId === requestId);
+          const latest = group[0]!;
+          const resolution = group.some((item) => item.status === "success") ? "成功" : group.some((item) => item.status === "needs_review") ? "待评审" : "已降级";
+          return <button className={selectedRequestId === requestId ? "is-selected" : ""} key={requestId} onClick={() => onSelect(requestId)} type="button">
+            <strong>{latest.taskKind}</strong><span>{resolution} · {group.length} 次尝试</span>
+          </button>;
+        })}
+        {requestIds.length === 0 ? <p className="empty-trace">尚无模型调用。无 Key 时 Trellis 使用发布基线。</p> : null}
+      </nav>
+      <section className="candidate-detail">
+        {selected.length > 0 ? <>
+          <div className="candidate-title"><div><span>{selected[0]!.contractVersion}</span><h2>{selected[0]!.taskKind}</h2></div></div>
+          <dl className="trace-links">
+            <div><dt>Request</dt><dd>{selectedRequestId}</dd></div>
+            <div><dt>Workflow</dt><dd>{selected.find((item) => item.workflowRunId)?.workflowRunId ?? "未关联"}</dd></div>
+            <div><dt>Decision</dt><dd>{selected.find((item) => item.decisionId)?.decisionId ?? "未关联"}</dd></div>
+          </dl>
+          <ol className="attempt-timeline">
+            {selected.map((attempt) => <li key={attempt.id} data-status={attempt.status}>
+              <div><strong>{attempt.slot} · {attempt.provider} / {attempt.model}</strong><span>{attempt.status}</span></div>
+              <p>{attempt.cacheHit ? "缓存命中" : `${attempt.latencyMs}ms · ${attempt.promptTokens + attempt.completionTokens} tokens`}</p>
+              {attempt.failureClass ? <p>失败分类：{attempt.failureClass}{attempt.fallbackReason ? ` · 切换原因：${attempt.fallbackReason}` : ""}</p> : null}
+              <details><summary>查看校验结果</summary><pre>{formatAnalysis(attempt.evalJson)}</pre></details>
+            </li>)}
+          </ol>
+        </> : <p>选择一条模型请求查看主备路由、校验和降级过程。</p>}
+      </section>
+    </div>
+  );
 }
 
 function parseDraft(value?: string): CandidateDraft | null {

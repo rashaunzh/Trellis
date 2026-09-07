@@ -11,8 +11,17 @@ import type {
 import type { LearningMemorySnapshot } from "./architecture/learning-memory.ts";
 import type { NextStagePlan, PortfolioArtifactIteration } from "./agents/next-stage-planner.ts";
 import type { TrellisMastraRuntimeReport } from "./agents/mastra-workflow.ts";
-import type { CurriculumRecord, LearningIntake, LearningSignalInput } from "./intelligence/course-intelligence.ts";
-import type { CourseIntelligenceState, CurrentLearningState, MaterialAnalysisResult } from "./intelligence/service.ts";
+import type {
+  CurriculumConstraint,
+  CurriculumRecord,
+  LearningIntake,
+  LearningSignalInput,
+  PublicScenarioCheck,
+} from "./intelligence/course-intelligence.ts";
+import type { CourseIntelligenceState, CurrentLearningState, LearningTaskResult, MaterialAnalysisResult, SourceResolution } from "./intelligence/service.ts";
+import type { LearningOrchestrationState } from "./intelligence/orchestration.ts";
+import type { ContentAnalysis, ContentSource } from "./intelligence/content-source.ts";
+import type { ContentSourceDetails } from "./intelligence/service.ts";
 
 export type {
   LearningEvalReport,
@@ -26,6 +35,14 @@ export type {
   CourseIntelligenceState,
   MaterialAnalysisResult,
   CurrentLearningState,
+  CurriculumConstraint,
+  PublicScenarioCheck,
+  SourceResolution,
+  LearningTaskResult,
+  LearningOrchestrationState,
+  ContentSource,
+  ContentAnalysis,
+  ContentSourceDetails,
 };
 
 export interface WorkspaceProfile {
@@ -107,12 +124,23 @@ export interface WorkspaceActivity {
   courseId?: string;
   unitId?: string;
   canonicalNodeId?: string;
+  scope?: {
+    segmentId: string;
+    sourceUrl?: string;
+    locatorLabel: string;
+    locatorMissing: boolean;
+    manualOverride?: boolean;
+    sourceUpdatedAt?: string;
+    stopCondition: string;
+    completionSignal: string;
+    nodeIds: string[];
+  };
   title: string;
   activityType: "build_model" | "follow_demo" | "independent_practice" | "quiz" | "reflection" | "integrated_task" | "retest";
   goal: string;
   estimatedMinutes: number;
   isCore: boolean;
-  status: "planned" | "in_progress" | "evidence_submitted" | "reviewed" | "completed";
+  status: "planned" | "in_progress" | "paused" | "evidence_submitted" | "reviewed" | "completed";
   isSkipValidation: boolean;
   inputRefs: string[];
   steps: string;
@@ -120,6 +148,12 @@ export interface WorkspaceActivity {
   evaluationCriteria: string;
   nextAdvice: string;
   sequence: number;
+  startedAt?: string | null;
+  lastOpenedAt?: string | null;
+  pausedAt?: string | null;
+  completedAt?: string | null;
+  pauseReason?: string;
+  actualMinutes?: number | null;
 }
 
 export interface WorkspaceUserResource {
@@ -619,6 +653,28 @@ export async function fetchCourseIntelligenceState(): Promise<CourseIntelligence
   return data.state;
 }
 
+export async function fetchContentSources(): Promise<ContentSourceDetails[]> {
+  const data = await readJson<{ sources: ContentSourceDetails[] }>(await apiFetch("/api/learning/sources"));
+  return data.sources;
+}
+
+export async function createContentSource(input: { title: string; type?: ContentSource["type"]; canonicalUrl?: string | null; rawContent?: string | null }): Promise<ContentSource> {
+  const data = await readJson<{ source: ContentSource }>(await apiFetch("/api/learning/sources", { method: "POST", headers: jsonHeaders, body: JSON.stringify(input) }));
+  return data.source;
+}
+
+export async function fetchContentSource(sourceId: string): Promise<ContentSourceDetails> {
+  return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}`));
+}
+
+export async function analyzeContentSource(sourceId: string): Promise<ContentSourceDetails> {
+  return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}/analyze`, { method: "POST" }));
+}
+
+export async function confirmContentFragments(sourceId: string, input: { fragmentIds: string[]; decision: "confirmed" | "rejected" }): Promise<ContentSourceDetails> {
+  return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}/confirm`, { method: "POST", headers: jsonHeaders, body: JSON.stringify(input) }));
+}
+
 export async function createCurriculum(input: LearningIntake): Promise<CurriculumRecord> {
   const data = await readJson<{ curriculum: CurriculumRecord }>(
     await apiFetch("/api/learning/intake", {
@@ -648,17 +704,90 @@ export async function confirmCurriculum(id: string): Promise<CurriculumRecord> {
   return data.curriculum;
 }
 
+export async function reviseCurriculum(id: string, constraints: CurriculumConstraint[]) {
+  return readJson<{ curriculum: CurriculumRecord }>(
+    await apiFetch(`/api/learning/curricula/${id}/revise`, {
+      method: "POST", headers: jsonHeaders, body: JSON.stringify({ constraints }),
+    }),
+  );
+}
+
 export async function fetchCurrentLearning(): Promise<CurrentLearningState> {
   const data = await readJson<{ current: CurrentLearningState }>(await apiFetch("/api/learning/current"));
   return data.current;
 }
 
+export async function fetchLearningOrchestration(): Promise<LearningOrchestrationState> {
+  const data = await readJson<{ orchestration: LearningOrchestrationState }>(
+    await apiFetch("/api/learning/orchestration"),
+  );
+  return data.orchestration;
+}
+
+export async function startLearningActivity(activityId: string) {
+  return readJson<{ activity: WorkspaceActivity; sourceResolution: SourceResolution }>(
+    await apiFetch(`/api/learning/runs/${activityId}/start`, { method: "POST" }),
+  );
+}
+
+export async function pauseLearningActivity(activityId: string, reason = "") {
+  return readJson<{ activity: WorkspaceActivity }>(await apiFetch(`/api/learning/runs/${activityId}/pause`, {
+    method: "POST", headers: jsonHeaders, body: JSON.stringify({ reason }),
+  }));
+}
+
+export async function updateLearningLocation(activityId: string, input: { sourceUrl: string; locatorLabel: string }) {
+  return readJson<{ activity: WorkspaceActivity; sourceResolution: SourceResolution }>(
+    await apiFetch(`/api/learning/runs/${activityId}/location`, {
+      method: "PATCH", headers: jsonHeaders, body: JSON.stringify(input),
+    }),
+  );
+}
+
+export async function attachWorkbenchResource(resourceId: string, input: { activityId: string; nodeId?: string }) {
+  return readJson(await apiFetch(`/api/learning/resources/${resourceId}/attachments`, {
+    method: "POST", headers: jsonHeaders, body: JSON.stringify(input),
+  }));
+}
+
+export async function detachWorkbenchResource(resourceId: string, activityId: string) {
+  return readJson(await apiFetch(`/api/learning/resources/${resourceId}/attachments`, {
+    method: "DELETE", headers: jsonHeaders, body: JSON.stringify({ activityId }),
+  }));
+}
+
+const pendingFeedback = new Map<string, string>();
 export async function recordLearningSignal(activityId: string, input: LearningSignalInput) {
-  return readJson(await apiFetch(`/api/learning/runs/${activityId}/feedback`, {
+  const key = JSON.stringify([activityId, input]);
+  const submissionId = input.submissionId ?? pendingFeedback.get(key) ?? crypto.randomUUID();
+  pendingFeedback.set(key, submissionId);
+  const response = await readJson(await apiFetch(`/api/learning/runs/${activityId}/feedback`, {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, submissionId }),
   }));
+  pendingFeedback.delete(key);
+  return response;
+}
+
+export async function fetchScenarioCheck(activityId: string): Promise<PublicScenarioCheck> {
+  const data = await readJson<{ check: PublicScenarioCheck }>(
+    await apiFetch(`/api/learning/runs/${activityId}/check`, { method: "POST" }),
+  );
+  return data.check;
+}
+
+export async function fetchLearningTaskResult(activityId: string): Promise<LearningTaskResult> {
+  const data = await readJson<{ result: LearningTaskResult }>(await apiFetch(`/api/learning/tasks/${activityId}/result`));
+  return data.result;
+}
+
+export async function closeLearningWeek(weekKey: string) {
+  return readJson(await apiFetch(`/api/learning/weeks/${encodeURIComponent(weekKey)}/close`, { method: "POST" }));
+}
+
+export async function confirmLearningWeek(weekKey: string) {
+  return readJson(await apiFetch(`/api/learning/weeks/${encodeURIComponent(weekKey)}/confirm`, { method: "POST" }));
 }
 
 // ── 状态文案映射 ──────────────────────────────────────
@@ -672,6 +801,7 @@ export const NODE_STATUS_TEXT: Record<WorkspaceNodeProgress["status"], string> =
 export const ACTIVITY_STATUS_TEXT: Record<WorkspaceActivity["status"], string> = {
   planned: "待开始",
   in_progress: "进行中",
+  paused: "已暂停",
   evidence_submitted: "待评估",
   reviewed: "已评估",
   completed: "已完成",

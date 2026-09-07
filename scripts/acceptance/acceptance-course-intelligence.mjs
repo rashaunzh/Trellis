@@ -18,11 +18,12 @@ import {
 
 const OWNER_ID = "course-intelligence-acceptance-owner";
 const SHOTS = {
-  proposal: resolve("docs/acceptance-course-intelligence-proposal.png"),
-  learn: resolve("docs/acceptance-course-intelligence-learn.png"),
-  grow: resolve("docs/acceptance-course-intelligence-grow.png"),
-  workbench: resolve("docs/acceptance-course-intelligence-workbench.png"),
-  mobile: resolve("docs/acceptance-course-intelligence-mobile.png"),
+  proposal: resolve("docs/acceptance-continuous-learning-proposal.png"),
+  learn: resolve("docs/acceptance-continuous-learning-learn.png"),
+  feedback: resolve("docs/acceptance-continuous-learning-feedback.png"),
+  grow: resolve("docs/acceptance-continuous-learning-grow.png"),
+  workbench: resolve("docs/acceptance-continuous-learning-workbench.png"),
+  mobile: resolve("docs/acceptance-continuous-learning-mobile.png"),
 };
 
 const post = (path, body = {}) => apiPost(path, body, OWNER_ID);
@@ -100,16 +101,18 @@ async function launchBrowser() {
 
 async function waitForBody(send, expected, timeoutMs = 20000) {
   const deadline = Date.now() + timeoutMs;
+  let lastBody = "";
   while (Date.now() < deadline) {
     const result = await send("Runtime.evaluate", {
       expression: "document.readyState + '::' + document.body.innerText",
       returnByValue: true,
     });
     const body = String(result.result.value ?? "").split("::").slice(1).join("::");
+    lastBody = body;
     if (body.length > 100 && body.includes(expected)) return body;
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
   }
-  throw new Error(`page body did not contain "${expected}"`);
+  throw new Error(`page body did not contain "${expected}"; body=${lastBody.slice(0, 1200)}`);
 }
 
 async function navigate(send, path, expected) {
@@ -144,10 +147,10 @@ async function verifyBrowser(curriculum) {
       returnByValue: true,
     });
 
-    let body = await navigate(send, "/learn", "检查 Trellis 的课程取舍");
-    check("proposal explains target interpretation", body.includes("对目标的理解") && body.includes("用户原始目标"));
-    check("proposal exposes course decisions", body.includes("当前主线") && body.includes("只学选定章节"));
-    check("proposal exposes exact units", body.includes("少量课程，精确到章节") && body.includes("退出"));
+    let body = await navigate(send, "/learn", "当前最小课程组合");
+    check("proposal explains finite curriculum", body.includes("不是完整课表") && body.includes("学习顺序"));
+    check("proposal exposes course decisions", body.includes("主线") && body.includes("选定章节"));
+    check("proposal preserves explicit gaps", body.includes("当前方案仍有缺口"));
     await screenshot(send, SHOTS.proposal);
     await verifyNoRuntimeError(send);
 
@@ -155,32 +158,81 @@ async function verifyBrowser(curriculum) {
     const { current } = await get("/api/learning/current");
     check("curriculum activation completed", current.curriculum.activationStatus === "active");
     check("runtime keeps canonical course references", Boolean(current.activities[0]?.canonicalNodeId && current.activities[0]?.courseVersionId && current.activities[0]?.unitId));
-    body = await navigate(send, "/learn", "继续当前最值得推进的一节");
-    check("learn page exposes current unit", body.includes("学到这里就可以停") && body.includes("打开这一节"));
-    check("learn page uses learning feedback", body.includes("学习反馈") && body.includes("本周采用的准确章节"));
+    body = await navigate(send, "/learn", "当前片段");
+    check("learn page exposes current unit", body.includes("本次范围") && body.includes("停止条件"));
+    check("learn page has one primary start action", body.includes("开始这一节") && body.includes("学习反馈"));
     await screenshot(send, SHOTS.learn);
     await verifyNoRuntimeError(send);
+    await send("Runtime.evaluate", {
+      expression: `Array.from(document.querySelectorAll('button')).find((button) => button.textContent.includes('学习反馈'))?.click()`,
+    });
+    await waitForBody(send, "现在的感觉");
+    await screenshot(send, SHOTS.feedback);
+    await send("Runtime.evaluate", {
+      expression: `document.querySelector('[role="dialog"] button[aria-label="关闭"]')?.click()`,
+    });
 
-    const { state: knowledgeState } = await post(`/api/learning/runs/${current.activities[0].id}/feedback`, {
+    const activityId = current.activities[0].id;
+    const { sourceResolution: initialSource } = await post(`/api/learning/runs/${activityId}/start`);
+    check("opening a source starts without completing", initialSource.kind === "course_root" || initialSource.kind === "exact");
+    let { current: resumed } = await get("/api/learning/current");
+    check("started activity is resumable", resumed.resumeState.mode === "opened_without_feedback" && resumed.activities[0].status === "in_progress");
+    await post(`/api/learning/runs/${activityId}/pause`, { reason: "验收暂停" });
+    ({ current: resumed } = await get("/api/learning/current"));
+    check("pause survives refresh", resumed.resumeState.mode === "paused" && resumed.activities[0].pauseReason === "验收暂停");
+    await fetch(`${BASE}/api/learning/runs/${activityId}/location`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "x-trellis-owner-id": OWNER_ID },
+      body: JSON.stringify({ sourceUrl: "https://www.deeplearning.ai/courses/", locatorLabel: "Course catalog · selected unit" }),
+    });
+    ({ current: resumed } = await get("/api/learning/current"));
+    check("user-confirmed location becomes exact", resumed.sourceResolution.kind === "exact");
+    body = await navigate(send, "/learn", "继续上次片段");
+    check("learn page restores paused segment", body.includes("继续这一节") && body.includes("Course catalog · selected unit"));
+
+    const { state: knowledgeState } = await post(`/api/learning/runs/${activityId}/feedback`, {
       type: "quiz_result",
       value: 86,
       note: "课程随堂测试通过",
+      actualMinutes: 42,
+      completionIntent: "complete",
     });
     check("light feedback updates canonical knowledge state", knowledgeState.status === "has_signal");
-    body = await navigate(send, "/learn", "Building AI Projects");
-    check("next action advances to the next exact unit", body.includes("本周路线") && body.includes("1/5"));
+    ({ current: resumed } = await get("/api/learning/current"));
+    check("feedback persists actual time and advances", resumed.activities[0].actualMinutes === 42 && resumed.activities[0].status === "completed");
+    body = await navigate(send, "/learn", "最近变化");
+    check("adaptation is visible after refresh", body.includes("课程原测验") && body.includes("已应用到当前学习") && body.includes("连续进度"));
 
     body = await navigate(send, "/grow", "AI 学习领域图");
     check("grow renders category structure", body.includes("AI 基础与边界") && body.includes("AI 产品判断"));
-    check("grow explains route projection", body.includes("当前路线") && body.includes("36"));
+    check("grow explains route projection", body.includes("当前路线") && body.includes("下一里程碑"));
     await screenshot(send, SHOTS.grow);
     await verifyNoRuntimeError(send);
 
-    body = await navigate(send, "/workbench", "工具、外部知识库和暂存内容");
+    const { resources } = await post("/api/learning/resources/inbox", {
+      type: "link", title: "验收补充材料", content: "仅用于当前片段", sourceUrl: "https://example.com/reference", relatedNodeIds: [],
+    });
+    const resource = resources.find((item) => item.title === "验收补充材料");
+    await post(`/api/learning/resources/${resource.id}/attachments`, { activityId: resumed.activities[1]?.id ?? activityId });
+    body = await navigate(send, "/workbench", "验收补充材料");
     check("workbench is auxiliary", body.includes("NotebookLM") && body.includes("不决定主线课程"));
     check("course decisions stay out of workbench", !body.includes("课程采用状态"));
+    check("workbench shows current attachment", body.includes("已附加当前片段"));
     await screenshot(send, SHOTS.workbench);
     await verifyNoRuntimeError(send);
+
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: 1024,
+      height: 768,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    body = await navigate(send, "/learn", "当前片段");
+    const tabletOverflow = await send("Runtime.evaluate", {
+      expression: "document.documentElement.scrollWidth > window.innerWidth + 2",
+      returnByValue: true,
+    });
+    check("1024 layout has no horizontal overflow", tabletOverflow.result.value === false);
 
     await send("Emulation.setDeviceMetricsOverride", {
       width: 390,
@@ -188,8 +240,9 @@ async function verifyBrowser(curriculum) {
       deviceScaleFactor: 1,
       mobile: true,
     });
-    body = await navigate(send, "/learn", "继续当前最值得推进的一节");
-    check("mobile keeps the primary learning action", body.includes("打开这一节") && body.includes("学习反馈"));
+    body = await navigate(send, "/learn", "当前片段");
+    check("mobile keeps the primary learning action", body.includes("开始这一节") && body.includes("学习反馈"));
+    check("mobile navigation remains available", body.includes("工作台") && body.includes("成长"));
     const overflow = await send("Runtime.evaluate", {
       expression: "document.documentElement.scrollWidth > window.innerWidth + 2",
       returnByValue: true,

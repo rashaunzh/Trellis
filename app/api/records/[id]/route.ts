@@ -1,3 +1,4 @@
+import { requireLegacyRuntime, jsonError } from "../../learning/_shared";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { records } from "../../../../db/schema";
@@ -12,6 +13,7 @@ const editableFields = new Set([
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
+    await requireLegacyRuntime(request);
     const { id } = await context.params;
     const payload = await request.json() as Record<string, unknown>;
     if (payload.status !== undefined && !statuses.has(String(payload.status))) {
@@ -39,6 +41,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       ? Response.json({ record })
       : Response.json({ error:"记录不存在" }, { status:404 });
   } catch (error) {
-    return Response.json({ error:error instanceof Error ? error.message : "更新失败" }, { status:500 });
+    return jsonError(error);
   }
 }

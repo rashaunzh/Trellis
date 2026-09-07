@@ -32,9 +32,15 @@ Trellis 是一个课程智能与学习编排系统。它把用户目标和已有
 - `DecisionRecord` 统一保存课程、路线、学习调整和版本迁移的理由、置信度、Eval 与确认历史；
 - 无模型 Key 时使用已发布基线，陌生课程明确显示尚未分析；
 - 课程目录范围约束：用户给出 DeepLearning.AI 总目录时，系统先在该目录内取舍，不静默混入其他平台；
+- 最多 8 门课程同时进入判断；个人课程通过 grounding 门后可仅对当前 owner 采用，不污染共享 catalog；
+- Curriculum Solver v3 输出课程比较、用户约束、显式缺口和 30–90 分钟 `StudySegment`；AI PM 当前组合默认不超过 3 门课程；
+- 用户可固定、暂缓、排除课程或缩小采用章节，每次调整生成独立 revision；
+- 可选情景判断、课程原测试和卡点会物化为推进、回看、缩小范围或补前置；
+- 第一周有效信号可直接生成第二周草案，确认后继续，历史周与原始信号不覆盖；
+- 学习片段支持开始、暂停、跨刷新恢复、实际用时和用户确认的准确来源位置；反馈后的调整摘要可持续读取；
 - `/learn` 三态流程：说明目标、检查方案、开始准确章节；
-- `/grow` 长领域图与当前路线投影；
-- `/workbench` 仅管理工具、外部知识库和临时内容；
+- `/grow` 默认展示当前路线、真实能力信号和下一里程碑，完整领域降为二级视图；
+- `/workbench` 仅管理工具、外部知识库和临时内容，并可附加到当前片段而不改变主线；
 - 旧周计划、活动、学习反馈和 owner 隔离继续复用，旧固定路线退出正式入口。
 
 ## 本地运行
@@ -44,7 +50,7 @@ npm ci
 npm run dev
 ```
 
-Vite 会打印实际地址。首次运行或 schema 更新需按 `drizzle/migration-manifest.json` 应用完整迁移链；Agentic 决策内核位于 `0016`。详见[本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。
+Vite 会打印实际地址。首次运行或 schema 更新需按 `drizzle/migration-manifest.json` 应用完整迁移链；Agentic 决策内核、模型 Trace、功能闭环与连续学习状态位于 `0016-0019`。详见[本地开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。
 
 内置模型为可选增强：
 
@@ -53,11 +59,15 @@ TRELLIS_AI_PRIMARY_PROVIDER=<provider-label>
 TRELLIS_AI_PRIMARY_API_KEY=<server-key>
 TRELLIS_AI_PRIMARY_MODEL=<model-name>
 TRELLIS_AI_PRIMARY_BASE_URL=<openai-compatible-base-url>
+TRELLIS_AI_PRIMARY_STRUCTURED_OUTPUT=<json_schema|json_object|prompt_json>
 TRELLIS_AI_FALLBACK_PROVIDER=<provider-label>
 TRELLIS_AI_FALLBACK_API_KEY=<server-key>
 TRELLIS_AI_FALLBACK_MODEL=<model-name>
 TRELLIS_AI_FALLBACK_BASE_URL=<openai-compatible-base-url>
+TRELLIS_AI_FALLBACK_STRUCTURED_OUTPUT=<json_schema|json_object|prompt_json>
 ```
+
+真实主备、降级、benchmark 与内部 Trace 见[模型运行架构](docs/architecture/MODEL_RUNTIME.md)。
 
 没有这些变量时，已发布课程和路线仍可使用。BYOK 不解锁基本能力，只用于指定模型、更高额度或未来私有材料分析。
 
@@ -84,10 +94,13 @@ npm run delivery:precheck
 - `POST /api/learning/materials/analyze`
 - `GET /api/learning/curricula/:id`
 - `POST /api/learning/curricula/:id/confirm`
+- `POST /api/learning/curricula/:id/revise`
 - `GET /api/learning/current`
 - `GET /api/learning/workflows/:id`
 - `POST /api/learning/decisions/:id/accept|reject`
 - `POST /api/learning/runs/:activityId/feedback`
+- `POST /api/learning/runs/:activityId/check`
+- `POST /api/learning/weeks/:weekKey/close|confirm`
 
 抓取、候选图发布和批量更新保持为内部流程，不暴露无鉴权管理 API。
 

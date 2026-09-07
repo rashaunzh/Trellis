@@ -4,6 +4,7 @@ import {
   courseGenomeSchema,
   domainGraphSchema,
   learningIntakeSchema,
+  publishedCourseSchema,
   trustedSourceSchema,
   unitNodeMappingSchema,
   type CurriculumRecord,
@@ -27,6 +28,21 @@ import {
   type DecisionRecord,
   type DecisionStatus,
 } from "./decision-kernel.ts";
+import type { ContentAnalysis, ContentSource } from "./content-source.ts";
+
+function analysisRunFromRow(row: Record<string, unknown>): AnalysisRunRecord {
+  return {
+    id: String(row.id), ownerId: row.owner_id ? String(row.owner_id) : null, kind: String(row.kind), inputHash: String(row.input_hash),
+    provider: String(row.provider), model: String(row.model), status: row.status as AnalysisRunRecord["status"],
+    outputJson: String(row.output_json), error: String(row.error), promptTokens: Number(row.prompt_tokens),
+    completionTokens: Number(row.completion_tokens), latencyMs: Number(row.latency_ms), createdAt: String(row.created_at),
+    requestId: row.request_id ? String(row.request_id) : String(row.id), workflowRunId: row.workflow_run_id ? String(row.workflow_run_id) : null,
+    decisionId: row.decision_id ? String(row.decision_id) : null, slot: (row.slot ? String(row.slot) : "primary") as AnalysisRunRecord["slot"],
+    attempt: Number(row.attempt ?? 1), contractVersion: String(row.contract_version ?? "legacy"),
+    failureClass: String(row.failure_class ?? ""), fallbackReason: String(row.fallback_reason ?? ""),
+    cacheHit: Boolean(row.cache_hit), evalJson: String(row.eval_json ?? "{}"),
+  };
+}
 
 export interface AnalysisRunRecord {
   id: string;
@@ -35,13 +51,29 @@ export interface AnalysisRunRecord {
   inputHash: string;
   provider: string;
   model: string;
-  status: "success" | "failed";
+  status: "success" | "failed" | "needs_review";
   outputJson: string;
   error: string;
   promptTokens: number;
   completionTokens: number;
   latencyMs: number;
   createdAt: string;
+  requestId?: string;
+  workflowRunId?: string | null;
+  decisionId?: string | null;
+  slot?: "primary" | "fallback" | "baseline";
+  attempt?: number;
+  contractVersion?: string;
+  failureClass?: string;
+  fallbackReason?: string;
+  cacheHit?: boolean;
+  evalJson?: string;
+}
+
+export interface AnalysisRunFilter {
+  requestId?: string;
+  ownerId?: string;
+  limit?: number;
 }
 
 export interface WorkflowRunRecord {
@@ -94,9 +126,10 @@ export interface CourseIntelligenceRepository {
   markSourceCheckFailed(sourceId: string, error: string, checkedAt: string): Promise<void>;
   saveSourceUpdateCandidate(snapshot: SourceSnapshotCandidate): Promise<SourceUpdateJobRecord>;
   listCourses(): Promise<PublishedCourse[]>;
+  listAvailableCourses(ownerId: string): Promise<PublishedCourse[]>;
   getPublishedGraph(): Promise<DomainGraph>;
   getCurriculum(id: string, ownerId: string): Promise<CurriculumRecord | null>;
-  getLatestCurriculum(ownerId: string): Promise<CurriculumRecord | null>;
+  getLatestCurriculum(ownerId: string, status?: "confirmed"): Promise<CurriculumRecord | null>;
   listCurriculaUsingCourse(courseId: string): Promise<CurriculumRecord[]>;
   saveCurriculum(record: CurriculumRecord): Promise<void>;
   saveCourseCandidate(candidate: CourseCandidateRecord): Promise<void>;
@@ -114,10 +147,19 @@ export interface CourseIntelligenceRepository {
   resetOwnerState(ownerId: string): Promise<void>;
   supersedeCurricula(ownerId: string, exceptId: string, includeConfirmed?: boolean): Promise<void>;
   saveLearningSignal(signal: LearningSignal, state: CanonicalKnowledgeState): Promise<void>;
+  listLearningSignals(ownerId: string, curriculumId?: string): Promise<LearningSignal[]>;
   listKnowledgeStates(ownerId: string): Promise<CanonicalKnowledgeState[]>;
   findCachedAnalysis(kind: string, inputHash: string, model: string): Promise<AnalysisRunRecord | null>;
   getAnalysisUsageSince(ownerId: string, since: string): Promise<{ calls: number; tokens: number }>;
   saveAnalysisRun(run: AnalysisRunRecord): Promise<void>;
+  listAnalysisRuns(filter?: AnalysisRunFilter): Promise<AnalysisRunRecord[]>;
+  linkAnalysisRuns(workflowRunId: string, decisionId: string): Promise<void>;
+  saveContentSource(source: ContentSource): Promise<void>;
+  getContentSource(id: string, ownerId: string): Promise<ContentSource | null>;
+  listContentSources(ownerId: string): Promise<ContentSource[]>;
+  saveContentAnalysis(analysis: ContentAnalysis): Promise<void>;
+  getLatestContentAnalysis(sourceId: string): Promise<ContentAnalysis | null>;
+  confirmContentFragments(sourceId: string, ownerId: string, fragmentIds: string[], decision: "confirmed" | "rejected"): Promise<ContentAnalysis>;
 }
 
 export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceRepository {
@@ -132,6 +174,8 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
   private sourceSnapshots = new Map<string, SourceSnapshotCandidate>();
   private decisions = new Map<string, DecisionRecord>();
   private decisionEvents = new Map<string, DecisionEvent>();
+  private contentSources = new Map<string, ContentSource>();
+  private contentAnalyses = new Map<string, ContentAnalysis>();
 
   async seedPublishedBaseline() {}
   async listSources() { return structuredClone(trustedSources); }
@@ -163,14 +207,24 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
       mappings: mappings.filter((mapping) => mapping.courseId === item.genome.id),
     })), ...Array.from(this.publishedCourses.values()).map((item) => structuredClone(item))];
   }
+  async listAvailableCourses(ownerId: string): Promise<PublishedCourse[]> {
+    const shared = await this.listCourses();
+    const personal = Array.from(this.candidates.values())
+      .filter((item) => item.ownerId === ownerId && item.status === "personal_ready")
+      .flatMap((item) => {
+        try { return [publishedCourseSchema.parse(JSON.parse(item.candidateJson ?? "{}"))]; }
+        catch { return []; }
+      });
+    return [...shared, ...personal];
+  }
   async getPublishedGraph() { return publishedDomainGraph; }
   async getCurriculum(id: string, ownerId: string) {
     const record = this.curricula.get(id);
     return record?.ownerId === ownerId ? structuredClone(record) : null;
   }
-  async getLatestCurriculum(ownerId: string) {
+  async getLatestCurriculum(ownerId: string, status?: "confirmed") {
     return Array.from(this.curricula.values())
-      .filter((item) => item.ownerId === ownerId && item.status !== "superseded")
+      .filter((item) => item.ownerId === ownerId && item.status !== "superseded" && (!status || item.status === status))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
   }
   async listCurriculaUsingCourse(courseId: string) {
@@ -213,6 +267,12 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
     this.signals.set(signal.id, structuredClone(signal));
     this.knowledgeStates.set(`${state.ownerId}/${state.nodeId}`, structuredClone(state));
   }
+  async listLearningSignals(ownerId: string, curriculumId?: string) {
+    return Array.from(this.signals.values())
+      .filter((item) => item.ownerId === ownerId && (!curriculumId || item.curriculumId === curriculumId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((item) => structuredClone(item));
+  }
   async listKnowledgeStates(ownerId: string) {
     return Array.from(this.knowledgeStates.values()).filter((item) => item.ownerId === ownerId).map((item) => structuredClone(item));
   }
@@ -222,13 +282,51 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
     ) ?? null;
   }
   async getAnalysisUsageSince(ownerId: string, since: string) {
-    const runs = Array.from(this.runs.values()).filter((run) => run.ownerId === ownerId && run.createdAt >= since);
+    const runs = Array.from(this.runs.values()).filter((run) => run.ownerId === ownerId && run.createdAt >= since && !run.cacheHit);
     return {
       calls: runs.length,
       tokens: runs.reduce((total, run) => total + run.promptTokens + run.completionTokens, 0),
     };
   }
   async saveAnalysisRun(run: AnalysisRunRecord) { this.runs.set(run.id, { ...run }); }
+  async listAnalysisRuns(filter: AnalysisRunFilter = {}) {
+    return Array.from(this.runs.values())
+      .filter((run) => !filter.requestId || run.requestId === filter.requestId)
+      .filter((run) => !filter.ownerId || run.ownerId === filter.ownerId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || (b.attempt ?? 0) - (a.attempt ?? 0))
+      .slice(0, filter.limit ?? 100)
+      .map((run) => structuredClone(run));
+  }
+  async linkAnalysisRuns(workflowRunId: string, decisionId: string) {
+    for (const [id, run] of this.runs) {
+      if (run.workflowRunId === workflowRunId) this.runs.set(id, { ...run, decisionId });
+    }
+  }
+  async saveContentSource(source: ContentSource) { this.contentSources.set(source.id, structuredClone(source)); }
+  async getContentSource(id: string, ownerId: string) {
+    const source = this.contentSources.get(id);
+    return source?.ownerId === ownerId ? structuredClone(source) : null;
+  }
+  async listContentSources(ownerId: string) {
+    return Array.from(this.contentSources.values()).filter((source) => source.ownerId === ownerId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map((source) => structuredClone(source));
+  }
+  async saveContentAnalysis(analysis: ContentAnalysis) { this.contentAnalyses.set(analysis.id, structuredClone(analysis)); }
+  async getLatestContentAnalysis(sourceId: string) {
+    const analysis = Array.from(this.contentAnalyses.values()).filter((item) => item.sourceId === sourceId)
+      .sort((a, b) => b.version - a.version)[0];
+    return analysis ? structuredClone(analysis) : null;
+  }
+  async confirmContentFragments(sourceId: string, ownerId: string, fragmentIds: string[], decision: "confirmed" | "rejected") {
+    const source = await this.getContentSource(sourceId, ownerId);
+    const analysis = await this.getLatestContentAnalysis(sourceId);
+    if (!source || !analysis) throw new Error("来源分析不存在");
+    const selected = new Set(fragmentIds);
+    const next = { ...analysis, fragments: analysis.fragments.map((fragment) => selected.has(fragment.id) ? { ...fragment, status: decision } : fragment) };
+    await this.saveContentAnalysis(next);
+    await this.saveContentSource({ ...source, status: next.fragments.some((fragment) => fragment.status === "confirmed") ? "confirmed" : decision === "rejected" ? "rejected" : source.status, updatedAt: new Date().toISOString() });
+    return structuredClone(next);
+  }
   async saveWorkflowRun(run: WorkflowRunRecord) { this.workflowRuns.set(run.id, structuredClone(run)); }
   async getWorkflowRunByAggregate(ownerId: string, aggregateId: string) {
     return structuredClone(Array.from(this.workflowRuns.values()).find((run) =>
@@ -267,6 +365,9 @@ export class InMemoryCourseIntelligenceRepository implements CourseIntelligenceR
     for (const [id, event] of this.decisionEvents) if (decisionIds.has(event.decisionId)) this.decisionEvents.delete(id);
     for (const [id, signal] of this.signals) if (signal.ownerId === ownerId) this.signals.delete(id);
     for (const key of this.knowledgeStates.keys()) if (key.startsWith(`${ownerId}:`)) this.knowledgeStates.delete(key);
+    const sourceIds = new Set(Array.from(this.contentSources.values()).filter((source) => source.ownerId === ownerId).map((source) => source.id));
+    for (const id of sourceIds) this.contentSources.delete(id);
+    for (const [id, analysis] of this.contentAnalyses) if (sourceIds.has(analysis.sourceId)) this.contentAnalyses.delete(id);
   }
 }
 
@@ -308,6 +409,19 @@ function parseCandidate(row: Record<string, unknown>): CourseCandidateRecord {
     status: row.status as CourseCandidateRecord["status"],
     createdAt: String(row.created_at), updatedAt: String(row.updated_at),
   };
+}
+
+function parseContentSource(row: Record<string, unknown>): ContentSource {
+  return {
+    id: String(row.id), ownerId: row.owner_id ? String(row.owner_id) : null, type: row.source_type as ContentSource["type"],
+    title: String(row.title), canonicalUrl: row.canonical_url ? String(row.canonical_url) : null,
+    rawContent: row.raw_content ? String(row.raw_content) : null, status: row.status as ContentSource["status"],
+    sourceTrust: row.source_trust as ContentSource["sourceTrust"], createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+  };
+}
+
+function parseContentAnalysis(row: Record<string, unknown>): ContentAnalysis {
+  return JSON.parse(String(row.analysis_json)) as ContentAnalysis;
 }
 
 function parseDecision(row: Record<string, unknown>): DecisionRecord {
@@ -466,6 +580,17 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     }));
   }
 
+  async listAvailableCourses(ownerId: string): Promise<PublishedCourse[]> {
+    const shared = await this.listCourses();
+    const rows = await this.db.prepare(`SELECT candidate_json FROM learning_ci_course_candidates
+      WHERE owner_id=? AND status='personal_ready' ORDER BY updated_at DESC`).bind(ownerId).all();
+    const personal = (rows.results as Array<Record<string, unknown>>).flatMap((row) => {
+      try { return [publishedCourseSchema.parse(JSON.parse(String(row.candidate_json)))]; }
+      catch { return []; }
+    });
+    return [...shared, ...personal];
+  }
+
   async getPublishedGraph(): Promise<DomainGraph> {
     const row = await this.db.prepare("SELECT graph_json FROM learning_ci_graph_versions WHERE status='published' ORDER BY created_at DESC LIMIT 1").first();
     if (!row) throw new Error("尚未发布领域图");
@@ -477,8 +602,8 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     return row ? parseRecord(row) : null;
   }
 
-  async getLatestCurriculum(ownerId: string): Promise<CurriculumRecord | null> {
-    const row = await this.db.prepare("SELECT * FROM learning_ci_curricula WHERE owner_id=? AND status!='superseded' ORDER BY updated_at DESC LIMIT 1").bind(ownerId).first();
+  async getLatestCurriculum(ownerId: string, status?: "confirmed"): Promise<CurriculumRecord | null> {
+    const row = await this.db.prepare("SELECT * FROM learning_ci_curricula WHERE owner_id=? AND status!='superseded' AND (? IS NULL OR status=?) ORDER BY updated_at DESC LIMIT 1").bind(ownerId, status ?? null, status ?? null).first();
     return row ? parseRecord(row) : null;
   }
 
@@ -577,15 +702,31 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
   async saveLearningSignal(signal: LearningSignal, state: CanonicalKnowledgeState): Promise<void> {
     await this.db.batch([
       this.db.prepare(`INSERT INTO learning_ci_learning_signals
-        (id,owner_id,activity_id,curriculum_id,canonical_node_id,signal_type,value_json,note,created_at)
-        VALUES (?,?,?,?,?,?,?,?,?)`)
-        .bind(signal.id, signal.ownerId, signal.activityId, signal.curriculumId, signal.canonicalNodeId, signal.type, JSON.stringify(signal.value), signal.note, signal.createdAt),
+        (id,owner_id,activity_id,curriculum_id,canonical_node_id,signal_type,value_json,note,question_id,context_json,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+        .bind(signal.id, signal.ownerId, signal.activityId, signal.curriculumId, signal.canonicalNodeId,
+          signal.type, JSON.stringify(signal.value), signal.note, signal.questionId ?? null,
+          JSON.stringify(signal.context ?? {}), signal.createdAt),
       this.db.prepare(`INSERT INTO learning_ci_knowledge_states
         (owner_id,node_id,status,confidence,latest_signal_id,updated_at) VALUES (?,?,?,?,?,?)
         ON CONFLICT(owner_id,node_id) DO UPDATE SET status=excluded.status,confidence=excluded.confidence,
           latest_signal_id=excluded.latest_signal_id,updated_at=excluded.updated_at`)
         .bind(state.ownerId, state.nodeId, state.status, state.confidence, state.latestSignalId, state.updatedAt),
     ]);
+  }
+
+  async listLearningSignals(ownerId: string, curriculumId?: string): Promise<LearningSignal[]> {
+    const where = curriculumId ? "owner_id=? AND curriculum_id=?" : "owner_id=?";
+    const statement = this.db.prepare(`SELECT * FROM learning_ci_learning_signals WHERE ${where} ORDER BY created_at`);
+    const rows = curriculumId ? await statement.bind(ownerId, curriculumId).all() : await statement.bind(ownerId).all();
+    return (rows.results as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id), ownerId: String(row.owner_id), activityId: String(row.activity_id),
+      curriculumId: String(row.curriculum_id), canonicalNodeId: String(row.canonical_node_id),
+      type: row.signal_type as LearningSignal["type"], value: JSON.parse(String(row.value_json)),
+      note: String(row.note ?? ""), questionId: row.question_id ? String(row.question_id) : null,
+      context: row.context_json ? JSON.parse(String(row.context_json)) as Record<string, unknown> : {},
+      createdAt: String(row.created_at),
+    }));
   }
 
   async listKnowledgeStates(ownerId: string): Promise<CanonicalKnowledgeState[]> {
@@ -605,27 +746,84 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
     const row = await this.db.prepare(`SELECT * FROM learning_ci_analysis_runs
       WHERE kind=? AND input_hash=? AND model=? AND status='success' ORDER BY created_at DESC LIMIT 1`)
       .bind(kind, inputHash, model).first();
-    return row ? {
-      id: String(row.id), ownerId: row.owner_id ? String(row.owner_id) : null, kind: String(row.kind), inputHash: String(row.input_hash),
-      provider: String(row.provider), model: String(row.model), status: "success", outputJson: String(row.output_json), error: String(row.error),
-      promptTokens: Number(row.prompt_tokens), completionTokens: Number(row.completion_tokens), latencyMs: Number(row.latency_ms), createdAt: String(row.created_at),
-    } : null;
+    return row ? analysisRunFromRow(row as Record<string, unknown>) : null;
   }
 
   async getAnalysisUsageSince(ownerId: string, since: string): Promise<{ calls: number; tokens: number }> {
     const row = await this.db.prepare(`SELECT COUNT(*) AS calls,
       COALESCE(SUM(prompt_tokens + completion_tokens),0) AS tokens
-      FROM learning_ci_analysis_runs WHERE owner_id=? AND created_at>=?`)
+      FROM learning_ci_analysis_runs WHERE owner_id=? AND created_at>=? AND cache_hit=0`)
       .bind(ownerId, since).first();
     return { calls: Number(row?.calls ?? 0), tokens: Number(row?.tokens ?? 0) };
   }
 
   async saveAnalysisRun(run: AnalysisRunRecord): Promise<void> {
     await this.db.prepare(`INSERT OR REPLACE INTO learning_ci_analysis_runs
-      (id,owner_id,kind,input_hash,provider,model,status,output_json,error,prompt_tokens,completion_tokens,latency_ms,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .bind(run.id, run.ownerId, run.kind, run.inputHash, run.provider, run.model, run.status, run.outputJson, run.error, run.promptTokens, run.completionTokens, run.latencyMs, run.createdAt)
+      (id,owner_id,kind,input_hash,provider,model,status,output_json,error,prompt_tokens,completion_tokens,latency_ms,created_at,
+       request_id,workflow_run_id,decision_id,slot,attempt,contract_version,failure_class,fallback_reason,cache_hit,eval_json)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(run.id, run.ownerId, run.kind, run.inputHash, run.provider, run.model, run.status, run.outputJson, run.error,
+        run.promptTokens, run.completionTokens, run.latencyMs, run.createdAt, run.requestId ?? run.id,
+        run.workflowRunId ?? null, run.decisionId ?? null, run.slot ?? "primary", run.attempt ?? 1,
+        run.contractVersion ?? "legacy", run.failureClass ?? "", run.fallbackReason ?? "", Number(run.cacheHit ?? false), run.evalJson ?? "{}")
       .run();
+  }
+
+  async listAnalysisRuns(filter: AnalysisRunFilter = {}): Promise<AnalysisRunRecord[]> {
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+    if (filter.requestId) { clauses.push("request_id=?"); values.push(filter.requestId); }
+    if (filter.ownerId) { clauses.push("owner_id=?"); values.push(filter.ownerId); }
+    const limit = Math.min(Math.max(filter.limit ?? 100, 1), 200);
+    const rows = await this.db.prepare(`SELECT * FROM learning_ci_analysis_runs${clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""}
+      ORDER BY created_at DESC, attempt DESC LIMIT ${limit}`).bind(...values).all();
+    return (rows.results as Array<Record<string, unknown>>).map(analysisRunFromRow);
+  }
+
+  async linkAnalysisRuns(workflowRunId: string, decisionId: string): Promise<void> {
+    await this.db.prepare(`UPDATE learning_ci_analysis_runs SET decision_id=? WHERE workflow_run_id=?`)
+      .bind(decisionId, workflowRunId).run();
+  }
+
+  async saveContentSource(source: ContentSource): Promise<void> {
+    await this.db.prepare(`INSERT INTO learning_content_sources
+      (id,owner_id,source_type,title,canonical_url,raw_content,status,source_trust,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,canonical_url=excluded.canonical_url,
+      raw_content=excluded.raw_content,status=excluded.status,source_trust=excluded.source_trust,updated_at=excluded.updated_at`)
+      .bind(source.id, source.ownerId, source.type, source.title, source.canonicalUrl, source.rawContent, source.status, source.sourceTrust, source.createdAt, source.updatedAt).run();
+  }
+
+  async getContentSource(id: string, ownerId: string): Promise<ContentSource | null> {
+    const row = await this.db.prepare("SELECT * FROM learning_content_sources WHERE id=? AND owner_id=? LIMIT 1").bind(id, ownerId).first();
+    return row ? parseContentSource(row) : null;
+  }
+
+  async listContentSources(ownerId: string): Promise<ContentSource[]> {
+    const rows = await this.db.prepare("SELECT * FROM learning_content_sources WHERE owner_id=? ORDER BY updated_at DESC").bind(ownerId).all();
+    return (rows.results as Array<Record<string, unknown>>).map(parseContentSource);
+  }
+
+  async saveContentAnalysis(analysis: ContentAnalysis): Promise<void> {
+    await this.db.prepare(`INSERT INTO learning_content_analysis_runs
+      (id,source_id,version,mode,status,analysis_json,created_at) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET status=excluded.status,analysis_json=excluded.analysis_json`)
+      .bind(analysis.id, analysis.sourceId, analysis.version, analysis.mode, analysis.status, JSON.stringify(analysis), analysis.createdAt).run();
+  }
+
+  async getLatestContentAnalysis(sourceId: string): Promise<ContentAnalysis | null> {
+    const row = await this.db.prepare("SELECT analysis_json FROM learning_content_analysis_runs WHERE source_id=? ORDER BY version DESC LIMIT 1").bind(sourceId).first();
+    return row ? parseContentAnalysis(row) : null;
+  }
+
+  async confirmContentFragments(sourceId: string, ownerId: string, fragmentIds: string[], decision: "confirmed" | "rejected"): Promise<ContentAnalysis> {
+    const source = await this.getContentSource(sourceId, ownerId);
+    const analysis = await this.getLatestContentAnalysis(sourceId);
+    if (!source || !analysis) throw new Error("来源分析不存在");
+    const selected = new Set(fragmentIds);
+    const next = { ...analysis, fragments: analysis.fragments.map((fragment) => selected.has(fragment.id) ? { ...fragment, status: decision } : fragment) };
+    await this.saveContentAnalysis(next);
+    await this.saveContentSource({ ...source, status: next.fragments.some((fragment) => fragment.status === "confirmed") ? "confirmed" : decision === "rejected" ? "rejected" : source.status, updatedAt: new Date().toISOString() });
+    return next;
   }
 
   async saveWorkflowRun(run: WorkflowRunRecord): Promise<void> {
@@ -719,6 +917,8 @@ export class D1CourseIntelligenceRepository implements CourseIntelligenceReposit
       this.db.prepare("DELETE FROM learning_ci_knowledge_states WHERE owner_id=?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_workflow_runs WHERE owner_id=?").bind(ownerId),
       this.db.prepare("DELETE FROM learning_ci_curricula WHERE owner_id=?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_content_analysis_runs WHERE source_id IN (SELECT id FROM learning_content_sources WHERE owner_id=?)").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_content_sources WHERE owner_id=?").bind(ownerId),
     ]);
   }
 }

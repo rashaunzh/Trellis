@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-09-07T15:01:01.812Z",
+  "owner": "week-browser-1788793251965",
+  "checks": [
+    {
+      "route": "learn",
+      "overflow": false,
+      "title": "让已有材料，成为清晰路线"
+    },
+    {
+      "route": "workbench",
+      "overflow": false,
+      "title": "把收藏变成下一步"
+    },
+    {
+      "route": "grow",
+      "overflow": false,
+      "title": "AI 学习领域图"
+    },
+    {
+      "route": "source-to-route",
+      "passed": true
+    },
+    {
+      "route": "learn-mobile",
+      "overflow": false
+    },
+    {
+      "route": "records",
+      "status": 410,
+      "passed": true
+    },
+    {
+      "route": "concepts",
+      "status": 410,
+      "passed": true
+    },
+    {
+      "route": "reviews?weekKey=2026-W36",
+      "status": 410,
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "kind": "automated-not-human"
+}

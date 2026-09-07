@@ -42,6 +42,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.dev.vars*
 
 # vercel
 .vercel
@@ -53,6 +54,7 @@ next-env.d.ts
 /.wrangler/
 /.sites-runtime/
 /outputs/
+/.tmp-jd-research.txt
 /work/
 
 # TypeScript incremental build cache

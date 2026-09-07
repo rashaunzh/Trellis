@@ -5,6 +5,7 @@ import { InMemoryLearningStore } from "../../lib/learning/persistence/in-memory.
 import { CourseIntelligenceModelGateway } from "../../lib/learning/intelligence/model-gateway.ts";
 import { InMemoryCourseIntelligenceRepository } from "../../lib/learning/intelligence/repository.ts";
 import { CourseIntelligenceService } from "../../lib/learning/intelligence/service.ts";
+import { buildLearningOrchestrationState } from "../../lib/learning/intelligence/orchestration.ts";
 import { compareCourseGenomes, evaluateDomainGraph } from "../../lib/learning/intelligence/course-intelligence.ts";
 import { baselineCourses, baselineMappingsFor, publishedDomainGraph } from "../../lib/learning/intelligence/baseline.ts";
 import {
@@ -107,7 +108,9 @@ test("AI PM 目标压缩多源目录，不把 ML 专项当默认前置", async (
   });
   const active = record.assembly.decisions.filter((decision) => ["anchor", "selected_units", "supplement"].includes(decision.role));
   assert.equal(active.filter((decision) => decision.role === "anchor").length, 1);
-  assert.ok(active.length < 8, "当前采用来源必须保持有限");
+  assert.ok(active.length <= 3, "AI PM 当前采用来源必须保持在三门以内");
+  assert.equal(active.some((decision) => decision.courseId === "microsoft.ai-python-beginners"), false);
+  assert.equal(active.some((decision) => decision.courseId === "dlai.ai-python"), false);
   assert.equal(active.some((decision) => decision.courseId === "dlai.ml-specialization"), false);
   assert.ok(record.assembly.stages[0]!.unitRefs.length > 0);
   assert.ok(record.assembly.unresolvedGaps.length > 0);
@@ -161,6 +164,255 @@ test("确认课程方案后生成准确课程章节活动并保留轻反馈闭�
   const current = await service.getCurrentLearning("owner-runtime-bridge");
   assert.equal(current.knowledgeStates[0]?.status, "has_signal");
   assert.equal(current.activities[0]?.status, "completed");
+});
+
+test("编排读模型把零材料用户识别为起点诊断而不是材料过载", async () => {
+  const { service, learningStore } = setup();
+  await service.initialize();
+  const state = await service.getState("owner-zero-material-orchestration");
+  const current = await service.getCurrentLearning("owner-zero-material-orchestration");
+  const orchestration = buildLearningOrchestrationState({
+    state,
+    current,
+    resources: await learningStore.listUserResources("owner-zero-material-orchestration"),
+  });
+  assert.equal(orchestration.situation.entryMode, "zero_material");
+  assert.match(orchestration.situation.goalHypothesis, /可开始|可检验/);
+  assert.equal(orchestration.weeklyPackage, null);
+  assert.equal(orchestration.controlCenter.testMachine[0]?.status, "ready");
+});
+
+test("编排读模型以能力任务包、来源中心、测试机和成果陈列室呈现已确认路线", async () => {
+  const { service, learningStore } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-orchestration-package", {
+    goal: "从零开始形成 AI 产品经理的判断、评测和 PRD 能力",
+    weeklyCapacity: "focused",
+    materials: [],
+  });
+  await service.confirmCurriculum("owner-orchestration-package", draft.id);
+  const state = await service.getState("owner-orchestration-package");
+  const current = await service.getCurrentLearning("owner-orchestration-package");
+  const orchestration = buildLearningOrchestrationState({
+    state,
+    current,
+    resources: await learningStore.listUserResources("owner-orchestration-package"),
+  });
+  assert.equal(orchestration.situation.entryMode, "zero_material");
+  assert.match(orchestration.weeklyPackage?.mission ?? "", /本周只做一件事/);
+  assert.ok((orchestration.weeklyPackage?.tasks.length ?? 0) > 0);
+  assert.ok(orchestration.weeklyPackage?.tasks[0]?.capabilityTitles.length);
+  assert.ok(orchestration.weeklyPackage?.tasks[0]?.capabilityProblem);
+  assert.ok(orchestration.weeklyPackage?.tasks[0]?.whyNow);
+  assert.ok(orchestration.weeklyPackage?.tasks[0]?.expectedOutcome);
+  assert.ok(orchestration.weeklyPackage?.tasks[0]?.failureAction);
+  assert.ok(orchestration.weeklyPackage?.tasks[0]?.pathMeaning);
+  assert.ok(orchestration.decisionTrace.some((item) => item.kind === "situation"));
+  assert.ok(orchestration.decisionTrace.some((item) => item.kind === "prioritization"));
+  assert.ok(orchestration.capabilityModel.dimensions.length > 0);
+  assert.ok(orchestration.controlCenter.sourceCenter.some((item) => item.kind === "course" && item.nextAction.includes("片段")));
+  assert.ok(orchestration.controlCenter.testMachine.some((item) => item.kind === "scenario" || item.kind === "exit_ticket"));
+  assert.equal(orchestration.controlCenter.artifactGallery[0]?.state, "draft");
+});
+
+test("学习活动可开始、暂停、恢复、补充定位并附加工作台资源", async () => {
+  const { service, learningStore } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-continuity", {
+    goal: "理解 AI 产品能力边界", weeklyCapacity: "light", materials: [],
+  });
+  await service.confirmCurriculum("owner-continuity", draft.id);
+  const initial = await service.getCurrentLearning("owner-continuity");
+  const activity = initial.activities[0]!;
+  assert.equal(initial.sourceResolution?.kind, "course_root");
+  assert.equal(initial.sourceResolution?.precisionLabel, "只能到课程主页");
+  assert.equal(initial.resumeState.nextActionLabel, "开始这一节");
+  assert.equal(initial.routeManagementSummary?.adoptedCount, draft.assembly.decisions.filter((item) => ["anchor", "selected_units", "supplement"].includes(item.role)).length);
+
+  const started = await service.startActivity("owner-continuity", activity.id);
+  assert.equal(started.activity.status, "in_progress");
+  assert.ok(started.activity.startedAt);
+  assert.ok(started.activity.lastOpenedAt);
+  const opened = await service.getCurrentLearning("owner-continuity");
+  assert.equal(opened.resumeState.mode, "opened_without_feedback");
+  assert.equal(opened.resumeState.openedWithoutFeedback, true);
+  assert.equal(opened.resumeState.nextActionLabel, "继续并补反馈");
+  await service.pauseActivity("owner-continuity", activity.id, { reason: "今天时间不够" });
+  const paused = await service.getCurrentLearning("owner-continuity");
+  assert.equal(paused.resumeState.mode, "paused");
+  assert.match(paused.resumeState.reason, /今天时间不够/);
+  assert.equal(paused.activities[0]?.pauseReason, "今天时间不够");
+
+  const located = await service.updateActivityLocation("owner-continuity", activity.id, {
+    sourceUrl: "https://example.com/course/unit-1?t=120", locatorLabel: "Unit 1 · 02:00–12:00",
+  });
+  assert.equal(located.sourceResolution.kind, "exact");
+  assert.equal(located.sourceResolution.manualOverride, true);
+  assert.equal(located.sourceResolution.precisionLabel, "个人补充的准确位置");
+
+  await learningStore.saveUserResource({
+    id: "resource.continuity", ownerId: "owner-continuity", title: "补充案例", type: "link",
+    content: "只在当前片段使用", sourceUrl: "https://example.com/case", relatedNodeIds: [],
+    createdAt: new Date().toISOString(),
+  });
+  await service.attachResource("owner-continuity", "resource.continuity", { activityId: activity.id });
+  const attached = await service.getCurrentLearning("owner-continuity");
+  assert.equal(attached.attachedResources[0]?.id, "resource.continuity");
+  assert.ok(attached.activities[0]?.inputRefs.includes("resource:resource.continuity"));
+});
+
+test("反馈适配可跨刷新解释，完成意图与实际用时会持久化", async () => {
+  const { service, learningStore } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-adaptation-summary", {
+    goal: "理解 AI 能力边界", weeklyCapacity: "light", materials: [],
+  });
+  await service.confirmCurriculum("owner-adaptation-summary", draft.id);
+  const current = await service.getCurrentLearning("owner-adaptation-summary");
+  const activity = current.activities[0]!;
+  const result = await service.recordLearningSignal("owner-adaptation-summary", activity.id, {
+    type: "understanding", value: true, note: "能解释但今天先停在这里",
+    completionIntent: "keep_open", actualMinutes: 25,
+  });
+  assert.equal(result.state.status, "learning");
+  const refreshed = await service.getCurrentLearning("owner-adaptation-summary");
+  assert.equal(refreshed.activities[0]?.status, "in_progress");
+  assert.equal(refreshed.activities[0]?.actualMinutes, 25);
+  assert.equal(refreshed.latestAdaptation?.outcome, "advance");
+  assert.equal(refreshed.adaptationTimeline.length, 1);
+  assert.match(refreshed.adaptationTimeline[0]!.signalSummary, /理解了/);
+  assert.equal(refreshed.adaptationTimeline[0]!.applied, true);
+
+  const persistedResult = await service.getLearningTaskResult("owner-adaptation-summary", activity.id);
+  assert.equal(persistedResult.taskId, activity.id);
+  assert.equal(persistedResult.capabilityNodeId, activity.canonicalNodeId);
+  assert.ok(persistedResult.learnedConcepts.length > 0);
+  assert.match(persistedResult.nextActionReason, /信号|继续|回看/);
+
+  await service.recordLearningSignal("owner-adaptation-summary", activity.id, {
+    type: "quiz_result", value: 90, note: "课程测试通过", completionIntent: "complete", actualMinutes: 35,
+  });
+  const finalState = await service.getCurrentLearning("owner-adaptation-summary");
+  assert.equal(finalState.adaptationTimeline.length, 2);
+  assert.match(finalState.adaptationTimeline[0]!.signalSummary, /课程原测验/);
+  const completed = await learningStore.getActivity(activity.id);
+  assert.equal(completed?.status, "completed");
+  assert.equal(completed?.actualMinutes, 35);
+  assert.ok(completed?.completedAt);
+});
+
+test("通用来源先拆成待确认片段，确认后才进入已确认状态", async () => {
+  const { service } = setup();
+  await service.initialize();
+  const source = await service.createContentSource("owner-content-source", {
+    title: "AI 产品评估笔记",
+    type: "note",
+    rawContent: "评估 AI 产品的能力边界、失败边界和用户反馈。",
+  });
+  assert.equal(source.status, "inbox");
+  const analyzed = await service.analyzeUserContentSource("owner-content-source", source.id);
+  assert.equal(analyzed.source.status, "needs_review");
+  assert.equal(analyzed.analysis?.fragments[0]?.status, "candidate");
+  assert.ok((analyzed.analysis?.fragments[0]?.confidence ?? 0) > 0);
+  const confirmed = await service.confirmUserContentFragments("owner-content-source", source.id, {
+    fragmentIds: [analyzed.analysis!.fragments[0]!.id], decision: "confirmed",
+  });
+  assert.equal(confirmed.source.status, "confirmed");
+  assert.equal(confirmed.analysis?.fragments[0]?.status, "confirmed");
+});
+
+test("Solver v3 支持固定、暂缓和章节约束，重算保留父版本", async () => {
+  const { service } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-revision-v3", {
+    goal: "理解生成式 AI 边界并判断 Agent 产品场景", weeklyCapacity: "steady", materials: [],
+  });
+  assert.equal(draft.assembly.schemaVersion, 3);
+  assert.ok(draft.assembly.segments.length > 0);
+  const anchor = draft.assembly.decisions.find((decision) => decision.role === "anchor")!;
+  const revised = await service.reviseCurriculum("owner-revision-v3", draft.id, {
+    constraints: [{ type: "pin_course", courseId: anchor.courseId }],
+  });
+  assert.equal(revised.curriculum.parentCurriculumId, draft.id);
+  assert.equal(revised.curriculum.revision, (draft.revision ?? 1) + 1);
+  assert.deepEqual(revised.curriculum.assembly.constraints, [{ type: "pin_course", courseId: anchor.courseId }]);
+  assert.equal(revised.decision.status, "proposed");
+});
+
+test("可选情景题不泄漏答案，错误判断会物化针对性回看", async () => {
+  const { service, learningStore } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-scenario-v3", {
+    goal: "理解 AI 能力边界", weeklyCapacity: "light", materials: [],
+  });
+  await service.confirmCurriculum("owner-scenario-v3", draft.id);
+  const profile = await learningStore.getProfile("owner-scenario-v3");
+  const plan = (await learningStore.listWeeklyPlans("owner-scenario-v3", profile!.activeRouteId))[0]!;
+  const activity = (await learningStore.listActivitiesByPlan(plan.id))[0]!;
+  const check = await service.getScenarioCheck("owner-scenario-v3", activity.id);
+  assert.equal("correctOptionId" in check, false);
+  const result = await service.recordLearningSignal("owner-scenario-v3", activity.id, {
+    type: "scenario_choice", value: "automatic", note: "", questionId: check.id,
+  });
+  assert.equal(result.interpretation.outcome, "review");
+  assert.equal(result.materializedAdaptation.applied, true);
+  const updated = await learningStore.getActivity(activity.id);
+  assert.equal(updated?.status, "in_progress");
+  assert.equal(updated?.estimatedMinutes, 30);
+  assert.match(updated?.steps ?? "", /回看/);
+});
+
+test("第一周有效信号生成第二周草案，历史活动与信号保留", async () => {
+  const { service, learningStore, repository } = setup();
+  await service.initialize();
+  const draft = await service.createCurriculum("owner-two-week-v3", {
+    goal: "理解 AI 产品能力边界并判断 Agent 场景", weeklyCapacity: "light", materials: [],
+  });
+  await service.confirmCurriculum("owner-two-week-v3", draft.id);
+  const current = await service.getCurrentLearning("owner-two-week-v3");
+  const activity = current.activities[0]!;
+  await service.recordLearningSignal("owner-two-week-v3", activity.id, { type: "quiz_result", value: 88, note: "原课程测试通过" });
+  const result = await service.closeWeek("owner-two-week-v3", current.weeklyPlan!.weekKey);
+  assert.equal(result.nextWeek.status, "draft");
+  assert.ok(result.activities.length > 0);
+  assert.equal((await repository.listLearningSignals("owner-two-week-v3", draft.id)).length, 1);
+  assert.equal((await learningStore.getActivity(activity.id))?.status, "completed");
+  await service.confirmWeek("owner-two-week-v3", result.nextWeek.weekKey);
+  assert.equal((await learningStore.getWeeklyPlanByWeek("owner-two-week-v3", current.weeklyPlan!.routeId, result.nextWeek.weekKey))?.status, "confirmed");
+});
+
+test("个人可用课程只对所属 owner 可见，不进入共享 catalog", async () => {
+  const { service, repository } = setup();
+  await service.initialize();
+  const personal = structuredClone(baselineCourses[0]!);
+  const originalId = personal.genome.id;
+  personal.genome.id = "personal.private-course";
+  personal.genome.title = "我的私有课程";
+  personal.genome.url = "https://example.com/private-course";
+  const published = {
+    genome: personal.genome,
+    tags: personal.tags,
+    mappings: baselineMappingsFor(new Set([originalId])).map((mapping) => ({ ...mapping, courseId: personal.genome.id })),
+  };
+  const now = new Date().toISOString();
+  await repository.saveCourseCandidate({
+    id: "candidate.personal-ready", ownerId: "owner-private-a", title: personal.genome.title,
+    sourceUrl: personal.genome.url, outline: personal.genome.units.map((unit) => unit.title),
+    analysisJson: "{}", candidateJson: JSON.stringify(published), evalJson: JSON.stringify({ passed: true }),
+    status: "personal_ready", createdAt: now, updatedAt: now,
+  });
+  assert.ok((await repository.listAvailableCourses("owner-private-a")).some((course) => course.genome.id === personal.genome.id));
+  assert.equal((await repository.listAvailableCourses("owner-private-b")).some((course) => course.genome.id === personal.genome.id), false);
+  assert.equal((await repository.listCourses()).some((course) => course.genome.id === personal.genome.id), false);
+});
+
+test("多课程 intake 最多接受 8 项", async () => {
+  const { service } = setup();
+  await service.initialize();
+  await assert.rejects(service.createCurriculum("owner-too-many", {
+    goal: "理解 AI 能力边界", weeklyCapacity: "light",
+    materials: Array.from({ length: 9 }, (_, index) => ({ title: `课程 ${index + 1}`, url: "", outline: "" })),
+  }));
 });
 
 test("无内置模型时陌生目录不伪装为专业课程分析", async () => {

@@ -9,6 +9,7 @@ export type NodeStatus = (typeof NODE_STATUS)[number];
 export const ACTIVITY_STATUS = [
   "planned",
   "in_progress",
+  "paused",
   "evidence_submitted",
   "reviewed",
   "completed",
@@ -166,6 +167,18 @@ export interface LearningActivity {
   courseId?: string;
   unitId?: string;
   canonicalNodeId?: string;
+  scope?: {
+    segmentId: string;
+    sourceUrl?: string;
+    locatorLabel: string;
+    locatorMissing: boolean;
+    manualOverride?: boolean;
+    sourceUpdatedAt?: string;
+    lastFeedbackSignalId?: string;
+    stopCondition: string;
+    completionSignal: string;
+    nodeIds: string[];
+  };
   title: string;
   activityType: ActivityType;
   goal: string;
@@ -179,6 +192,12 @@ export interface LearningActivity {
   evaluationCriteria: string;
   nextAdvice: string;
   sequence: number;
+  startedAt?: string | null;
+  lastOpenedAt?: string | null;
+  pausedAt?: string | null;
+  completedAt?: string | null;
+  pauseReason?: string;
+  actualMinutes?: number | null;
 }
 
 export interface Evidence {

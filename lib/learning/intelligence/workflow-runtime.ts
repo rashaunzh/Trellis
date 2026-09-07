@@ -35,8 +35,8 @@ function buildWorkflow(service: CourseIntelligenceService) {
     id: "create-curriculum-draft",
     inputSchema: workflowInputSchema,
     outputSchema: draftOutputSchema,
-    execute: async ({ inputData }) => {
-      const curriculum = await service.createCurriculum(inputData.ownerId, inputData.intake);
+    execute: async ({ inputData, runId }) => {
+      const curriculum = await service.createCurriculum(inputData.ownerId, inputData.intake, { workflowRunId: runId });
       return { ownerId: inputData.ownerId, curriculumId: curriculum.id };
     },
   });
@@ -81,8 +81,8 @@ function buildCourseAnalysisWorkflow(service: CourseIntelligenceService) {
     id: "analyze-course-material",
     inputSchema: z.object({ ownerId: z.string().min(1), material: z.unknown() }),
     outputSchema: z.object({ ownerId: z.string(), status: z.string(), candidateId: z.string().nullable() }),
-    execute: async ({ inputData }) => {
-      const result = await service.analyzeMaterial(inputData.ownerId, inputData.material);
+    execute: async ({ inputData, runId }) => {
+      const result = await service.analyzeMaterial(inputData.ownerId, inputData.material, { workflowRunId: runId });
       return { ownerId: inputData.ownerId, status: result.status, candidateId: result.candidateId };
     },
   });
@@ -94,6 +94,7 @@ function buildCourseAnalysisWorkflow(service: CourseIntelligenceService) {
     suspendSchema: z.object({ reason: z.string(), candidateId: z.string() }),
     execute: async ({ inputData, resumeData, suspend, bail }) => {
       if (!inputData.candidateId) return { status: inputData.status, candidateId: null };
+      if (inputData.status === "personal_ready") return { status: inputData.status, candidateId: inputData.candidateId };
       if (resumeData?.approved === false) return bail({ status: "rejected", candidateId: inputData.candidateId });
       if (resumeData?.approved !== true) {
         return suspend({ reason: "候选课程必须核对章节、节点映射和来源后才能发布。", candidateId: inputData.candidateId });
@@ -117,6 +118,7 @@ function buildLearningAdaptationWorkflow(service: CourseIntelligenceService) {
       decisionId: z.string(), riskLevel: z.enum(["low", "high"]), nextAction: z.string(),
       state: z.object({ nodeId: z.string(), status: z.string(), confidence: z.number() }),
       interpretation: z.object({ outcome: z.string(), rationale: z.string(), keepsActivityOpen: z.boolean() }),
+      materializedAdaptation: z.object({ outcome: z.string(), applied: z.boolean(), activityId: z.string().nullable(), summary: z.string() }),
     }),
     execute: async ({ inputData }) => {
       const result = await service.recordLearningSignal(inputData.ownerId, inputData.activityId, inputData.signal);
@@ -127,6 +129,7 @@ function buildLearningAdaptationWorkflow(service: CourseIntelligenceService) {
           outcome: result.interpretation.outcome, rationale: result.interpretation.rationale,
           keepsActivityOpen: result.interpretation.keepsActivityOpen,
         },
+        materializedAdaptation: result.materializedAdaptation,
       };
     },
   });
@@ -138,6 +141,7 @@ function buildLearningAdaptationWorkflow(service: CourseIntelligenceService) {
       decisionId: z.string(), riskLevel: z.enum(["low", "high"]), nextAction: z.string(),
       state: z.object({ nodeId: z.string(), status: z.string(), confidence: z.number() }),
       interpretation: z.object({ outcome: z.string(), rationale: z.string(), keepsActivityOpen: z.boolean() }),
+      materializedAdaptation: z.object({ outcome: z.string(), applied: z.boolean(), activityId: z.string().nullable(), summary: z.string() }),
     }),
   }).then(interpret).commit();
 }
@@ -214,9 +218,7 @@ export async function startCourseAnalysisWorkflow(input: {
   });
   const result = await run.start({ inputData: { ownerId: input.ownerId, material: input.material } });
   const now = new Date().toISOString();
-  const candidatesAfterRun = result.status === "suspended"
-    ? await input.repository.listCourseCandidates()
-    : [];
+  const candidatesAfterRun = await input.repository.listCourseCandidates();
   const candidate = candidatesAfterRun.find((item) => item.workflowRunId === run.runId)
     ?? candidatesAfterRun.find((item) => item.ownerId === input.ownerId && !candidateIdsBeforeRun.has(item.id))
     ?? null;
@@ -224,19 +226,22 @@ export async function startCourseAnalysisWorkflow(input: {
     await input.repository.saveCourseCandidate({ ...candidate, workflowRunId: run.runId, updatedAt: now });
   }
   const aggregateId = candidate?.id ?? `material.${await hashInput(input.material)}`;
+  const modelRoute = await modelRouteForWorkflow(input.repository, run.runId);
+  const requiresReview = candidate?.status === "candidate";
   const decision: DecisionRecord = {
     id: `decision.${crypto.randomUUID()}`, ownerId: input.ownerId, decisionType: "course_analysis",
     aggregateType: "course_candidate", aggregateId, workflowRunId: run.runId,
-    riskLevel: candidate ? "high" : "low", status: candidate ? "needs_review" : "applied",
+    riskLevel: requiresReview ? "high" : "low", status: requiresReview ? "needs_review" : "applied",
     inputHash: await hashInput(input.material), proposal: { candidateId: candidate?.id ?? null },
-    rationale: { summary: candidate ? "陌生课程已形成候选，等待内容评审。" : "材料已匹配发布目录或暂不具备分析条件。" },
-    citations: [], confidence: candidate ? 0.6 : 1, evalReport: {}, modelRoute: {},
-    createdAt: now, updatedAt: now, appliedAt: candidate ? null : now,
+    rationale: { summary: requiresReview ? "陌生课程已形成候选，等待内容评审。" : candidate?.status === "personal_ready" ? "陌生课程达到个人采用门槛，仅对当前用户可用。" : "材料已匹配发布目录或暂不具备分析条件。" },
+    citations: [], confidence: requiresReview ? 0.6 : 1, evalReport: {}, modelRoute,
+    createdAt: now, updatedAt: now, appliedAt: requiresReview ? null : now,
   };
   await input.repository.saveDecision(decision, {
     id: `decision-event.${crypto.randomUUID()}`, decisionId: decision.id, fromStatus: null,
     toStatus: decision.status, actorType: "workflow", actorOwnerId: input.ownerId, detail: {}, createdAt: now,
   });
+  await input.repository.linkAnalysisRuns(run.runId, decision.id);
   await input.repository.saveWorkflowRun({
     id: run.runId, ownerId: input.ownerId, workflowId: COURSE_ANALYSIS_WORKFLOW_ID,
     aggregateType: "course_candidate", aggregateId,
@@ -376,7 +381,7 @@ export async function startCourseIntelligenceWorkflow(input: {
   repository: CourseIntelligenceRepository;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db?: any;
-}): Promise<{ workflowRunId: string; decisionId: string; status: "suspended"; curriculum: CurriculumRecord }> {
+}): Promise<{ workflowRunId: string; decisionId: string; status: "suspended"; curriculum: CurriculumRecord; materialAnalyses: Awaited<ReturnType<CourseIntelligenceService["analyzeMaterial"]>>[] }> {
   const intake = learningIntakeSchema.parse(input.rawIntake);
   const runtime = createCourseIntelligenceRuntime(input.service, input.db);
   const workflow = runtime.getWorkflow("courseIntelligenceLearningLoop");
@@ -385,6 +390,10 @@ export async function startCourseIntelligenceWorkflow(input: {
     resourceId: input.ownerId,
     disableScorers: true,
   });
+  const materialAnalyses = [];
+  for (const material of intake.materials) {
+    materialAnalyses.push(await input.service.analyzeMaterial(input.ownerId, material, { workflowRunId: run.runId }));
+  }
   const result = await run.start({ inputData: { ownerId: input.ownerId, intake } });
   if (result.status !== "suspended") {
     throw new Error(`课程编排工作流未进入确认状态：${result.status}`);
@@ -395,6 +404,7 @@ export async function startCourseIntelligenceWorkflow(input: {
   const selectedConfidences = curriculum.assembly.decisions
     .filter((item) => item.selectedUnitIds.length > 0)
     .map((item) => item.confidence);
+  const modelRoute = await modelRouteForWorkflow(input.repository, run.runId);
   let decision: DecisionRecord = {
     id: `decision.${crypto.randomUUID()}`, ownerId: input.ownerId,
     decisionType: "curriculum_synthesis", aggregateType: "curriculum", aggregateId: curriculum.id,
@@ -404,7 +414,7 @@ export async function startCourseIntelligenceWorkflow(input: {
     rationale: { summary: curriculum.assembly.rationale },
     citations: curriculum.assembly.decisions.flatMap((item) => item.sourceCitations),
     confidence: selectedConfidences.length > 0 ? Math.min(...selectedConfidences) : 0.5,
-    evalReport: { passed: true }, modelRoute: { mode: "solver-v2" },
+    evalReport: { passed: true }, modelRoute: { mode: "solver-v3", ...modelRoute },
     createdAt: now, updatedAt: now, appliedAt: null,
   };
   await input.repository.saveDecision(decision, {
@@ -412,6 +422,7 @@ export async function startCourseIntelligenceWorkflow(input: {
     toStatus: "generated", actorType: "workflow", actorOwnerId: input.ownerId,
     detail: { workflowRunId: run.runId }, createdAt: now,
   });
+  await input.repository.linkAnalysisRuns(run.runId, decision.id);
   const proposed = transitionDecision({ decision, toStatus: "proposed", actorType: "workflow", actorOwnerId: input.ownerId, now });
   decision = proposed.decision;
   await input.repository.saveDecision(decision, proposed.event);
@@ -427,7 +438,7 @@ export async function startCourseIntelligenceWorkflow(input: {
     createdAt: now,
     updatedAt: now,
   });
-  return { workflowRunId: run.runId, decisionId: decision.id, status: "suspended", curriculum };
+  return { workflowRunId: run.runId, decisionId: decision.id, status: "suspended", curriculum, materialAnalyses };
 }
 
 export async function resumeCourseIntelligenceWorkflow(input: {
@@ -447,6 +458,19 @@ export async function resumeCourseIntelligenceWorkflow(input: {
     const curriculum = input.approved
       ? await input.service.confirmCurriculum(input.ownerId, input.curriculumId)
       : await requiredCurriculum(input.service, input.ownerId, input.curriculumId);
+    if (decision && ["proposed", "needs_review"].includes(decision.status)) {
+      const accepted = transitionDecision({
+        decision, toStatus: input.approved ? "accepted" : "rejected",
+        actorType: "user", actorOwnerId: input.ownerId,
+      });
+      decision = accepted.decision;
+      await input.repository.saveDecision(decision, accepted.event);
+      if (input.approved) {
+        const applied = transitionDecision({ decision, toStatus: "applied", actorType: "workflow", actorOwnerId: input.ownerId });
+        decision = applied.decision;
+        await input.repository.saveDecision(decision, applied.event);
+      }
+    }
     return { workflowRunId: "legacy", decisionId: decision?.id ?? null, status: input.approved ? "completed" : "cancelled", curriculum };
   }
   if (["completed", "cancelled"].includes(workflowRun.status)) {
@@ -521,3 +545,14 @@ export const courseIntelligenceWorkflowSpec = {
   durableStateOwner: "mastra-d1-store",
   businessStateOwner: "trellis-d1",
 } as const;
+
+async function modelRouteForWorkflow(repository: CourseIntelligenceRepository, workflowRunId: string) {
+  const attempts = (await repository.listAnalysisRuns({ limit: 100 })).filter((item) => item.workflowRunId === workflowRunId);
+  if (attempts.length === 0) return { modelMode: "baseline", requestIds: [] };
+  return {
+    modelMode: attempts.some((item) => item.status === "success") ? "model" : attempts.some((item) => item.status === "needs_review") ? "needs_review" : "baseline",
+    requestIds: Array.from(new Set(attempts.map((item) => item.requestId ?? item.id))),
+    providers: Array.from(new Set(attempts.map((item) => item.provider))),
+    fallbackUsed: attempts.some((item) => item.slot === "fallback"),
+  };
+}

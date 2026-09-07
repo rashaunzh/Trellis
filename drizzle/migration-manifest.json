@@ -17,6 +17,10 @@
     "0013_course_intelligence.sql",
     "0014_canonical_learning_runtime.sql",
     "0015_production_control_plane.sql",
-    "0016_agentic_decision_kernel.sql"
+    "0016_agentic_decision_kernel.sql",
+    "0017_model_runtime_trace.sql",
+    "0018_functional_learning_loop.sql",
+    "0019_learning_continuity.sql",
+    "0020_content_sources.sql"
   ]
 }

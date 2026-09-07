@@ -24,19 +24,20 @@ test("renders development preview metadata", async () => {
   assert.match(await response.text(),developmentPreviewMeta);
 });
 
-test("renders the Trellis course-intelligence entry", async () => {
+test("renders the Trellis learning orchestration entry", async () => {
   const response = await renderHome();
   const html = await response.text();
   assert.match(html,/Trellis/);
-  assert.match(html,/正在读取已发布课程目录与学习状态/);
-  assert.match(html,/课程与本周/);
+  assert.match(html,/正在恢复你的学习状态/);
+  assert.match(html,/本周任务包/);
+  assert.match(html,/学习处境编排/);
 });
 
 test("renders the Chinese course-intelligence loading state", async () => {
   const response = await renderPath("/learn");
   const html = await response.text();
   assert.equal(response.status,200);
-  assert.match(html,/正在读取已发布课程目录与学习状态/);
+  assert.match(html,/正在恢复你的学习状态/);
 });
 
 test("build artifact includes V0.2 API routes", async () => {
@@ -54,6 +55,16 @@ test("build artifact includes V0.2 API routes", async () => {
     "api/learning/materials/analyze",
     "api/learning/curricula/:id",
     "api/learning/curricula/:id/confirm",
+    "api/learning/runs/:id/start",
+    "api/learning/runs/:id/pause",
+    "api/learning/runs/:id/location",
+    "api/learning/resources/:id/attachments",
+    "api/learning/orchestration",
+    "api/learning/situation/diagnose",
+    "api/learning/sources/triage",
+    "api/learning/packages/generate",
+    "api/learning/assessments/submit",
+    "api/learning/artifacts/review",
   ]) {
     assert.ok(src.includes(route), `build 产物应包含路由 ${route}`);
   }

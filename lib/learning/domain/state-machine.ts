@@ -24,6 +24,7 @@ export type ActivityEvent =
 const ACTIVITY_TRANSITIONS: Record<ActivityStatus, Partial<Record<ActivityEvent["type"], ActivityStatus>>> = {
   planned: { start: "in_progress" },
   in_progress: { submitEvidence: "evidence_submitted" },
+  paused: { start: "in_progress" },
   evidence_submitted: { reviewAccepted: "reviewed", reviewNeedsRevision: "in_progress" },
   reviewed: { complete: "completed" },
   completed: {},
