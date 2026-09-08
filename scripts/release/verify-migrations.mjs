@@ -3,6 +3,12 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 
 const manifest = JSON.parse(readFileSync("drizzle/migration-manifest.json", "utf8"));
+const journal = JSON.parse(readFileSync("drizzle/meta/_journal.json", "utf8"));
+if (journal.entries.length !== manifest.files.length || journal.entries.some((entry, index) =>
+  `${entry.tag}.sql` !== manifest.files[index] || entry.idx !== index
+  || (index > 0 && entry.when <= journal.entries[index - 1].when))) {
+  throw new Error("Packaged Drizzle journal must match the reviewed migration manifest in order");
+}
 if (manifest.authority !== "ordered-reviewed-sql" || !Array.isArray(manifest.files)) {
   throw new Error("Invalid migration manifest");
 }
