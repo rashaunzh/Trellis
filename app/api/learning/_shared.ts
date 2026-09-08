@@ -135,7 +135,8 @@ async function migrateLegacyOwnerId(legacyOwnerId: string, canonicalOwnerId: str
     : tables.map((table) => db.prepare(`UPDATE ${table} SET owner_id=? WHERE owner_id=?`)
       .bind(canonicalOwnerId, legacyOwnerId));
   statements.push(db.prepare(`INSERT INTO learning_owner_aliases
-    (legacy_owner_id,canonical_owner_id) VALUES (?,?)`).bind(legacyOwnerId, canonicalOwnerId));
+    (legacy_owner_id,canonical_owner_id) VALUES (?,?)
+    ON CONFLICT(legacy_owner_id) DO NOTHING`).bind(legacyOwnerId, canonicalOwnerId));
   await db.batch(statements);
 }
 
