@@ -1,113 +1,60 @@
-# Trellis V0.2 部署 Runbook
+# Trellis 上线配置与发布 Runbook
 
-> 目标：`<your deployed URL>`（Cloudflare Workers + D1；账号、Account ID、子域名按部署环境填写，不写入公开仓库）。
+更新：2026-09-08。产品继续使用 Sites 托管的 Cloudflare Worker + D1，复用 `.openai/hosting.json` 中的站点，不创建新站点。
 
-## 部署前置清单
+## 已核验的线上状态
 
-- [ ] 当前交付分支已 commit + push
-- [ ] 全量验证绿：test:domain / eslint / build / node --test / 验收脚本
-- [ ] wrangler 已登录（`npx wrangler whoami`，OAuth 有效）
-- [ ] 远程 D1 迁移已应用到 `0019`（见下）
-- [ ] `TRELLIS_ADMIN_EMAILS` 已配置为课程内容评审管理员邮箱
-- [ ] `TRELLIS_IDENTITY_MODE=chatgpt-hosted` 且 `TRELLIS_TRUSTED_HOSTS` 只列托管域名
-- [ ] `workers.dev` 已关闭；每周来源 Cron `0 18 * * sun` 已注册
-- [ ] 网络走 Clash 代理（`export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890`）
+- 站点已有历史发布，地址为 https://ai-learning-os.rashaunzh.chatgpt.site 。地址保留历史 slug，产品名称为 Trellis。
+- 当前访问策略仅包含站点所有者，外部访客为零；本次未修改访问范围。
+- 线上 DB 只有 `records`、`record_relations`、`weekly_reviews`。`records` 已含 `core_action` 等 0001 字段；这说明结构对应早期版本，不等同已读取迁移日志。
+- 最新产品代码尚未发布；不能把旧站点地址当作新版演示地址。
 
-## 远程 D1 迁移
+## 已保存的运行配置
 
-远程库：`<your-d1-database-name>`（uuid `<your-database-id>`）。每次 schema 变更（新迁移文件）执行：
+2026-09-08 通过 Sites 环境变量接口保存，revision 2。环境修改需随后部署已保存版本才生效。
 
-```bash
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/000N_*.sql
-# 验证表结构：
-npx wrangler d1 execute <your-d1-database-name> --remote --command "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'learning_%' ORDER BY name"
+| 配置 | 状态 |
+| --- | --- |
+| TRELLIS_IDENTITY_MODE | chatgpt-hosted |
+| TRELLIS_TRUSTED_HOSTS | 仅当前站点的精确主机名 |
+| TRELLIS_ADMIN_EMAILS | 站点所有者邮箱，secret 保存 |
+| TRELLIS_AI_PRIMARY_PROVIDER | qwen |
+| TRELLIS_AI_PRIMARY_MODEL | qwen3.8-flash |
+| TRELLIS_AI_PRIMARY_BASE_URL | 从现有本地服务端配置同步 |
+| TRELLIS_AI_PRIMARY_STRUCTURED_OUTPUT | 从现有本地配置同步 |
+| TRELLIS_AI_PRIMARY_API_KEY | secret 保存，不进入文档或 Git |
+
+未启用备用模型：最近固定评估 Qwen 8/8，GLM 6/8；后者未达到当前质量门。模型失效时使用已有发布基线，陌生材料显示待分析。上述历史评估不是线上模型验收。
+
+## 发布准备与数据库升级
+
+1. 检查当前源码，提交并推送准确版本。
+2. 使用现有 Sites 构建/打包流程保存版本。归档只包含构建产物，不包含个人记忆、本地环境文件或源码树。
+3. 以 `drizzle/migration-manifest.json` 为完整迁移清单，覆盖 0000–0020。旧 `drizzle/meta/_journal.json` 只到 0009，不能据它宣称完整迁移。
+4. 当前线上结构对应 0000/0001；发布前必须确认平台已应用迁移记录与待执行列表，预计需要 0002–0020。不得盲目重放 0000/0001 或重置数据库。
+5. 先确认可用的数据导出/恢复点与恢复操作。数据库升级和旧应用版本回退分开评估；不能把代码回退视为数据回滚。
+6. 升级保留原三张表与数据。`npm run db:verify` 已覆盖模拟旧记录、关系、周复盘在完整升级后的保留，但不是远端备份或远端迁移成功证明。
+7. 默认维持仅所有者可访问。扩大受众需另行明确范围。
+
+不再使用旧版 Runbook 的直接 `wrangler deploy` 路径：本站必须复用 Sites 身份入口及部署管理。构建中的占位数据库绑定不能作为真实远端绑定证据，不手工猜测数据库 ID。
+
+## 发布前验证
+
+```powershell
+npm run check
+npm run validate:artifact
 ```
 
-本次 Course Intelligence 发布必须包含：
+`delivery:precheck` 只检查文件存在，不代表生产就绪。本次配置工作运行了迁移验证和现有构建产物验证，未重新构建或发布。
 
-```bash
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0013_course_intelligence.sql
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0014_canonical_learning_runtime.sql
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0015_production_control_plane.sql
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0016_agentic_decision_kernel.sql
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0017_model_runtime_trace.sql
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0018_functional_learning_loop.sql
-npx wrangler d1 execute <your-d1-database-name> --remote --file drizzle/0019_learning_continuity.sql
-```
+## 线上验收与待完成事项
 
-若启用内置模型，在服务端配置 `TRELLIS_AI_PRIMARY_*` 与 `TRELLIS_AI_FALLBACK_*`；不要把 Key 写入仓库。具体参数和发布门见[模型运行架构](../architecture/MODEL_RUNTIME.md)。未配置模型时生产环境仍应通过已发布基线 smoke，但带模型的正式发布必须让两槽分别通过 benchmark。
+- 确认新版部署成功、环境 revision 已应用、DB 绑定及所需新表存在。
+- 通过真实托管登录验证材料 → 分析 → 路线草稿 → 确认 → 任务 → 反馈与刷新恢复。
+- 验证无身份和伪造身份不能获取数据；第二个获准测试身份验证跨用户隔离。
+- 仅所有者模式可能在入口就要求登录，应区分入口鉴权与应用 API 鉴权。
+- 旧 `smoke:production` 通过邮箱 header 模拟身份，不能代替真实登录；正式验收不得仅依赖该脚本通过。
+- 验证主模型实际调用与失败降级，不记录密钥、Cookie 或用户正文。
+- 保留旧版部署标识及数据库恢复依据，再决定是否扩大内测。
 
-## 构建与部署
-
-```bash
-# 1. 生产构建（必须注入真实 DATABASE_ID，否则 wrangler.json 是 placeholder 绑定）
-DATABASE_ID=<your-database-id> npm run build
-
-# 2. 核对绑定
-python -c "import json; print(json.load(open('dist/server/wrangler.json'))['d1_databases'])"
-# 预期：database_id 是真实 uuid，不是 00000000-...
-
-# 3. 部署
-export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890
-npx wrangler deploy
-# 成功标志：Deployed trellis triggers + <your deployed URL> + Current Version ID
-```
-
-不要手写 wrangler.toml（build 生成 wrangler.json，手写会合并出重复 DB 绑定）。
-
-## 线上验证
-
-```bash
-# Bot Fight Mode 坑：必须带完整浏览器 UA，否则 403
-UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0"
-curl -s -x http://127.0.0.1:7890 -A "$UA" -o /dev/null -w "%{http_code}\n" <your deployed URL>/learn   # 200
-curl -s -x http://127.0.0.1:7890 -A "$UA" <your deployed URL>/api/learning/workspace   # {"workspace":{...}}
-
-# 自动 smoke：无身份时检查页面与 API 鉴权；提供测试身份后执行完整 Course Intelligence 链。
-TRELLIS_BASE=<your deployed URL> TRELLIS_AUTH_EMAIL=<smoke-user-email> npm run smoke:production
-```
-
-- `/`→307（→/learn）、`/product /learn /grow /workbench`→200
-- 未带 ChatGPT 托管身份的学习 API → 401
-- `/api/learning/mastra-runtime` → 课程分析、课程组合、学习调整、来源演进四条正式工作流
-- 客户端伪造 `x-trellis-owner-id` 或托管邮箱 header → 401
-- 远程库为空 = 全新起点（onboarding 态）
-
-## 交付前固定检查
-
-```bash
-npx tsc --noEmit --incremental false
-node --test --test-isolation=none "tests/learning-domain/*.test.ts"
-node --test tests/*.test.mjs
-npm run lint
-npm run build
-npm run delivery:precheck
-TRELLIS_BASE=<your deployed URL> TRELLIS_AUTH_EMAIL=<smoke-user-email> npm run smoke:production
-```
-
-部署前还应在本地运行：
-
-```bash
-TRELLIS_BASE=http://127.0.0.1:<实际端口> npm run acceptance:course-intelligence
-```
-
-`acceptance:three-week-loop`、`acceptance:portfolio` 和 `acceptance:next-stage` 只用于旧兼容链回归，不是当前部署门槛。`delivery:precheck` 只检查交付资产是否齐备；`smoke:production` 才检查线上 URL。
-
-## 演示数据管理
-
-- **重置**：页面右上角"重新设置"（清学习状态，不清 API 配置与收集箱）
-- **API 直调**：生产请求必须经过 ChatGPT 托管身份；`x-trellis-owner-id` 只在 localhost 有效。
-- 验证用的真实 LLM Key 只配置在服务端环境，测试后按部署平台的 secret 管理流程轮换或清除。
-
-## 回滚
-
-- 旧版本：`npx wrangler deployments list --name trellis` 找历史 version → 重新 deploy 对应代码（无一键回滚，重新构建部署）
-- 数据：远程 D1 无备份机制，迁移前确认；危险操作先导出（`wrangler d1 export trellis-v02-d1 --remote --no-data` 仅结构）
-- 子域名/绑定变更：`.openai/hosting.json` 记录 project_id（`appgprj_6a72003abefc8191a4bd0c79702ee892`），复用不新建 site
-
-## 已知边界
-
-- workers.dev 子域名注册只能用户在 dashboard 完成（Turnstile 挡 headless）：`https://dash.cloudflare.com/<accountId>/workers/onboarding`
-- 中国大陆直连网络访问 workers.dev 可能不稳定；正式对外演示建议绑定自定义域名
-- 课程候选评审入口为 `/internal/course-intelligence`，数据接口同时校验托管身份与 `TRELLIS_ADMIN_EMAILS`。
-- smoke 使用的身份必须是专用测试用户，完整 smoke 会生成并确认一条课程方案。
+截至本次：运行配置已保存；远端迁移、新版发布、真实登录和线上模型验收均未执行。
