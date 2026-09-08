@@ -21,8 +21,8 @@ export function assertPublicSourceUrl(raw: string): URL {
   return url;
 }
 
-export async function fetchPublicSource(rawUrl: string, fetcher: typeof fetch = fetch): Promise<PublicSourceSnapshot> {
-  let url = assertPublicSourceUrl(rawUrl);
+export async function fetchPublicSource(rawUrl: string, fetcher: typeof fetch = fetch, validate = assertPublicSourceUrl): Promise<PublicSourceSnapshot> {
+  let url = validate(rawUrl);
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
     const response = await fetcher(url, {
       headers: { accept: "text/html,text/plain,application/json;q=0.8" },
@@ -33,7 +33,7 @@ export async function fetchPublicSource(rawUrl: string, fetcher: typeof fetch = 
       if (redirect === MAX_REDIRECTS) throw new Error("课程来源重定向次数过多");
       const location = response.headers.get("location");
       if (!location) throw new Error("课程来源返回无效重定向");
-      url = assertPublicSourceUrl(new URL(location, url).toString());
+      url = validate(new URL(location, url).toString());
       continue;
     }
     if (!response.ok) throw new Error(`课程来源读取失败：HTTP ${response.status}`);
@@ -45,6 +45,29 @@ export async function fetchPublicSource(rawUrl: string, fetcher: typeof fetch = 
     return { finalUrl: url.toString(), contentType, body, retrievedAt: new Date().toISOString() };
   }
   throw new Error("课程来源读取失败");
+}
+
+// 首版仅主动读取确定的公共内容服务；其他站点请粘贴文本，不向任意域名发请求。
+export function assertReadableMaterialUrl(raw: string): URL {
+  const url = assertPublicSourceUrl(raw);
+  const hosts = ["github.com", "raw.githubusercontent.com", "huggingface.co", "www.deeplearning.ai", "learn.deeplearning.ai", "developers.google.com", "ai.google.dev", "learn.microsoft.com", "cs50.harvard.edu", "pytorch.org", "docs.pytorch.org", "modelcontextprotocol.io", "www.anthropic.com", "docs.anthropic.com", "platform.openai.com", "www.coursera.org", "d2l.ai"];
+  if (!hosts.includes(url.hostname.toLowerCase())) throw new Error("该网站暂不支持自动读取，请粘贴正文或目录后分析");
+  return url;
+}
+
+export function extractReadableSource(snapshot: PublicSourceSnapshot): string {
+  if (snapshot.contentType !== "text/html") return snapshot.body.trim();
+  return snapshot.body
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|svg|nav|footer)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/(?:p|div|h[1-6]|li|section|article)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#(x[0-9a-f]+|\d+);/gi, (_, code: string) => {
+      const value = code.startsWith("x") || code.startsWith("X") ? parseInt(code.slice(1), 16) : Number(code);
+      return value > 0 && value <= 0x10ffff ? String.fromCodePoint(value) : " ";
+    })
+    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, entity: string) => ({ amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " })[entity] ?? " ")
+    .replace(/[ \t]+/g, " ").replace(/\n\s*\n/g, "\n").trim();
 }
 
 async function readLimitedBody(response: Response, maxBytes: number): Promise<string> {

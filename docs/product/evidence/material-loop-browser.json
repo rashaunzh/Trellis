@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-09-08T01:03:24.946Z",
+  "owner": "material-loop-1788829400443",
+  "passed": true,
+  "checks": [
+    {
+      "name": "semantic-review-to-personal-course-to-confirmed-route",
+      "passed": true,
+      "courseId": "source-course.fa60bd31843d8bc2b6f9"
+    },
+    {
+      "name": "ui-edit-invalidates-candidate-preserves-current",
+      "passed": true
+    },
+    {
+      "name": "mobile-workbench-no-overflow",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "kind": "synthetic-browser-model"
+}

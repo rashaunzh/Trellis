@@ -1,8 +1,8 @@
 {
   "version": "trellis-week-v1",
   "status": "requires_independent_scoring",
-  "holdoutConsumedIds": ["R4", "R5"],
-  "holdoutNote": "R4/R5已用于2026-09-07故障发现与修复，原split保留为历史记录；不能再作为独立保留集成绩，需补新样本。",
+  "holdoutConsumedIds": ["M3", "M4", "R4", "R5"],
+  "holdoutNote": "原4个保留案例均已用于实现或回归验证。保留原split作为历史记录，不能作为独立保留集成绩；后续需独立人员准备并封存新样本。",
   "rubric": ["目标匹配", "前置关系", "来源依据", "投入合理", "行动清晰"],
   "threshold": "每项0至2分，总分至少8且无零分；不代表学习效果",
   "cases": [

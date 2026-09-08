@@ -3275,3 +3275,19 @@
 .wb-source-review p, .wb-source-review li { line-height: 1.7; }
 .wb-source-objects article { min-width: 0; overflow-wrap: anywhere; }
 .wb-source-objects .wb-triage-list { grid-template-columns: 1fr; }
+.wb-material-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
+.wb-material-nav { display: grid; gap: 12px; }
+.wb-material-nav button { display: grid; gap: 10px; text-align: left; padding: 20px; border-radius: 18px; border: 1px solid rgba(255,255,255,.12); background: linear-gradient(145deg,rgba(255,255,255,.08),rgba(255,255,255,.02)); color: #dce8df; cursor: pointer; overflow-wrap: anywhere; }
+.wb-material-nav button[aria-pressed="true"] { border-color: #61d895; background: linear-gradient(145deg,rgba(73,182,114,.25),rgba(18,58,34,.5)); box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+.wb-material-nav small { color: #a8b9ae; }
+.wb-secondary { margin: 28px 0; padding: 20px; border: 1px solid rgba(255,255,255,.09); border-radius: 18px; }
+.wb-secondary > summary { cursor: pointer; color: #b9d1c1; }
+.wb-current-context > a { color: #152518; font-size: 13px; min-height: 44px; }
+.wb-source-objects .wb-triage-list p { font-size: 14px; line-height: 1.7; }
+.wb-source-objects .wb-triage-list small { font-size: 12px; }
+.wb-source-objects article > footer { flex-wrap: wrap; }
+.wb-source-objects article > footer button, .wb-source-objects article > footer a { min-height: 44px; font-size: 13px; }
+.wb-capture-form label { font-size: 13px; }
+.wb-capture-form input, .wb-capture-form textarea, .wb-capture-form select { font-size: 14px; }
+@media(max-width: 760px) { .wb-source-objects article > footer { display: grid; grid-template-columns: 1fr 1fr; } .wb-source-objects article > footer .t2-primary { grid-column: 1 / -1; } }
+@media(max-width: 760px) { .wb-material-layout { grid-template-columns: minmax(0,1fr); gap: 16px; } .wb-material-nav { display: flex; overflow-x: auto; padding-bottom: 8px; } .wb-material-nav button { flex: 0 0 200px; } }

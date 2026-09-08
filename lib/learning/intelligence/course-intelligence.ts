@@ -191,10 +191,12 @@ export const curriculumAssemblySchema = z.object({
   comparisons: z.array(courseComparisonSchema).default([]),
   segments: z.array(studySegmentSchema).default([]),
   unresolvedGaps: z.array(nonEmpty).default([]),
+  sourceIssues: z.array(z.object({ sourceId: nonEmpty, title: nonEmpty, status: z.enum(["needs_text", "needs_review", "rejected"]), reason: nonEmpty })).optional(),
   sourceSelections: z.array(z.object({
     sourceId: nonEmpty, analysisVersion: z.number().int().positive(), fragmentId: nonEmpty,
     title: nonEmpty, url: z.string().nullable(), nodeIds: z.array(nonEmpty),
-    role: z.enum(["supplement", "defer"]), rationale: nonEmpty,
+    role: z.enum(["adopted", "supplement", "defer"]), rationale: nonEmpty,
+    courseId: z.string().optional(), duplicateOf: z.string().optional(), prerequisiteGaps: z.array(z.string()).optional(),
     sourceQuote: z.string().optional(), reviewCautions: z.array(z.string()).optional(),
   })).optional(),
   rationale: nonEmpty,
@@ -319,6 +321,8 @@ export const scenarioCheckSchema = z.object({
   correctOptionId: nonEmpty,
   rationale: z.string().trim().min(20).max(1600),
   contractVersion: z.literal("scenario_check.v1"),
+  assessmentKind: z.enum(["reflection", "node_check"]).optional(),
+  rubric: z.array(z.string()).optional(),
 });
 
 export type ScenarioCheck = z.infer<typeof scenarioCheckSchema>;

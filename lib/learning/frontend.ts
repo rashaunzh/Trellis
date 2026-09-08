@@ -667,6 +667,14 @@ export async function fetchContentSource(sourceId: string): Promise<ContentSourc
   return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}`));
 }
 
+export async function updateContentSource(sourceId: string, input: { title: string; canonicalUrl: string | null; rawContent: string | null; expectedUpdatedAt: string }): Promise<ContentSourceDetails> {
+  return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(input) }));
+}
+
+export async function adoptContentSource(sourceId: string, analysisVersion: number): Promise<{ status: string; message: string }> {
+  return readJson(await apiFetch(`/api/learning/sources/${sourceId}/adopt`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ analysisVersion }) }));
+}
+
 export async function analyzeContentSource(sourceId: string): Promise<ContentSourceDetails> {
   return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}/analyze`, { method: "POST" }));
 }

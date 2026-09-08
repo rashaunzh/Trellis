@@ -25,7 +25,8 @@ import {
 } from "./course-intelligence.ts";
 import { CourseIntelligenceModelGateway, hashInput, type ModelGatewayStatus } from "./model-gateway.ts";
 import type { CourseIntelligenceRepository, WorkflowRunRecord } from "./repository.ts";
-import { fetchPublicSource } from "./source-fetcher.ts";
+import { assertReadableMaterialUrl, extractReadableSource, fetchPublicSource } from "./source-fetcher.ts";
+import { taskScenario } from "./scenario-bank.ts";
 import { deriveTargetNodeIds, solveCurriculum } from "./curriculum-solver.ts";
 import { interpretLearningSignal, transitionDecision, type DecisionRecord, type LearningInterpretation } from "./decision-kernel.ts";
 import {
@@ -124,6 +125,7 @@ export interface LearningTaskResult {
   evidenceStrength: "weak" | "developing" | "strong";
   demonstrated: string[];
   notYetProven: string[];
+  evaluationBasis: string[];
   capabilityChange: { status: CanonicalKnowledgeState["status"]; confidence: number };
   nextAction: string;
   nextActionReason: string;
@@ -176,15 +178,18 @@ export class CourseIntelligenceService {
   private repository: CourseIntelligenceRepository;
   private modelGateway: CourseIntelligenceModelGateway;
   private learningStore?: LearningStore;
+  private sourceFetcher: typeof fetch;
 
   constructor(
     repository: CourseIntelligenceRepository,
     modelGateway: CourseIntelligenceModelGateway,
     learningStore?: LearningStore,
+    sourceFetcher: typeof fetch = fetch,
   ) {
     this.repository = repository;
     this.modelGateway = modelGateway;
     this.learningStore = learningStore;
+    this.sourceFetcher = sourceFetcher;
   }
 
   async initialize(): Promise<void> {
@@ -211,15 +216,66 @@ export class CourseIntelligenceService {
     return Promise.all(sources.map(async (source) => ({ source, analysis: await this.repository.getLatestContentAnalysis(source.id) })));
   }
 
+  async updateUserContentSource(ownerId: string, sourceId: string, raw: unknown): Promise<ContentSourceDetails> {
+    const input = z.object({ title: z.string().trim().min(1).max(200).optional(), canonicalUrl: z.string().trim().max(2000).nullable().optional(), rawContent: z.string().trim().max(50000).nullable().optional(), expectedUpdatedAt: z.string().optional() }).parse(raw);
+    const current = await this.getContentSourceDetails(ownerId, sourceId);
+    if (input.expectedUpdatedAt && input.expectedUpdatedAt !== current.source.updatedAt) throw Object.assign(new Error("材料已在其他页面修改，请刷新后再编辑"), { status: 409 });
+    const { expectedUpdatedAt: _expected, ...changes } = input;
+    const source = contentSourceSchema.parse({ ...current.source, ...changes, status: "inbox", updatedAt: new Date().toISOString() });
+    if (source.canonicalUrl && !/^https?:\/\//i.test(source.canonicalUrl)) throw Object.assign(new Error("来源链接仅支持 HTTP 或 HTTPS"), { status: 400 });
+    if (source.canonicalUrl && (await this.repository.listContentSources(ownerId)).some(item => item.id !== sourceId && item.canonicalUrl === source.canonicalUrl)) throw Object.assign(new Error("该链接已存在，请编辑已有材料"), { status: 409 });
+    const version = (current.analysis?.version ?? 0) + 1;
+    const analysis = contentAnalysisSchema.parse({ id: `${sourceId}:analysis:${version}`, sourceId, version, mode: "rule", status: "needs_review", fragments: [], unresolvedQuestions: [], confidence: 0, rationale: "材料已修改，请重新分析。已确认路线保留原版本依据。", readingScope: "metadata_only", limitations: ["旧分析不再用于新路线；重新分析后需再次确认片段。"], createdAt: new Date().toISOString() });
+    // 先使旧候选失效；若后续来源保存失败，用户可重试，不会误确认过期片段。
+    await this.repository.saveContentAnalysis(analysis);
+    await this.repository.saveContentSource(source);
+    return { source, analysis };
+  }
+
   async getContentSourceDetails(ownerId: string, sourceId: string): Promise<ContentSourceDetails> {
     const source = await this.repository.getContentSource(sourceId, ownerId);
     if (!source) throw Object.assign(new Error("来源不存在"), { status: 404 });
     return { source, analysis: await this.repository.getLatestContentAnalysis(source.id) };
   }
 
+  async adoptUserContentSource(ownerId: string, sourceId: string, version: number): Promise<MaterialAnalysisResult> {
+    const { source, analysis } = await this.getContentSourceDetails(ownerId, sourceId);
+    if (!analysis || analysis.version !== version) throw Object.assign(new Error("材料版本已变化，请刷新后再加入选课范围"), { status: 409 });
+    const fragments = analysis.fragments.filter(item => item.status === "confirmed" && item.sourceQuote && item.capabilityNodeIds.length);
+    if (analysis.mode !== "model" || !fragments.length) throw Object.assign(new Error("请先完成语义分析并确认有依据的片段"), { status: 409 });
+    if (!source.canonicalUrl) throw Object.assign(new Error("加入主课选课范围需要可打开的来源链接，请先补充链接；当前仍可作为文本补充"), { status: 409 });
+    const binding = `content-binding:${await hashInput({ sourceId, version, fragments: fragments.map(item => item.id) })}`;
+    const existing = (await this.repository.listAvailableCourses(ownerId)).find(course => course.tags.includes(binding));
+    if (existing) return { status: "personal_ready", matchedCourse: existing.genome, extractedUnits: existing.genome.units.map(item => item.title), message: "该版本已在你的选课范围内，生成新路线时将参与比较。", modelUsed: false, candidateId: null };
+    const result = await this.analyzeMaterial(ownerId, { title: `${source.title} · 审阅版本${version}`, url: source.canonicalUrl, outline: fragments.map(item => item.sourceQuote).join("\n") }, { forceCandidate: true, sourceBinding: binding });
+    if (result.status === "personal_ready") return { ...result, message: "已加入你的选课范围。下一份路线会比较是否作为主课、局部采用或暂缓；当前路线不变。" };
+    return result;
+  }
+
+  private async planningCourses(ownerId: string): Promise<PublishedCourse[]> {
+    const [courses, sources] = await Promise.all([this.repository.listAvailableCourses(ownerId), this.listContentSources(ownerId)]);
+    const bindings = new Set(await Promise.all(sources.filter(item => item.analysis).map(async ({ source, analysis }) =>
+      `content-binding:${await hashInput({ sourceId: source.id, version: analysis!.version, fragments: analysis!.fragments.filter(item => item.status === "confirmed" && item.sourceQuote && item.capabilityNodeIds.length).map(item => item.id) })}`)));
+    return courses.filter(course => !course.tags.includes("personal-source") || course.tags.some(tag => bindings.has(tag)));
+  }
+
   async analyzeUserContentSource(ownerId: string, sourceId: string): Promise<ContentSourceDetails> {
-    const source = await this.repository.getContentSource(sourceId, ownerId);
+    let source = await this.repository.getContentSource(sourceId, ownerId);
     if (!source) throw Object.assign(new Error("来源不存在"), { status: 404 });
+    const storedSource = source;
+    let retrieval: ContentAnalysis["retrieval"];
+    let readError = "";
+    if (!source.rawContent?.trim() && source.canonicalUrl) {
+      try {
+        const snapshot = await fetchPublicSource(source.canonicalUrl, this.sourceFetcher, assertReadableMaterialUrl);
+        const extracted = extractReadableSource(snapshot);
+        if (extracted.length < 80) throw new Error("公开页面可读内容不足，请粘贴正文或课程目录");
+        retrieval = { finalUrl: snapshot.finalUrl, retrievedAt: snapshot.retrievedAt, availableCharacters: extracted.length, analyzedCharacters: Math.min(extracted.length, 18000) };
+        source = { ...source, rawContent: extracted.slice(0, 18000) };
+      } catch (error) {
+        readError = error instanceof Error ? error.message : "公开页面读取失败，请粘贴正文";
+      }
+    }
     const previous = await this.repository.getLatestContentAnalysis(source.id);
     const graph = await this.repository.getPublishedGraph();
     let analysis = analyzeContentSource(source, graph, (previous?.version ?? 0) + 1);
@@ -254,9 +310,16 @@ export class CourseIntelligenceService {
         analysis.modelRequestId = result.requestId;
       }
     }
+    if (retrieval) {
+      analysis.readingScope = "public_page";
+      analysis.retrieval = retrieval;
+      analysis.limitations = ["仅分析公开页面抽取文本，不代表课程全文、视频内容或登录后内容。", ...(retrieval.availableCharacters > retrieval.analyzedCharacters ? ["页面超出读取预算，本次仅分析前18000字符。"] : []), ...(analysis.mode === "rule" ? ["语义模型未完成，当前仅为规则候选。"] : []), "网页中的说法尚未独立核验。"];
+    }
+    if (readError) analysis.limitations = [...(analysis.limitations ?? []), `读取未完成：${readError}`];
     await this.repository.saveContentAnalysis(analysis);
-    await this.repository.saveContentSource({ ...source, status: "needs_review", updatedAt: new Date().toISOString() });
-    return { source: { ...source, status: "needs_review" }, analysis };
+    const nextSource: ContentSource = { ...storedSource, status: "needs_review", updatedAt: new Date().toISOString() };
+    await this.repository.saveContentSource(nextSource);
+    return { source: nextSource, analysis };
   }
 
   async confirmUserContentFragments(ownerId: string, sourceId: string, raw: unknown): Promise<ContentSourceDetails> {
@@ -280,12 +343,12 @@ export class CourseIntelligenceService {
     return this.getCurrentLearning(ownerId);
   }
 
-  async analyzeMaterial(ownerId: string, raw: unknown, context?: { workflowRunId?: string }): Promise<MaterialAnalysisResult> {
+  async analyzeMaterial(ownerId: string, raw: unknown, context?: { workflowRunId?: string; forceCandidate?: boolean; sourceBinding?: string }): Promise<MaterialAnalysisResult> {
     const intake = learningIntakeSchema.parse({ goal: "评估用户材料", weeklyCapacity: "light", materials: [raw] });
     const material = intake.materials[0]!;
     const courses = await this.repository.listAvailableCourses(ownerId);
     const matched = matchingCourse(material, courses);
-    if (matched) {
+    if (matched && !context?.forceCandidate) {
       return { status: "published", matchedCourse: matched.genome, extractedUnits: matched.genome.units.map((unit) => unit.title), message: "已匹配发布课程版本，可进入课程取舍。", modelUsed: false, candidateId: null };
     }
     const lines = material.outline.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 80);
@@ -309,7 +372,7 @@ export class CourseIntelligenceService {
     const now = new Date().toISOString();
     const candidateId = `candidate.${crypto.randomUUID()}`;
     const graph = await this.repository.getPublishedGraph();
-    const courseId = `candidate-course.${(await hashInput({ url: material.url, title: candidate.title })).slice(0, 16)}`;
+    const courseId = context?.sourceBinding ? `source-course.${(await hashInput(context.sourceBinding)).slice(0, 20)}` : `candidate-course.${(await hashInput({ url: material.url, title: candidate.title })).slice(0, 16)}`;
     const sourceUrl = material.url || `https://trellis.invalid/material/${encodeURIComponent(candidateId)}`;
     const citation = {
       title: candidate.title,
@@ -346,7 +409,7 @@ export class CourseIntelligenceService {
     });
     const proposedMappings = mappingResult.value?.mappings ?? [];
     const mappings = units.flatMap((unit) => {
-      const proposals = proposedMappings.filter((mapping) => mapping.unitTitle === unit.title);
+      const proposals = proposedMappings.filter((mapping) => mapping.unitTitle === unit.title && mapping.confidence >= 0.8);
       if (proposals.length === 0) {
         return [{
           courseId, unitId: unit.id, nodeId: bestCandidateNode(unit.title, graph),
@@ -379,7 +442,7 @@ export class CourseIntelligenceService {
         units,
         sourceCitations: [citation],
       },
-      tags: ["candidate"],
+      tags: context?.sourceBinding ? ["candidate", "personal-source", context.sourceBinding] : ["candidate"],
       mappings,
     };
     const evalIssues = evaluatePublishedCourse(candidateCourse, graph);
@@ -392,7 +455,7 @@ export class CourseIntelligenceService {
       outline: lines,
       analysisJson: JSON.stringify({ outline: candidate, modelRequests: [outlineResult.requestId, mappingResult.requestId] }),
       candidateJson: JSON.stringify(candidateCourse),
-      evalJson: JSON.stringify({ passed: evalIssues.length === 0, issues: evalIssues }),
+      evalJson: JSON.stringify({ passed: evalIssues.length === 0, issues: evalIssues, discardedMappings: proposedMappings.filter(mapping => mapping.confidence < 0.8) }),
       impactJson: JSON.stringify({ affectedCurricula: [], reason: "new-course-candidate" }),
       workflowRunId: null,
       status: personalReady ? "personal_ready" : "candidate",
@@ -418,8 +481,15 @@ export class CourseIntelligenceService {
       throw Object.assign(new Error("目标中的每周时间低于所选档位。当前最小档位为每周120分钟；请先核对可投入时间，系统不会据此承诺可完成。"), { status: 400 });
     }
     const [courses, graph, previous] = await Promise.all([
-      this.repository.listAvailableCourses(ownerId), this.repository.getPublishedGraph(), this.repository.getLatestCurriculum(ownerId),
+      this.planningCourses(ownerId), this.repository.getPublishedGraph(), this.repository.getLatestCurriculum(ownerId),
     ]);
+    const suppliedUrls = new Set(intake.materials.map(item => item.url));
+    for (const course of courses.filter(item => item.tags.includes("personal-source"))) {
+      if (intake.materials.length < 8 && !suppliedUrls.has(course.genome.url)) {
+        intake.materials.push({ title: course.genome.title, url: course.genome.url, outline: "" });
+        suppliedUrls.add(course.genome.url);
+      }
+    }
     const refinement = await this.modelGateway.structuredDetailed({
       ownerId,
       kind: modelTaskContracts.learningIntent.kind,
@@ -439,13 +509,39 @@ export class CourseIntelligenceService {
       interpretedGoal: refined?.summary ?? `用户希望获得的能力：${intake.goal}`,
       targetNodeIds: chosenTargets,
     });
-    assembly.sourceSelections = (await this.listContentSources(ownerId)).flatMap(({ source, analysis }) =>
+    const seenQuotes = new Map<string, string>();
+    const contentSources = await this.listContentSources(ownerId);
+    const seenBodies = new Map<string, string>();
+    const duplicateSources = new Map<string, string>();
+    for (const { source, analysis } of contentSources) {
+      if (!analysis?.fragments.some(fragment => fragment.status === "confirmed")) continue;
+      const body = source.rawContent?.replace(/\s+/g, "").toLowerCase() ?? "";
+      if (body.length < 40) continue;
+      if (seenBodies.has(body)) duplicateSources.set(source.id, seenBodies.get(body)!);
+      else seenBodies.set(body, source.title);
+    }
+    assembly.sourceIssues = contentSources.filter(({ analysis }) => !analysis?.fragments.length || analysis.fragments.some(fragment => fragment.status !== "confirmed")).map(({ source, analysis }) => ({
+      sourceId: source.id, title: source.title,
+      status: source.status === "rejected" ? "rejected" : !source.rawContent && (!analysis || analysis.readingScope === "metadata_only") ? "needs_text" : "needs_review",
+      reason: source.status === "rejected" ? "材料已排除，不参与本次学习安排。" : !analysis || analysis.readingScope === "metadata_only" ? "尚无可用分析，请读取公开页面或补充正文后重新分析。" : "仍有未确认或已排除片段，仅已确认部分可参与路线。",
+    }));
+    assembly.sourceSelections = contentSources.flatMap(({ source, analysis }) =>
       analysis?.fragments.filter(fragment => fragment.status === "confirmed").map(fragment => {
         const related = fragment.capabilityNodeIds.some(id => assembly.mappings.some(mapping => mapping.nodeId === id));
+        const quoteKey = (fragment.sourceQuote ?? "").replace(/\s+/g, "").toLowerCase();
+        const duplicateOf = duplicateSources.get(source.id) ?? (quoteKey.length >= 16 ? seenQuotes.get(quoteKey) : undefined);
+        if (quoteKey.length >= 16 && !duplicateOf) seenQuotes.set(quoteKey, fragment.title);
+        const adoptedCourse = courses.find(course => course.genome.url === source.canonicalUrl && assembly.mappings.some(mapping => mapping.courseId === course.genome.id && fragment.capabilityNodeIds.includes(mapping.nodeId)));
+        const prerequisiteGaps = fragment.prerequisiteNodeIds.filter(id => !assembly.mappings.some(mapping => mapping.nodeId === id));
+        const gapTitles = prerequisiteGaps.map(id => graph.nodes.find(node => node.id === id)?.title ?? id);
+        const role = adoptedCourse ? "adopted" as const : duplicateOf || gapTitles.length || !related ? "defer" as const : "supplement" as const;
         return { sourceId: source.id, analysisVersion: analysis.version, fragmentId: fragment.id, title: fragment.title, url: source.canonicalUrl, nodeIds: fragment.capabilityNodeIds,
           sourceQuote: fragment.sourceQuote, reviewCautions: analysis.review?.findings.filter(item => item.kind === "claim").map(item => `${item.quote}：${item.explanation}`),
-          role: related ? "supplement" as const : "defer" as const,
-          rationale: related ? "已确认片段与路线能力相关，作为可选补充；不替代主课，不计入必学承诺。" : "当前路线尚未覆盖该片段关联能力，暂缓采用。" };
+          courseId: adoptedCourse?.genome.id, duplicateOf, prerequisiteGaps: gapTitles, role,
+          rationale: adoptedCourse ? "该来源的相关章节已参与正式课程编排，按路线顺序学习，无需再重复作为补充。"
+            : duplicateOf ? `与“${duplicateOf}”原文相同，保留来源但不重复安排学习。`
+            : gapTitles.length ? `先补前置：${gapTitles.join("、")}。当前路线未覆盖这些前置，本片段暂缓。`
+            : related ? "主课已经覆盖相关能力；仅在需要另一种解释时补充，不增加必学承诺。" : "当前目标未涉及该片段的能力，暂缓采用。" };
       }) ?? []);
     const evalReport = evaluateCurriculumAssembly({ courses: courses.map((item) => item.genome), assembly });
     if (!evalReport.passed) throw new Error(`课程组合未通过发布检查：${evalReport.issues.map((issue) => issue.message).join("；")}`);
@@ -476,9 +572,10 @@ export class CourseIntelligenceService {
       (raw as { constraints?: unknown })?.constraints ?? raw,
     ) as CurriculumConstraint[];
     const [courses, graph] = await Promise.all([
-      this.repository.listAvailableCourses(ownerId),
+      this.planningCourses(ownerId),
       this.repository.getPublishedGraph(),
     ]);
+    if (constraints.some(item => "courseId" in item && !courses.some(course => course.genome.id === item.courseId))) throw Object.assign(new Error("约束中的材料版本已失效或课程不存在，请重新分析材料后选择新版本"), { status: 409 });
     const assembly = solveCurriculum({
       intake: source.intake,
       courses,
@@ -487,11 +584,20 @@ export class CourseIntelligenceService {
       targetNodeIds: source.assembly.targetNodeIds,
       constraints,
     });
-    assembly.sourceSelections = source.assembly.sourceSelections?.map(item => ({
-      ...item,
-      role: item.nodeIds.some(id => assembly.mappings.some(mapping => mapping.nodeId === id)) ? "supplement" : "defer",
-      rationale: item.nodeIds.some(id => assembly.mappings.some(mapping => mapping.nodeId === id)) ? "保留已确认版本，作为当前路线可选补充。" : "调整后的路线不再覆盖此片段能力，暂缓采用。",
-    }));
+    const latestSources = await this.listContentSources(ownerId);
+    assembly.sourceIssues = source.assembly.sourceIssues;
+    assembly.sourceSelections = source.assembly.sourceSelections?.map(item => {
+      const currentAnalysis = latestSources.find(entry => entry.source.id === item.sourceId)?.analysis;
+      const stale = currentAnalysis?.version !== item.analysisVersion || !currentAnalysis?.fragments.some(fragment => fragment.id === item.fragmentId && fragment.status === "confirmed");
+      const prerequisiteIds = graph.nodes.filter(node => item.nodeIds.includes(node.id)).flatMap(node => node.prerequisiteNodeIds);
+      const gaps = [...new Set(prerequisiteIds)].filter(id => !assembly.mappings.some(mapping => mapping.nodeId === id)).map(id => graph.nodes.find(node => node.id === id)?.title ?? id);
+      const adopted = !stale && item.courseId && assembly.mappings.some(mapping => mapping.courseId === item.courseId && item.nodeIds.includes(mapping.nodeId));
+      const related = item.nodeIds.some(id => assembly.mappings.some(mapping => mapping.nodeId === id));
+      return { ...item, prerequisiteGaps: gaps,
+        role: adopted ? "adopted" : stale || item.duplicateOf || gaps.length || !related ? "defer" : "supplement",
+        rationale: stale ? "材料已修改或取消确认，保留旧引用供对照，不在新方案继续采用。" : adopted ? "相关章节已纳入调整后的路线，保留原分析依据。" : item.duplicateOf ? `与“${item.duplicateOf}”原文重复，不重复安排。` : gaps.length ? `先补前置：${gaps.join("、")}，暂缓采用。` : related ? "调整后已覆盖必要前置，可作为可选补充，不增加必学承诺。" : "调整后的路线不再涉及该片段能力，暂缓采用。",
+      };
+    });
     const evalReport = evaluateCurriculumAssembly({ courses: courses.map((item) => item.genome), assembly });
     if (!evalReport.passed) {
       throw Object.assign(new Error(`调整后的方案不可执行：${evalReport.issues.map((issue) => issue.message).join("；")}`), { status: 409 });
@@ -1020,6 +1126,7 @@ export class CourseIntelligenceService {
       evidenceStrength: supportsProgress || knowledge?.status === "has_signal" ? "developing" : "weak",
       demonstrated,
       notYetProven,
+      evaluationBasis: [typeof latest.context?.rationale === "string" ? latest.context.rationale : "当前依据为用户自报反馈，未经独立验证。", ...(Array.isArray(latest.context?.rubric) ? latest.context.rubric.filter((item): item is string => typeof item === "string") : [])],
       capabilityChange: { status: knowledge?.status ?? "learning", confidence: knowledge?.confidence ?? 0 },
       nextAction: savedAdaptation?.summary ?? (supportsProgress ? "继续下一项核心任务，后续用真实任务检查迁移。" : "回看当前片段中与反馈直接相关的部分，再留下一个更具体的判断。"),
       nextActionReason: savedAdaptation?.summary ?? (supportsProgress ? "当前信号支持继续，但一次检查不等于长期掌握。" : "当前信号还不足以证明稳定应用能力。"),
@@ -1047,13 +1154,15 @@ export class CourseIntelligenceService {
       if (!input.questionId || input.questionId !== check.id) {
         throw Object.assign(new Error("情景题版本已变化，请重新打开题目"), { status: 409 });
       }
+      if (!check.options.some(option => option.id === input.value)) throw Object.assign(new Error("请选择题目中的有效选项"), { status: 400 });
       input = {
         ...input,
         context: {
           correct: input.value === check.correctOptionId,
           rationale: check.rationale,
           selectedOptionId: input.value,
-          assessmentKind: "reflection",
+          assessmentKind: check.assessmentKind ?? "reflection",
+          rubric: check.rubric ?? [],
         },
       };
     }
@@ -1227,6 +1336,8 @@ export class CourseIntelligenceService {
   }
 
   private async buildScenarioCheck(activity: LearningActivity): Promise<ScenarioCheck> {
+    const specific = taskScenario(activity.id, activity.canonicalNodeId ?? "");
+    if (specific) return specific;
     const graph = await this.repository.getPublishedGraph();
     const node = graph.nodes.find((item) => item.id === activity.canonicalNodeId);
     const subject = node?.title ?? activity.title;
@@ -1326,7 +1437,7 @@ export class CourseIntelligenceService {
         isCore: true,
         status: "planned",
         isSkipValidation: false,
-        inputRefs: [segment.sourceUrl ?? course.url, ...(record.assembly.sourceSelections ?? []).filter(item => item.role === "supplement" && item.nodeIds.includes(canonicalNodeId)).map(item => `content:${item.sourceId}@${item.analysisVersion}:${item.fragmentId}`)],
+        inputRefs: [segment.sourceUrl ?? course.url, ...(record.assembly.sourceSelections ?? []).filter(item => item.role !== "defer" && item.nodeIds.includes(canonicalNodeId)).map(item => `content:${item.sourceId}@${item.analysisVersion}:${item.fragmentId}`)],
         steps: `打开“${segment.locatorLabel || unit.title}”，只完成本片段；达到停止条件即可离开。`,
         expectedEvidence: segment.completionSignal,
         evaluationCriteria: segment.stopCondition,

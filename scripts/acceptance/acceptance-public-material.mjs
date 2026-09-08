@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { CourseIntelligenceService } from "../../lib/learning/intelligence/service.ts";
+import { InMemoryCourseIntelligenceRepository } from "../../lib/learning/intelligence/repository.ts";
+import { CourseIntelligenceModelGateway } from "../../lib/learning/intelligence/model-gateway.ts";
+const repository = new InMemoryCourseIntelligenceRepository();
+const service = new CourseIntelligenceService(repository, new CourseIntelligenceModelGateway(repository, null));
+await service.initialize();
+const source = await service.createContentSource("public-read-check", { title: "Microsoft AI for Beginners公开说明", canonicalUrl: "https://raw.githubusercontent.com/microsoft/AI-For-Beginners/main/README.md" });
+const { analysis } = await service.analyzeUserContentSource("public-read-check", source.id);
+assert.equal(analysis.readingScope, "public_page", analysis.limitations.join(" "));
+assert.ok(analysis.retrieval.availableCharacters > 80);
+assert.ok(analysis.retrieval.analyzedCharacters <= 18000);
+await mkdir("outputs/material-loop", { recursive: true });
+await writeFile("outputs/material-loop/public-read.json", JSON.stringify({ date: new Date().toISOString(), readingScope: analysis.readingScope, retrieval: analysis.retrieval, limitations: analysis.limitations, mode: analysis.mode }, null, 2));
+console.log(JSON.stringify({ passed: true, readingScope: analysis.readingScope, retrieval: analysis.retrieval }));

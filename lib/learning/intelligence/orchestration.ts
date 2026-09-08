@@ -153,8 +153,8 @@ export function buildLearningOrchestrationState(input: {
         url: sourceUrl,
         locator: activity.scope?.locatorLabel || "当前材料片段",
         precision: activity.scope?.locatorMissing ? "只能定位到来源主页" : "可定位到片段",
-      }, ...(curriculum?.assembly.sourceSelections ?? []).filter(item => item.role === "supplement" && item.nodeIds.some(id => nodeIds.includes(id))).map(item => ({
-        title: item.title, url: item.url ?? "", locator: `已审阅片段 · 分析版本 ${item.analysisVersion}`, precision: "可选补充，未核验完整内容",
+      }, ...(curriculum?.assembly.sourceSelections ?? []).filter(item => item.role !== "defer" && item.nodeIds.some(id => nodeIds.includes(id))).map(item => ({
+        title: item.title, url: item.url ?? "", locator: `已审阅片段 · 分析版本 ${item.analysisVersion}`, precision: item.role === "adopted" ? "已纳入路线，保留原文依据" : "可选补充，未核验完整内容",
       }))],
       assessment: assessmentKindFor(activity.activityType),
       stopCondition: activity.scope?.stopCondition ?? activity.evaluationCriteria,

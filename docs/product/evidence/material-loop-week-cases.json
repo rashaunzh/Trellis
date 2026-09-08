@@ -1,0 +1,68 @@
+{
+  "date": "2026-09-08T01:03:56.722Z",
+  "mode": "published-baseline-and-rules",
+  "purpose": "behavioral-regression",
+  "independentRouteScores": null,
+  "results": [
+    {
+      "id": "M1",
+      "name": "重复URL复用来源",
+      "passed": true
+    },
+    {
+      "id": "M2",
+      "name": "不可读取页面明确仅元数据",
+      "passed": true
+    },
+    {
+      "id": "M3",
+      "name": "保证性宣传标待核验",
+      "passed": true
+    },
+    {
+      "id": "M4",
+      "name": "来源内指令不能确认材料",
+      "passed": true
+    },
+    {
+      "id": "R1",
+      "name": "无编程基础不默认安排编程前置",
+      "passed": true
+    },
+    {
+      "id": "R2",
+      "name": "限定平台并暴露覆盖缺口",
+      "passed": true
+    },
+    {
+      "id": "R3",
+      "name": "新草稿不遮挡当前任务",
+      "passed": true
+    },
+    {
+      "id": "R4",
+      "name": "30分钟容量冲突明确拒绝",
+      "passed": true
+    },
+    {
+      "id": "R5",
+      "name": "重复、缺正文和不相关材料分别说明",
+      "passed": true
+    },
+    {
+      "id": "F1",
+      "name": "不确定保持开放",
+      "passed": true
+    },
+    {
+      "id": "F2",
+      "name": "自报高分不证明掌握",
+      "passed": true
+    },
+    {
+      "id": "F3",
+      "name": "重复受阻提交不新增补救",
+      "passed": true
+    }
+  ]
+}

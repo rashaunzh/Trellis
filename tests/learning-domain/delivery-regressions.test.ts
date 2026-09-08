@@ -57,6 +57,26 @@ test("通用反思回答不能当作节点能力检查并自动推进", async ()
   assert.match(result.interpretation.rationale, /不能验证/);
 });
 
+test("节点专属检查提供评价依据，错误与不确定不推进，一次答对不等于掌握", async () => {
+  const { service, owner, current, store } = await setup();
+  const activity = { ...current.activities[0]!, canonicalNodeId: "pm.eval-design" };
+  await store.saveActivity(activity);
+  const check = await service.getScenarioCheck(owner, activity.id);
+  assert.match(check.prompt, /保留集/);
+  assert.equal(check.assessmentKind, "node_check");
+  assert.ok(!("correctOptionId" in check));
+  await assert.rejects(service.recordLearningSignal(owner, activity.id, { type: "scenario_choice", value: "invented", questionId: check.id }), /有效选项/);
+  const wrong = await service.recordLearningSignal(owner, activity.id, { type: "scenario_choice", value: "choice-1", questionId: check.id });
+  assert.equal(wrong.interpretation.keepsActivityOpen, true);
+  const uncertain = await service.recordLearningSignal(owner, activity.id, { type: "scenario_choice", value: "choice-3", questionId: check.id, understanding: "uncertain" });
+  assert.equal(uncertain.interpretation.keepsActivityOpen, true);
+  await service.recordLearningSignal(owner, activity.id, { type: "scenario_choice", value: "choice-3", questionId: check.id, understanding: "understood" });
+  const result = await service.getLearningTaskResult(owner, activity.id);
+  assert.match(result.evaluationBasis.join(" "), /独立|污染/);
+  assert.notEqual(result.evidenceStrength, "strong");
+  assert.deepEqual(result.demonstrated, []);
+});
+
 for (const failurePoint of ["activity", "decision"]) {
   test(`反馈${failurePoint}写入中断后同一提交可以恢复`, async t => {
     const { service, owner, current, store, repository } = await setup();
