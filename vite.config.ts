@@ -82,9 +82,11 @@ export default defineConfig(async () => {
       vinext(),
       sites(),
       cloudflare({
+        ...(process.env.TRELLIS_ACCEPTANCE_CONFIG ? { configPath: process.env.TRELLIS_ACCEPTANCE_CONFIG } : {}),
+        ...(process.env.TRELLIS_ACCEPTANCE_STATE ? { persistState: { path: process.env.TRELLIS_ACCEPTANCE_STATE } } : {}),
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: localBindingConfig,
+        config: process.env.TRELLIS_ACCEPTANCE_CONFIG ? { workers_dev: false } : localBindingConfig,
       }),
     ],
   };

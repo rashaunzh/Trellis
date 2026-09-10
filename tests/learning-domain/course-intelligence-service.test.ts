@@ -149,7 +149,8 @@ test("确认课程方案后生成准确课程章节活动并保留轻反馈闭�
   const activities = await learningStore.listActivitiesByPlan(plans[0]!.id);
   assert.ok(activities.length >= 1);
   assert.match(activities[0]!.title, / · /);
-  assert.match(activities[0]!.expectedEvidence, /课程随堂测试结果/);
+  assert.match(activities[0]!.expectedEvidence, /具体例子和判断理由/);
+  assert.match(activities[0]!.expectedEvidence, /不推断掌握/);
   assert.equal(activities[0]!.curriculumId, draft.id);
   assert.ok(activities[0]!.canonicalNodeId?.includes("."));
   assert.ok(activities[0]!.courseVersionId?.includes("@"));

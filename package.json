@@ -14,6 +14,7 @@
     "acceptance:three-week-loop": "node scripts/compatibility/acceptance-three-week-loop.mjs",
     "acceptance:course-intelligence": "node scripts/acceptance/acceptance-course-intelligence.mjs",
     "acceptance:internal-test-loop": "node scripts/acceptance/acceptance-internal-test-loop.mjs",
+    "acceptance:redesign-core": "node scripts/acceptance/acceptance-redesign-core.mjs",
     "acceptance:agentic-kernel": "node scripts/acceptance/acceptance-agentic-kernel.mjs",
     "acceptance:next-stage": "node scripts/compatibility/acceptance-next-stage-rubric.mjs",
     "acceptance:portfolio": "node scripts/compatibility/acceptance-portfolio-full-loop.mjs",

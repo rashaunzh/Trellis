@@ -290,6 +290,7 @@ export const learningSignalInputSchema = z.object({
   note: z.string().trim().max(1200).default(""),
   questionId: z.string().trim().max(160).optional(),
   submissionId: z.string().trim().min(1).max(160).optional(),
+  expectedSignalId: z.string().nullable().optional(),
   understanding: z.enum(["understood", "uncertain", "blocked"]).optional(),
   context: z.record(z.string(), z.unknown()).optional(),
   actualMinutes: z.number().int().min(1).max(720).optional(),

@@ -775,6 +775,12 @@ export class CourseIntelligenceService {
     if (!decision) throw Object.assign(new Error("决策不存在"), { status: 404 });
     const changed = transitionDecision({ decision, toStatus: "rejected", actorType: "user", actorOwnerId: ownerId });
     await this.repository.saveDecision(changed.decision, changed.event);
+    if (decision.aggregateType === "curriculum" && decision.decisionType === "curriculum_synthesis") {
+      const draft = await this.repository.getCurriculum(decision.aggregateId, ownerId);
+      if (draft?.status === "draft") {
+        await this.repository.saveCurriculum({ ...draft, status: "superseded", updatedAt: new Date().toISOString() });
+      }
+    }
     return changed.decision;
   }
 
@@ -1059,6 +1065,9 @@ export class CourseIntelligenceService {
   async confirmCurriculum(ownerId: string, id: string): Promise<CurriculumRecord> {
     const record = await this.repository.getCurriculum(id, ownerId);
     if (!record) throw new Error("课程方案不存在");
+    const rejected = (await this.repository.listDecisions(ownerId, ["rejected"]))
+      .some(decision => decision.aggregateType === "curriculum" && decision.aggregateId === id && decision.decisionType === "curriculum_synthesis");
+    if (record.status === "superseded" || rejected) throw Object.assign(new Error("这个方案已被替代或拒绝，请刷新后确认最新方案"), { status: 409 });
     if (record.activationStatus === "active") return record;
     if (!this.learningStore) {
       record.status = "confirmed";
@@ -1122,7 +1131,7 @@ export class CourseIntelligenceService {
       capabilityNodeId: activity.canonicalNodeId,
       capabilityTitle: node?.title ?? activity.canonicalNodeId,
       learnedConcepts: node ? [node.title] : [activity.title],
-      submittedSignal: { type: latest.type, summary: signalSummaryOf(latest) },
+      submittedSignal: { type: latest.type, summary: [signalSummaryOf(latest), latest.note ? `你这次记录：“${latest.note}”` : ""].filter(Boolean).join("。") },
       evidenceStrength: supportsProgress || knowledge?.status === "has_signal" ? "developing" : "weak",
       demonstrated,
       notYetProven,
@@ -1132,6 +1141,22 @@ export class CourseIntelligenceService {
       nextActionReason: savedAdaptation?.summary ?? (supportsProgress ? "当前信号支持继续，但一次检查不等于长期掌握。" : "当前信号还不足以证明稳定应用能力。"),
       adaptation: savedAdaptation ? { summary: savedAdaptation.summary, applied: savedAdaptation.applied } : null,
     };
+  }
+
+  async assertLearningSignalCurrent(ownerId: string, activityId: string, raw: unknown): Promise<void> {
+    const input = learningSignalInputSchema.parse(raw);
+    const activity = await this.learningStore?.getActivity(activityId);
+    if (!activity || activity.ownerId !== ownerId) throw Object.assign(new Error("学习行动不存在"), { status: 404 });
+    if (input.submissionId && activity.curriculumId) {
+      const id = `signal.${await hashInput({ ownerId, activityId, submissionId: input.submissionId })}`;
+      if ((await this.repository.listLearningSignals(ownerId, activity.curriculumId)).some(signal => signal.id === id)) return;
+    }
+    if (input.expectedSignalId !== undefined && input.expectedSignalId !== (activity.scope?.lastFeedbackSignalId ?? null)) {
+      throw Object.assign(new Error("这个任务已有更新反馈，请刷新后查看最新结果再提交"), { status: 409 });
+    }
+    if (activity.curriculumId && (await this.repository.getCurriculum(activity.curriculumId, ownerId))?.status === "superseded") {
+      throw Object.assign(new Error("这个任务属于旧路线，请刷新后继续当前路线"), { status: 409 });
+    }
   }
 
   async recordLearningSignal(ownerId: string, activityId: string, raw: unknown): Promise<{
@@ -1185,6 +1210,11 @@ export class CourseIntelligenceService {
         materializedAdaptation: previousSignal.context!.adaptation as MaterializedAdaptation,
       };
     }
+    if (input.expectedSignalId !== undefined && input.expectedSignalId !== (activity.scope?.lastFeedbackSignalId ?? null)) {
+      throw Object.assign(new Error("这个任务已有更新反馈，请刷新后查看最新结果再提交"), { status: 409 });
+    }
+    const sourceCurriculum = await this.repository.getCurriculum(activity.curriculumId, ownerId);
+    if (sourceCurriculum?.status === "superseded") throw Object.assign(new Error("这个任务属于旧路线，请刷新后继续当前路线"), { status: 409 });
     const now = new Date().toISOString();
     const signal: LearningSignal = {
       id: signalId,
@@ -1432,7 +1462,7 @@ export class CourseIntelligenceService {
         canonicalNodeId,
         title: segment.title,
         activityType: unit.formats.includes("quiz") ? "quiz" : "follow_demo",
-        goal: `推进 ${segment.nodeIds.join("、")}，只完成本片段范围。`,
+        goal: segment.stopCondition,
         estimatedMinutes,
         isCore: true,
         status: "planned",
@@ -1508,7 +1538,7 @@ function activityFromSegment(
     id: `activity.ci.${crypto.randomUUID()}`, ownerId, weeklyPlanId,
     nodeId: segment.nodeIds[0]!, canonicalNodeId: segment.nodeIds[0]!, curriculumId,
     courseVersionId: segment.courseVersionId, courseId: segment.courseId, unitId: segment.unitId,
-    title: segment.title, activityType: "follow_demo", goal: `推进 ${segment.nodeIds.join("、")}，只完成本片段范围。`,
+    title: segment.title, activityType: "follow_demo", goal: segment.stopCondition,
     estimatedMinutes: segment.estimatedMinutes, isCore: true, status: "planned", isSkipValidation: false,
     inputRefs: [segment.sourceUrl ?? course.url],
     steps: `打开“${segment.locatorLabel}”，只完成本片段；达到停止条件即可离开。`,

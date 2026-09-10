@@ -442,6 +442,15 @@ export class D1LearningStore implements LearningStore {
   }
 
   async saveActivity(activity: LearningActivity): Promise<void> {
+    if (activity.canonicalNodeId && activity.curriculumId) {
+      // 后续周首次涉及的领域节点也需要运行时外键；仅从发布图投影，不创建臆造节点。
+      await this.db.prepare(`INSERT OR IGNORE INTO learning_nodes
+        (id,route_id,title,module_id,title_en,description,outcomes,source_refs,activity_templates,assessment_rubric,target_level,is_key_milestone)
+        SELECT ?,p.route_id,json_extract(n.value,'$.title'),'canonical',?,json_extract(n.value,'$.description'),'[]','[]','[]','',1,0
+        FROM learning_weekly_plans p,learning_ci_graph_versions g,json_each(g.graph_json,'$.nodes') n
+        WHERE p.id=? AND p.owner_id=? AND g.status='published' AND json_extract(n.value,'$.id')=?`)
+        .bind(activity.nodeId, activity.nodeId, activity.weeklyPlanId, activity.ownerId, activity.nodeId).run();
+    }
     const now = new Date().toISOString();
     await this.db
       .prepare(

@@ -259,9 +259,11 @@ export async function startLearningAdaptationWorkflow(input: {
   db?: any;
 }) {
   const signal = learningSignalInputSchema.parse(input.signal);
+  await input.service.assertLearningSignalCurrent(input.ownerId, input.activityId, signal);
+  const submissionKey = await hashInput({ ownerId: input.ownerId, activityId: input.activityId, signal });
   const runtime = createCourseIntelligenceRuntime(input.service, input.db);
   const run = await runtime.getWorkflow("learningAdaptation").createRun({
-    runId: `learning-adaptation.${crypto.randomUUID()}`, resourceId: input.ownerId, disableScorers: true,
+    runId: `learning-adaptation.${submissionKey}`, resourceId: input.ownerId, disableScorers: true,
   });
   const result = await run.start({ inputData: { ownerId: input.ownerId, activityId: input.activityId, signal } });
   if (result.status !== "success") throw new Error(`学习调整工作流失败：${result.status}`);
@@ -271,7 +273,7 @@ export async function startLearningAdaptationWorkflow(input: {
   await input.repository.saveDecision({ ...decision, workflowRunId: run.runId, updatedAt: now });
   await input.repository.saveWorkflowRun({
     id: run.runId, ownerId: input.ownerId, workflowId: LEARNING_ADAPTATION_WORKFLOW_ID,
-    aggregateType: "learning_activity", aggregateId: input.activityId, status: "completed", currentStep: "complete",
+    aggregateType: "learning_signal", aggregateId: String(decision.proposal.signalId), status: "completed", currentStep: "complete",
     lastError: "", createdAt: now, updatedAt: now,
   });
   return { workflowRunId: run.runId, status: "completed" as const, ...result.result };

@@ -80,7 +80,7 @@ export interface WorkflowRunRecord {
   id: string;
   ownerId: string;
   workflowId: string;
-  aggregateType: "curriculum" | "course_candidate" | "learning_activity" | "source";
+  aggregateType: "curriculum" | "course_candidate" | "learning_activity" | "learning_signal" | "source";
   aggregateId: string;
   status: "running" | "suspended" | "completed" | "failed" | "cancelled";
   currentStep: string;

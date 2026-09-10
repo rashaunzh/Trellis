@@ -683,9 +683,10 @@ export async function confirmContentFragments(sourceId: string, input: { fragmen
   return readJson<ContentSourceDetails>(await apiFetch(`/api/learning/sources/${sourceId}/confirm`, { method: "POST", headers: jsonHeaders, body: JSON.stringify(input) }));
 }
 
-export async function createCurriculum(input: LearningIntake): Promise<CurriculumRecord> {
+export async function createCurriculum(input: LearningIntake, signal?: AbortSignal): Promise<CurriculumRecord> {
   const data = await readJson<{ curriculum: CurriculumRecord }>(
     await apiFetch("/api/learning/intake", {
+      signal,
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify(input),
@@ -765,16 +766,24 @@ export async function detachWorkbenchResource(resourceId: string, activityId: st
 }
 
 const pendingFeedback = new Map<string, string>();
+export async function rejectCurriculumDecision(decisionId: string) {
+  return readJson(await apiFetch(`/api/learning/decisions/${decisionId}/reject`, { method: "POST", headers: jsonHeaders, body: "{}" }));
+}
 export async function recordLearningSignal(activityId: string, input: LearningSignalInput) {
   const key = JSON.stringify([activityId, input]);
-  const submissionId = input.submissionId ?? pendingFeedback.get(key) ?? crypto.randomUUID();
+  const storageKey = `trellis.pendingFeedback.${getOwnerId()}.${key}`;
+  let saved: string | null = null;
+  try { saved = sessionStorage.getItem(storageKey); } catch { /* 存储不可用时仍允许提交 */ }
+  const submissionId = input.submissionId ?? pendingFeedback.get(key) ?? saved ?? crypto.randomUUID();
   pendingFeedback.set(key, submissionId);
+  try { sessionStorage.setItem(storageKey, submissionId); } catch { /* 仅保留内存重试标识 */ }
   const response = await readJson(await apiFetch(`/api/learning/runs/${activityId}/feedback`, {
     method: "POST",
     headers: jsonHeaders,
     body: JSON.stringify({ ...input, submissionId }),
   }));
   pendingFeedback.delete(key);
+  try { sessionStorage.removeItem(storageKey); } catch { /* 不影响已保存结果 */ }
   return response;
 }
 

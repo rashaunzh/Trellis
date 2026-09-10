@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   BookOpen,
@@ -30,6 +30,8 @@ import {
   fetchScenarioCheck,
   pauseLearningActivity,
   recordLearningSignal,
+  rejectCurriculumDecision,
+  getOwnerId,
   reviseCurriculum,
   startLearningActivity,
   updateLearningLocation,
@@ -98,6 +100,31 @@ export default function LearnPage() {
   const [scenarioChoice, setScenarioChoice] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
   const [locatorLabel, setLocatorLabel] = useState("");
+  const [intakeRestored, setIntakeRestored] = useState(false);
+  const generation = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let saved: { goal?: string; weeklyCapacity?: LearningIntake["weeklyCapacity"]; materials?: Material[] } = {};
+    try { saved = JSON.parse(sessionStorage.getItem(`trellis.intake.${getOwnerId()}`) ?? "{}") ?? {}; } catch { /* 无有效草稿 */ }
+    queueMicrotask(() => {
+      if (typeof saved.goal === "string") setGoal(saved.goal);
+      if (capacityOptions.some(([value]) => value === saved.weeklyCapacity)) setWeeklyCapacity(saved.weeklyCapacity!);
+      if (Array.isArray(saved.materials) && saved.materials.every(item => item && typeof item.title === "string" && typeof item.url === "string" && typeof item.outline === "string")) setMaterials(saved.materials.slice(0, 8));
+      setIntakeRestored(true);
+    });
+    return () => generation.current?.abort();
+  }, []);
+  useEffect(() => {
+    if (!intakeRestored) return;
+    try { sessionStorage.setItem(`trellis.intake.${getOwnerId()}`, JSON.stringify({ goal, weeklyCapacity, materials })); } catch { /* 不阻止正常学习 */ }
+  }, [goal, weeklyCapacity, materials, intakeRestored]);
+
+  function cancelGeneration() {
+    generation.current?.abort();
+    generation.current = null;
+    setBusy("");
+    setMessage("已停止等待，输入已保留；后台即使完成，也只产生待确认草稿。");
+  }
 
   async function refresh() {
     const [nextState, nextCurrent, nextOrchestration] = await Promise.all([
@@ -156,19 +183,22 @@ export default function LearnPage() {
   }
 
   async function submitIntake() {
-    if (!goal.trim()) return;
+    if (!goal.trim() || generation.current) return;
+    const controller = new AbortController();
+    generation.current = controller;
     setBusy("intake");
     setError("");
     try {
       const provided = materials.filter((item) => item.title.trim() || item.url.trim() || item.outline.trim());
-      await createCurriculum({ goal: goal.trim(), weeklyCapacity, materials: provided });
+      await createCurriculum({ goal: goal.trim(), weeklyCapacity, materials: provided }, controller.signal);
+      if (controller.signal.aborted) return;
       setViewConfirmed(false);
       setEditing(false);
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "课程方案生成失败");
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "课程方案生成失败");
     } finally {
-      setBusy("");
+      if (generation.current === controller) { generation.current = null; setBusy(""); }
     }
   }
 
@@ -178,6 +208,7 @@ export default function LearnPage() {
     setError("");
     try {
       await reviseCurriculum(curriculum.id, constraints);
+      setViewConfirmed(false);
       await refresh();
       setMessage("已生成新的方案版本，原方案和学习记录仍保留。");
     } catch (cause) {
@@ -185,6 +216,19 @@ export default function LearnPage() {
     } finally {
       setBusy("");
     }
+  }
+
+  async function keepCurrentRoute() {
+    const decision = current?.pendingDecisions.find(item => item.aggregateType === "curriculum" && item.aggregateId === state?.curriculum?.id);
+    if (!decision) return;
+    setBusy("reject");
+    try {
+      await rejectCurriculumDecision(decision.id);
+      await refresh();
+      setViewConfirmed(false);
+      setMessage("已保留当前路线，未应用这次调整。");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "暂时无法保存取舍"); }
+    finally { setBusy(""); }
   }
 
   async function confirm(record: CurriculumRecord) {
@@ -248,6 +292,7 @@ export default function LearnPage() {
       let result: FeedbackSummaryData;
       if (scenario && scenarioChoice) {
         result = await recordLearningSignal(currentActivity.id, {
+          expectedSignalId: currentActivity.scope?.lastFeedbackSignalId ?? null,
           type: "scenario_choice",
           understanding: feedback,
           value: scenarioChoice,
@@ -258,6 +303,7 @@ export default function LearnPage() {
         }) as FeedbackSummaryData;
       } else if (quiz !== "not_taken") {
         result = await recordLearningSignal(currentActivity.id, {
+          expectedSignalId: currentActivity.scope?.lastFeedbackSignalId ?? null,
           type: "quiz_result",
           understanding: feedback,
           value: quiz === "passed" ? 100 : 50,
@@ -267,6 +313,7 @@ export default function LearnPage() {
         }) as FeedbackSummaryData;
       } else {
         result = await recordLearningSignal(currentActivity.id, {
+          expectedSignalId: currentActivity.scope?.lastFeedbackSignalId ?? null,
           type: feedback === "blocked" ? "stuck" : "understanding",
           understanding: feedback,
           value: feedback,
@@ -327,7 +374,7 @@ export default function LearnPage() {
             </div>
           )}
         </header>
-        {state.curriculum?.status === "draft" && current?.curriculum?.status === "confirmed" && <div className="cl-toast"><span>新路线等待确认，当前学习仍可继续。</span><button onClick={() => setViewConfirmed(value => !value)}>{viewConfirmed ? "查看新路线" : "继续当前路线"}</button></div>}
+        {state.curriculum?.status === "draft" && current?.curriculum?.status === "confirmed" && <div className="cl-toast"><span>新路线等待确认，当前学习仍可继续。</span><button onClick={() => setViewConfirmed(value => !value)}>{viewConfirmed ? "查看新路线" : "继续当前路线"}</button><button disabled={Boolean(busy)} onClick={keepCurrentRoute}>保留当前路线</button></div>}
         {error && <div className="cl-toast cl-error">{error}<button aria-label="关闭" onClick={() => setError("")}><X size={16} /></button></div>}
         {message && <div className="cl-toast">{message}<button aria-label="关闭" onClick={() => setMessage("")}><X size={16} /></button></div>}
 
@@ -345,7 +392,7 @@ export default function LearnPage() {
             addMaterial={() => setMaterials((items) => items.length < 8 ? [...items, emptyMaterial()] : items)}
             removeMaterial={(index) => setMaterials((items) => items.filter((_, itemIndex) => itemIndex !== index))}
             submit={submitIntake}
-            cancel={curriculum ? () => setEditing(false) : undefined}
+            cancel={busy === "intake" ? cancelGeneration : curriculum ? () => setEditing(false) : undefined}
           />
         ) : curriculum?.status !== "confirmed" ? (
           <ProposalView state={state} curriculum={curriculum!} busy={busy} revise={revise} confirm={confirm} />
@@ -486,7 +533,7 @@ export default function LearnPage() {
             {orchestration?.decisionTrace.length ? (
               <details className="cl-decision-trace">
                 <summary><span>为什么这样安排</span><small>查看 Trellis 的判断依据</small></summary>
-                <div>{orchestration.decisionTrace.slice(0, 5).map((trace) => <article key={trace.id}><span>{trace.label}</span><strong>{trace.rationale}</strong><p>{trace.inputSummary} · 置信度 {Math.round(trace.confidence * 100)}%</p></article>)}</div>
+                <div>{orchestration.decisionTrace.slice(0, 5).map((trace) => <article key={trace.id}><span>{trace.label}</span><strong>{trace.rationale}</strong><p>{trace.inputSummary}</p></article>)}</div>
               </details>
             ) : null}
 
@@ -638,7 +685,7 @@ function LearningTaskResultView({ result, close }: { result: LearningTaskResult;
     <span className="cl-summary-kicker">任务结果已保存</span>
     <h3>{result.capabilityTitle}</h3>
     <p>{result.submittedSignal.summary}</p>
-    <div className="cl-summary-grid"><div><small>这次获得的能力信号</small><strong>{evidenceLabel} · {Math.round(result.capabilityChange.confidence * 100)}%</strong></div><div><small>下一步</small><strong>{result.nextAction}</strong></div></div>
+    <div className="cl-summary-grid"><div><small>这次获得的能力信号</small><strong>{evidenceLabel}</strong></div><div><small>下一步</small><strong>{result.nextAction}</strong></div></div>
     <div className="cl-result-section"><small>你刚刚接触并练习了</small>{result.learnedConcepts.map((item) => <p key={item}><Check size={14} />{item}</p>)}</div>
     <div className="cl-result-section"><small>这次判断的依据</small>{result.evaluationBasis?.map((item) => <p key={item}><span>·</span>{item}</p>)}</div>
     <div className="cl-result-section"><small>目前还没有被证明</small>{(result.notYetProven.length ? result.notYetProven : ["一次任务结果不等于稳定掌握，后续还需要迁移到真实场景。"]).map((item) => <p key={item}><span>·</span>{item}</p>)}</div>
@@ -648,8 +695,26 @@ function LearningTaskResultView({ result, close }: { result: LearningTaskResult;
 }
 
 function Drawer({ open, close, title, wide = false, children }: { open: boolean; close: () => void; title: string; wide?: boolean; children: React.ReactNode }) {
+  const panel = useRef<HTMLElement>(null);
+  const onClose = useRef(close);
+  useEffect(() => { onClose.current = close; }, [close]);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    panel.current?.querySelector<HTMLElement>("button, input, textarea, select, a[href]")?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose.current(); }
+      if (event.key === "Tab") {
+        const elements = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href]') ?? [])].filter(element => element.getClientRects().length);
+        const target = event.shiftKey ? elements.at(-1) : elements[0];
+        if (document.activeElement === (event.shiftKey ? elements[0] : elements.at(-1))) { event.preventDefault(); target?.focus(); }
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); previous?.focus(); };
+  }, [open]);
   if (!open) return null;
-  return <div className="cl-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><aside className={`cl-drawer ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button aria-label="关闭" title="关闭" onClick={close}><X size={19} /></button></header><div className="cl-drawer-body">{children}</div></aside></div>;
+  return <div className="cl-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><aside ref={panel} className={`cl-drawer ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button aria-label="关闭" title="关闭" onClick={close}><X size={19} /></button></header><div className="cl-drawer-body">{children}</div></aside></div>;
 }
 
 function formatRelative(value: string | null | undefined) {

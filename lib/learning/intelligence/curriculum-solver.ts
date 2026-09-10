@@ -204,6 +204,7 @@ export function solveCurriculum(input: {
   }
 
   const selectedCourseIds = Array.from(selectedByCourse.keys());
+  const nodeById = new Map(input.graph.nodes.map(node => [node.id, node]));
   const decisions: CurriculumAssembly["decisions"] = input.courses.map((course, index) => {
     const unitIds = Array.from(selectedByCourse.get(course.genome.id) ?? []);
     const activeIndex = selectedCourseIds.indexOf(course.genome.id);
@@ -214,7 +215,10 @@ export function solveCurriculum(input: {
         courseId: course.genome.id,
         role: forcedRole ?? (supplied.has(course.genome.id) ? "defer" as const : "exclude" as const),
         selectedUnitIds: [],
-        rationale: supplied.has(course.genome.id) ? "这是用户已有课程，但当前阶段没有必要覆盖的目标节点，先保留。" : "当前目标已有更直接或更低前置成本的课程覆盖。",
+        rationale: forcedRole ? "按你的取舍暂不安排；这不表示材料无用或你已经掌握。"
+          : course.mappings.some(mapping => targetNodeIds.includes(mapping.nodeId))
+            ? `目录映射涉及${[...new Set(course.mappings.filter(mapping => targetNodeIds.includes(mapping.nodeId)).map(mapping => nodeById.get(mapping.nodeId)?.title))].join("、")}；本次在材料范围、前置和课程数量限制下未选中，不代表内容不相关。`
+            : "当前目录映射没有关联本次目标；没有据此判断整份材料的质量。",
         confidence: 0.78,
         exitCriteria: [],
         sourceCitations: course.genome.sourceCitations,
@@ -224,32 +228,36 @@ export function solveCurriculum(input: {
       courseId: course.genome.id,
       role: activeIndex === 0 ? "anchor" as const : "selected_units" as const,
       selectedUnitIds: unitIds,
-      rationale: supplied.has(course.genome.id)
-        ? "优先复用用户已有课程，并只采用与目标节点直接相关的章节。"
-        : "在发布课程中，该课程以较低前置成本覆盖当前目标节点。",
+      rationale: `采用“${course.genome.units.filter(unit => unitIds.includes(unit.id)).map(unit => unit.title).join("、")}”，用于${[...new Set(mappings.filter(mapping => mapping.courseId === course.genome.id).map(mapping => nodeById.get(mapping.nodeId)?.title))].join("、")}。依据为已保存的章节映射${supplied.has(course.genome.id) ? "，优先复用已有材料" : ""}；不要求通读整门课。`,
       confidence: Math.max(0.8, 0.94 - activeIndex * 0.02 - index * 0.0001),
       exitCriteria: ["能够说明本阶段关键概念的适用边界", "完成课程原有测试或留下一个具体判断信号"],
       sourceCitations: course.genome.sourceCitations,
     };
   });
 
-  for (let index = 0; index < selectedCourseIds.length; index += 1) {
-    const courseId = selectedCourseIds[index]!;
-    const course = courseById.get(courseId)!;
-    const unitIds = Array.from(selectedByCourse.get(courseId) ?? []).sort((a, b) => {
-      const aUnit = course.genome.units.find((unit) => unit.id === a);
-      const bUnit = course.genome.units.find((unit) => unit.id === b);
-      return (aUnit?.order ?? 0) - (bUnit?.order ?? 0);
-    });
+  // 在前置顺序上合并相邻能力类别，阶段不再由课程数量决定。
+  const groups: Array<{ categoryId: string; nodeIds: string[] }> = [];
+  for (const nodeId of targetNodeIds) {
+    if (!mappings.some(mapping => mapping.nodeId === nodeId)) continue;
+    const categoryId = nodeById.get(nodeId)!.categoryId;
+    const previous = groups.at(-1);
+    if (previous?.categoryId === categoryId) previous.nodeIds.push(nodeId);
+    else groups.push({ categoryId, nodeIds: [nodeId] });
+  }
+  for (const [index, group] of groups.entries()) {
+    const nodes = group.nodeIds.map(id => nodeById.get(id)!);
+    const relevant = mappings.filter(mapping => group.nodeIds.includes(mapping.nodeId));
+    const unitRefs = [...new Map(relevant.map(mapping => [`${mapping.courseId}/${mapping.unitId}`, { courseId: mapping.courseId, unitId: mapping.unitId }])).values()];
+    const courseId = unitRefs[0]!.courseId;
     stages.push({
       id: `stage.${index + 1}`,
-      title: index === 0 ? "共同基础与判断" : `目标分支 ${index + 1}`,
-      objective: `使用 ${course.genome.title} 建立当前阶段所需能力，不扩展到未采用章节。`,
-      unitRefs: unitIds.map((unitId) => ({ courseId, unitId })),
-      exitCriteria: ["完成采用章节并达到课程原有测试要求", "能在一个具体情景中说明适用边界"],
+      title: nodes.map(node => node.title).join("、"),
+      objective: nodes.map(node => node.outcomes[0]).join("；"),
+      exitCriteria: nodes.map(node => node.outcomes.at(-1)!),
+      unitRefs,
       anchorCourseId: courseId,
-      supplementCourseIds: [],
-      stopAfterUnitId: unitIds.at(-1),
+      supplementCourseIds: [...new Set(unitRefs.map(ref => ref.courseId))].filter(id => id !== courseId),
+      stopAfterUnitId: unitRefs.filter(ref => ref.courseId === courseId).at(-1)?.unitId,
     });
   }
 
@@ -286,11 +294,11 @@ export function solveCurriculum(input: {
     };
   });
   let segmentSequence = 1;
-  const segments: CurriculumAssembly["segments"] = stages.flatMap((stage) => stage.unitRefs.map((ref) => {
+  const segments: CurriculumAssembly["segments"] = stages.flatMap((stage, stageIndex) => stage.unitRefs.map((ref) => {
     const course = courseById.get(ref.courseId)!;
     const unit = course.genome.units.find((item) => item.id === ref.unitId)!;
     const nodeIds = Array.from(new Set(course.mappings.filter((mapping) => mapping.unitId === unit.id
-      && targetNodeIds.includes(mapping.nodeId)).map((mapping) => mapping.nodeId)));
+      && groups[stageIndex]!.nodeIds.includes(mapping.nodeId)).map((mapping) => mapping.nodeId)));
     const estimatedMinutes = Math.min(90, Math.max(30, Math.round((unit.estimatedMinutes ?? 45) / 15) * 15));
     const locator = unit.sourceLocator;
     return {
@@ -305,7 +313,7 @@ export function solveCurriculum(input: {
       locatorMissing: !locator || Boolean(locator.missingReason),
       estimatedMinutes,
       stopCondition: `完成“${unit.title}”中与本阶段目标直接相关的部分；达到“${stage.exitCriteria[0]}”即可停止。`,
-      completionSignal: "课程随堂测试结果、理解状态或一句具体判断，任选其一。",
+      completionSignal: `围绕${nodeIds.map(id => nodeById.get(id)!.title).join("、")}留下一个具体例子和判断理由；只记录读完时不推断掌握。`,
       sequence: segmentSequence++,
     };
   }));
@@ -321,7 +329,7 @@ export function solveCurriculum(input: {
     constraints,
     comparisons,
     segments,
-    unresolvedGaps: uncovered.map((id) => `发布课程尚未覆盖目标节点：${id}`),
+    unresolvedGaps: uncovered.map((id) => `“${nodeById.get(id)?.title ?? "待核对能力"}”在本次材料范围、映射和取舍限制下尚未安排；这不是你的能力诊断。可先做已安排任务；进入依赖此能力的内容前，需要补充材料或调整取舍。`),
     rationale: catalogScope.size > 0
       ? `路线限定在 ${Array.from(catalogScope).map((id) => courseById.get(id)?.genome.provider).filter(Boolean)[0] ?? "用户指定"} 课程目录内，由已发布节点映射和前置关系压缩；模型不直接决定正式取舍。`
       : "路线由已发布领域图、前置关系、课程章节映射、用户已有材料和时间成本共同求解；模型不直接决定正式取舍。",
