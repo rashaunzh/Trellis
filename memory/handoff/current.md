@@ -1,5 +1,13 @@
 # Trellis 当前交接
 
+## 2026-09-11 课程路线专项调研与详细交付合同
+
+用户质疑前稿八周AI活动偏项目流程、缺乏专业课程设计，要求研究现有产品机制并细化交付。已完成[专项研究及C0–C10交付合同](../../docs/product/TRELLIS_CURRICULUM_RESEARCH_AND_DELIVERY_2026-09-11.md)及[自适应官方证据](../../docs/product/TRELLIS_ADAPTIVE_MECHANISM_EVIDENCE_2026-09-11.md)。前稿样本降为历史项目练习骨架，不能继续当课程蓝图；详见[会话](../sessions/2026-09-11-curriculum-research.md)。
+
+新设计区分课程蓝图、个性化路径、周期计划、自适应调整。真实参考涵盖DeepLearning.AI、Duke、Microsoft Learn、Khan、ALEKS、Duolingo、IELTS Ready、Gemini study notebooks；厂商声明、历史算法与分析提案分开。已给一个模型评估单元和原创样题，完整领域内容仍未交付。未登录竞品或改产品代码，未完成新测试。
+
+准确下一步：交付首个范围C0–C4的实际课程目标对齐矩阵、来源单元、诊断题、教学练习与量规，再形成8／12周参考路线和可执行单元交互；不要继续用项目步骤替代教学设计，也不要只重写周表。雅思先检验跨领域合同，正式支持仍需内容包和验证。不改个人路线、偏好与正式产品决策。
+
 ## 2026-09-11 周期路线与操作级功能设计
 
 用户要求将旅程细化到功能、点击、呈现和状态，重点分析AI／雅思八周、十二周路线判别与动态调整，再开始功能设计。已交付[分析及功能规格提案](../../docs/product/TRELLIS_ROUTE_FUNCTIONAL_DESIGN_2026-09-11.md)：现状差距、路线生成判断、两类周期样本、23步交互、调整与验收合同。见[会话记录](../sessions/2026-09-11-route-functional-design.md)。本轮未改产品代码或执行新产品测试，样本不是已验证课程。
