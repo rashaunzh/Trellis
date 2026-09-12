@@ -285,7 +285,7 @@ export interface CurriculumRecord {
 }
 
 export const learningSignalInputSchema = z.object({
-  type: z.enum(["understanding", "quiz_result", "stuck", "judgment", "scenario_choice"]),
+  type: z.enum(["understanding", "quiz_result", "stuck", "judgment", "scenario_choice", "program_check"]),
   value: z.union([z.string().trim().min(1).max(1200), z.number().min(0).max(100), z.boolean()]),
   note: z.string().trim().max(1200).default(""),
   questionId: z.string().trim().max(160).optional(),

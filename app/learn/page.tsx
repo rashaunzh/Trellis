@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { activityProgramUnits } from "../../lib/learning/intelligence/program-bindings";
 import {
   ArrowUpRight,
   BookOpen,
@@ -481,6 +483,7 @@ export default function LearnPage() {
                     <button className="cl-start-button" onClick={startCurrent} disabled={busy === "start"}><Play size={18} fill="currentColor" />{current?.resumeState.nextActionLabel ?? "开始这一节"}<ArrowUpRight size={17} /></button>
                     {currentActivity.status === "in_progress" && <button className="cl-quiet-button" onClick={pauseCurrent}><Pause size={17} />暂停</button>}
                     <button className="cl-quiet-button" onClick={() => setFeedbackOpen(true)}><Check size={17} />学习反馈</button>
+                    {activityProgramUnits[currentActivity.canonicalNodeId ?? ""] && <Link className="cl-quiet-button" href={`/learn/activity/${encodeURIComponent(currentActivity.id)}`}>讲解与理解检查</Link>}
                   </div>
                 </div>
                 <aside className={`cl-source-note ${current?.sourceResolution?.kind ?? "missing"}`}>

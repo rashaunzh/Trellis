@@ -2,7 +2,7 @@
 import { spawnSync } from "node:child_process";
 const phases = ["judgment", "browser", "model"];
 const requested = process.argv.find(arg => arg.startsWith("--phase="))?.split("=")[1];
-if (requested && !phases.includes(requested)) throw new Error("phase 必须是 judgment、browser 或 model");
+if (requested && ![...phases, "program"].includes(requested)) throw new Error("phase 必须是 judgment、browser、model 或 program（内容原型诊断）");
 for (const phase of requested ? [requested] : phases) {
   const result = spawnSync(process.execPath, [`scripts/acceptance/redesign/${phase}.mjs`, ...process.argv.slice(2).filter(arg => !arg.startsWith("--phase="))], { stdio: "inherit", env: process.env });
   if (result.error) throw result.error;

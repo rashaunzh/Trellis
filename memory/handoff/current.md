@@ -1,5 +1,11 @@
 # Trellis 当前交接
 
+## 2026-09-12 并行完整计划切片与范围待确认
+
+完整交付任务已完成首批内容/容量规划/指标计算及现有任务补充检查持久链，详见[会话](../sessions/2026-09-12-complete-delivery-slice.md)和[执行记录](../../docs/engineering/TRELLIS_COMPLETE_DELIVERY_PROGRESS.md)。本地20项课程切片、21项原主链及完整工程检查通过，整体未放行。
+
+执行中发现下节收缩PRD与本任务已批准完整计划冲突，已请求用户确定范围，尚未收到回复。确认前暂停扩展，只验证和保存当前成果；本节不覆盖下节决策，不替用户选择。准确下一步先确定同一仓库实施范围，避免两条任务继续相向修改。未部署，未改个人路线与偏好。
+
 ## 2026-09-11 课程路线专项调研与详细交付合同
 
 用户质疑前稿八周AI活动偏项目流程、缺乏专业课程设计，要求研究现有产品机制并细化交付。已完成[专项研究及C0–C10交付合同](../../docs/product/TRELLIS_CURRICULUM_RESEARCH_AND_DELIVERY_2026-09-11.md)及[自适应官方证据](../../docs/product/TRELLIS_ADAPTIVE_MECHANISM_EVIDENCE_2026-09-11.md)。前稿样本降为历史项目练习骨架，不能继续当课程蓝图；详见[会话](../sessions/2026-09-11-curriculum-research.md)。

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { activityProgramUnits } from "../../lib/learning/intelligence/program-bindings";
 import { ArrowUpRight, Beaker, GalleryHorizontalEnd, Link2, Paperclip, Plus, SearchCheck } from "lucide-react";
 import Shell from "../_components/shell";
 import {
@@ -250,6 +252,7 @@ export default function WorkbenchPage() {
 
           <section className="wb-section">
             <header><div><p className="t2-kicker">测试机</p><h2>用检查推动编排，而不是只问感觉</h2></div><span>起点 / 出口 / 复测</span></header>
+            {currentActivity && activityProgramUnits[currentActivity.canonicalNodeId ?? ""] && <p><Link href={`/learn/activity/${encodeURIComponent(currentActivity.id)}`}>继续当前任务的讲解与理解检查</Link> · 答案与反馈和学习页共用。</p>}
             <div className="wb-test-grid">
               {orchestration.controlCenter.testMachine.map((item) => (
                 <article key={item.id} className={item.status}>

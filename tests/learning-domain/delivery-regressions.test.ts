@@ -17,6 +17,32 @@ async function setup() {
   return { service, repository, store, owner, current };
 }
 
+test("教学检查保存逐题依据、隔离用户、拒绝伪造答案和复用提交标识", async () => {
+  const { service, repository, store, owner, current } = await setup();
+  const activity = current.activities[0]!;
+  activity.canonicalNodeId = "ai.capability-boundary";
+  await store.saveActivity(activity);
+  const lesson = await service.getActivityLesson(owner, activity.id);
+  assert.equal(lesson.unit.id, "ai-boundaries");
+  assert.equal(JSON.stringify(lesson).includes("correctOptionId"), false);
+  await assert.rejects(service.getActivityLesson("other-owner", activity.id), /不存在/);
+  const input = { type: "program_check", value: "diagnostic", questionId: lesson.version, submissionId: "unit-check-1", expectedSignalId: null,
+    context: { answers: { "scope-rule": "rule", "scope-limit": "sample" }, usedHelp: false, correct: false } };
+  const first = await service.recordLearningSignal(owner, activity.id, input);
+  assert.equal(first.signal.context.programOutcome, "check_passed");
+  assert.equal(first.signal.context.correct, true);
+  assert.equal(first.interpretation.keepsActivityOpen, true);
+  assert.equal((await service.getLearningTaskResult(owner, activity.id)).evaluationBasis.some(text => text.includes("阈值")), true);
+  assert.equal((await service.recordLearningSignal(owner, activity.id, input)).signal.id, first.signal.id);
+  assert.equal((await repository.listLearningSignals(owner, activity.curriculumId!)).length, 1);
+  await assert.rejects(service.recordLearningSignal(owner, activity.id, { ...input, context: { answers: { "scope-rule": "train", "scope-limit": "sample" }, usedHelp: false } }), /同一提交标识/);
+  await assert.rejects(service.recordLearningSignal(owner, activity.id, { ...input, submissionId: "missing", context: { answers: {}, usedHelp: false } }), /完成检查/);
+  await assert.rejects(service.recordLearningSignal(owner, activity.id, { ...input, submissionId: "stale", questionId: "old" }), /版本/);
+  const result = await service.getActivityLesson(owner, activity.id);
+  assert.equal(result.submissions.length, 1);
+  assert.deepEqual(result.submissions[0].answers, input.context.answers);
+});
+
 test("不确定反馈保留当前任务且不声称掌握能力", async () => {
   const { service, owner, current } = await setup();
   const activity = current.activities[0]!;

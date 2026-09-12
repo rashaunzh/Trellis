@@ -787,6 +787,10 @@ export async function recordLearningSignal(activityId: string, input: LearningSi
   return response;
 }
 
+export async function fetchActivityLesson(activityId: string): Promise<Awaited<ReturnType<import("./intelligence/service.ts").CourseIntelligenceService["getActivityLesson"]>>> {
+  return readJson(await apiFetch(`/api/learning/runs/${encodeURIComponent(activityId)}/check?view=lesson`, { method: "POST", headers: jsonHeaders, body: "{}" }));
+}
+
 export async function fetchScenarioCheck(activityId: string): Promise<PublicScenarioCheck> {
   const data = await readJson<{ check: PublicScenarioCheck }>(
     await apiFetch(`/api/learning/runs/${activityId}/check`, { method: "POST" }),

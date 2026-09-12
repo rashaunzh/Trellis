@@ -27,6 +27,8 @@ import { CourseIntelligenceModelGateway, hashInput, type ModelGatewayStatus } fr
 import type { CourseIntelligenceRepository, WorkflowRunRecord } from "./repository.ts";
 import { assertReadableMaterialUrl, extractReadableSource, fetchPublicSource } from "./source-fetcher.ts";
 import { taskScenario } from "./scenario-bank.ts";
+import { activityProgramUnits } from "./program-bindings.ts";
+import { assessProgramCheck, publicProgramUnit, programVersion } from "./learning-program.ts";
 import { deriveTargetNodeIds, solveCurriculum } from "./curriculum-solver.ts";
 import { interpretLearningSignal, transitionDecision, type DecisionRecord, type LearningInterpretation } from "./decision-kernel.ts";
 import {
@@ -1105,6 +1107,23 @@ export class CourseIntelligenceService {
     return publicCheck;
   }
 
+  async getActivityLesson(ownerId: string, activityId: string) {
+    const activity = await this.learningStore?.getActivity(activityId);
+    if (!activity || activity.ownerId !== ownerId) throw Object.assign(new Error("学习行动不存在"), { status: 404 });
+    const unit = publicProgramUnit(activityProgramUnits[activity.canonicalNodeId ?? ""] ?? "");
+    if (!unit || !activity.curriculumId) throw Object.assign(new Error("当前任务尚未配置可用的补充教学"), { status: 404 });
+    const signals = await this.repository.listLearningSignals(ownerId, activity.curriculumId);
+    return { version: programVersion, activityId, activityTitle: activity.title, unit,
+      expectedSignalId: activity.scope?.lastFeedbackSignalId ?? null,
+      submissions: signals.filter(item => item.activityId === activityId && item.type === "program_check")
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(item => ({
+          id: item.id, createdAt: item.createdAt, version: item.questionId, phase: item.value,
+          answers: item.context.answers as Record<string, string>, usedHelp: item.context.usedHelp === true, note: item.note,
+          evaluation: item.context.programEvaluation as ReturnType<typeof assessProgramCheck>,
+        })),
+    };
+  }
+
   async getLearningTaskResult(ownerId: string, activityId: string): Promise<LearningTaskResult> {
     if (!this.learningStore) throw new Error("学习运行时不可用");
     const activity = await this.learningStore.getActivity(activityId);
@@ -1191,6 +1210,21 @@ export class CourseIntelligenceService {
         },
       };
     }
+    if (input.type === "program_check") {
+      if (input.questionId !== programVersion) throw Object.assign(new Error("教学内容版本已变化，请重新打开后检查"), { status: 409 });
+      const unitId = activityProgramUnits[activity.canonicalNodeId];
+      if (!unitId) throw Object.assign(new Error("当前任务尚未配置可用的补充教学"), { status: 400 });
+      const phase = z.enum(["diagnostic", "review"]).parse(input.value);
+      const payload = z.object({ answers: z.record(z.string(), z.string().max(160)), usedHelp: z.boolean() }).parse(input.context);
+      let evaluation: ReturnType<typeof assessProgramCheck>;
+      try { evaluation = assessProgramCheck(unitId, phase, payload.answers, payload.usedHelp); }
+      catch (error) { throw Object.assign(error instanceof Error ? error : new Error("检查答案无效"), { status: 400 }); }
+      input = { ...input, context: { ...payload, programEvaluation: evaluation, programOutcome: evaluation.status,
+        correct: evaluation.status === "check_passed", assessmentKind: "formative",
+        rationale: `${evaluation.status === "needs_revision" ? "需要回看错误对应的讲解并用新题再检查。" : evaluation.status === "practice_complete" ? "已完成带帮助的练习，可尝试独立检查。" : "本次抽样检查通过。"}${evaluation.limitation}`,
+        rubric: evaluation.criteria.map(item => `${item.objective}：你选择“${item.selectedAnswer}”；${item.passed ? "本题通过" : "需修改"}。${item.explanation} ${item.nextAction}`),
+      } };
+    }
     const submissionHash = await hashInput({ activityId, ...input });
     const submissionId = input.submissionId ?? submissionHash;
     const signalId = `signal.${await hashInput({ ownerId, activityId, submissionId })}`;
@@ -1230,7 +1264,7 @@ export class CourseIntelligenceService {
       createdAt: now,
     };
     const interpretation = interpretLearningSignal(input);
-    const keepsActivityOpen = interpretation.keepsActivityOpen || input.completionIntent === "keep_open";
+    const keepsActivityOpen = input.type === "program_check" ? activity.status !== "completed" : interpretation.keepsActivityOpen || input.completionIntent === "keep_open";
     const state: CanonicalKnowledgeState = {
       ownerId,
       nodeId: activity.canonicalNodeId,
@@ -1239,16 +1273,22 @@ export class CourseIntelligenceService {
       latestSignalId: signal.id,
       updatedAt: now,
     };
-    activity.status = keepsActivityOpen ? "in_progress" : "completed";
-    activity.actualMinutes = input.actualMinutes ?? activity.actualMinutes ?? null;
-    activity.completedAt = keepsActivityOpen ? null : now;
-    activity.pausedAt = null;
-    activity.pauseReason = "";
+    if (input.type === "program_check") {
+      const previous = (await this.repository.listKnowledgeStates(ownerId)).find(item => item.nodeId === activity.canonicalNodeId);
+      if (previous) { state.status = previous.status; state.confidence = previous.confidence; }
+      if (activity.status === "planned") activity.status = "in_progress";
+    } else {
+      activity.status = keepsActivityOpen ? "in_progress" : "completed";
+      activity.actualMinutes = input.actualMinutes ?? activity.actualMinutes ?? null;
+      activity.completedAt = keepsActivityOpen ? null : now;
+      activity.pausedAt = null;
+      activity.pauseReason = "";
+    }
     let materializedAdaptation: MaterializedAdaptation = {
       outcome: interpretation.outcome, applied: interpretation.riskLevel === "low", activityId: activity.id,
       summary: interpretation.rationale,
     };
-    if (interpretation.outcome === "review" || interpretation.outcome === "reduce_scope") {
+    if (input.type !== "program_check" && (interpretation.outcome === "review" || interpretation.outcome === "reduce_scope")) {
       activity.estimatedMinutes = 30;
       activity.steps = interpretation.outcome === "reduce_scope"
         ? `只处理“${activity.scope?.locatorLabel || activity.title}”中的一个概念或一个示例；不要求完成整节。`
@@ -1597,6 +1637,7 @@ function nextActionLabelOf(mode: CurrentLearningState["resumeState"]["mode"]): s
 }
 
 function signalSummaryOf(signal: LearningSignal): string {
+  if (signal.type === "program_check") return `补充检查：${signal.context.programOutcome === "check_passed" ? "本次抽样通过" : signal.context.programOutcome === "practice_complete" ? "带帮助练习完成" : "需要修改"}；完整答案与逐项反馈可在教学页回读`;
   if (signal.context?.understanding === "uncertain") return "反馈：还不确定（测验或反思不会覆盖此反馈）";
   if (signal.context?.understanding === "blocked") return `卡住了：${signal.note || "需要缩小范围或补充前置"}`;
   if (signal.type === "quiz_result") return `课程原测验：${signal.value}`;

@@ -111,12 +111,16 @@ export interface LearningInterpretation {
 }
 
 export function interpretLearningSignal(input: {
-  type: "understanding" | "quiz_result" | "stuck" | "judgment" | "scenario_choice";
+  type: "understanding" | "quiz_result" | "stuck" | "judgment" | "scenario_choice" | "program_check";
   value: string | number | boolean;
   note: string;
   context?: Record<string, unknown>;
   understanding?: "understood" | "uncertain" | "blocked";
 }): LearningInterpretation {
+  if (input.type === "program_check") return {
+    outcome: "review", confidence: 0.5, keepsActivityOpen: true, riskLevel: "low",
+    rationale: typeof input.context?.rationale === "string" ? input.context.rationale : "已保存补充检查；抽样题不能替代当前任务的全部完成标准。",
+  };
   if (/换课程|切换主线|改路线|改变目标|暂缓分支|删除课程/.test(`${input.value} ${input.note}`)) {
     return { outcome: "replan", confidence: 0.8, rationale: "用户提出了会改变已确认路线的调整。", keepsActivityOpen: true, riskLevel: "high" };
   }
