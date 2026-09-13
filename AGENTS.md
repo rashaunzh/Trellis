@@ -62,6 +62,20 @@
 - 风险高或不可逆的决策必须暂停并请求确认。
 - 用户负责确认目标、产品边界和现实约束；能力结构、知识前置、活动、量规和来源目录由 Codex 在已确认边界内提出完整方案，不要求用户代替课程设计者逐项决策。
 
+## Agent skills
+
+### Issue 跟踪
+
+Issue 以 GitHub Issues 形式跟踪（仓库 `rashaunzh/AI-Learning-OS`，使用 `gh` CLI）。详见 `docs/agents/issue-tracker.md`。
+
+### 分诊标签
+
+使用默认五标签词汇：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### 领域文档
+
+单上下文布局：根目录 `CONTEXT.md` + `docs/adr/`。详见 `docs/agents/domain.md`。
+
 ## 仓库与隐私
 
 - V0.1 将代码和个人记忆保存在同一个私有仓库中，以支持两台电脑连续工作。

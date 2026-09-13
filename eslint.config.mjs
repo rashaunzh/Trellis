@@ -29,6 +29,10 @@ const eslintConfig = defineConfig([
     ".tmp-chrome-*/**",
     ".wrangler/**",
     ".sites-runtime/**",
+    // 构建产物：npm test 先跑 npm run build，会生成 dist/ 与 outputs/（打包/压缩后 var self=this、压扁的 hooks）。
+    // lint 扫这些无意义，flat config 下用 globalIgnores 排除，同时覆盖 CLI 与 IDE。
+    "dist/**",
+    "outputs/**",
   ]),
 ]);
 
