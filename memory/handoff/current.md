@@ -1,5 +1,9 @@
 # Trellis 当前交接
 
+## 2026-09-13 职责澄清（最新）
+
+用户明确完整 AI 产品分析与部署上线均由本任务 GPT 负责；coding agent 只承接明确功能合同后的实现、测试和修复。已修正交接文档。版本 12 已上线，无需重复发布。准确下一步：本任务综合现版功能与证据，完成市场/需求、功能分工、逐点击旅程、AI 判断机制和差距优先级分析，再冻结 coding agent 的实现合同；不得把 T1 的产品判断直接交给 coding agent。见[职责记录](../sessions/2026-09-13-product-analysis-ownership.md)。
+
 ## 2026-09-13 版本 12 已发布，后续转 Coding Agent（最新）
 
 用户要求节省 Astra 额度并交接实施，同时明确授权按 `61a2b08` 发布。已完成隔离构建、产物校验、平台源码推送、保存版本 12 和私有发布；部署 `appgdep_6aa6affa4a1c8191870bb74f5dd1131f` 最终 `succeeded`，环境 revision 2，站点 active、仅所有者访问。未执行迁移或重置，未改环境配置。详见[发布会话](../sessions/2026-09-13-v12-deploy-and-coding-handoff.md)。下节“未部署”已被本节取代。
