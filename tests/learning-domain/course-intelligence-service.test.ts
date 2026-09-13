@@ -533,3 +533,27 @@ test("评估型目标的核心节点被安排，或路线诚实标记为有限�
   const active = assembly.decisions.filter((decision) => ["anchor", "selected_units", "supplement"].includes(decision.role));
   assert.ok(active.length <= 5, "核心预算上限为 5 门");
 });
+
+test("相关片段前置缺失时作为补充采用，不被清退", async () => {
+  const { service } = setup();
+  await service.initialize();
+  const source = await service.createContentSource("owner-prereq-supplement", {
+    title: "评估清单笔记",
+    type: "note",
+    rawContent: "评估 AI 输出需要先定义失败类型，再设计抽样检查与人工确认条件，记录每次评估的基线。",
+  });
+  const { analysis } = await service.analyzeUserContentSource("owner-prereq-supplement", source.id);
+  await service.confirmUserContentFragments("owner-prereq-supplement", source.id, {
+    fragmentIds: analysis!.fragments.map((fragment) => fragment.id), decision: "confirmed",
+  });
+  const draft = await service.createCurriculum("owner-prereq-supplement", {
+    goal: "理解 AI 产品能力边界", weeklyCapacity: "light", materials: [],
+  });
+  const selection = draft.assembly.sourceSelections?.find((entry) => entry.sourceId === source.id);
+  assert.ok(selection, "已确认片段应有处置记录");
+  assert.notEqual(selection.role, "defer", "能力节点已被路线覆盖的片段不得因前置缺失被清退");
+  if ((selection.prerequisiteGaps ?? []).length > 0) {
+    assert.equal(selection.role, "supplement");
+    assert.match(selection.rationale, /前置/, "前置缺失必须如实告知，不得静默");
+  }
+});

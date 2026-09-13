@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { cases, rubric } from "./cases.mjs";
+import { cases, reservedCases, rubric } from "./cases.mjs";
 import { createReport, fingerprint, readJson, sourceFingerprint, validateReview } from "./report.mjs";
 import { InMemoryCourseIntelligenceRepository } from "../../../lib/learning/intelligence/repository.ts";
 import { InMemoryLearningStore } from "../../../lib/learning/persistence/in-memory.ts";
@@ -22,7 +22,9 @@ if (reviewPath) {
   console.log("PASS 当前样例输出的人工产品评分；这不代表真人使用验收");
   process.exit(0);
 }
-const selected = cases.filter(item => process.argv.includes("--include-holdout") || item.split === "development");
+const includeReserved = process.argv.includes("--include-reserved");
+const selected = cases.filter(item => process.argv.includes("--include-holdout") || item.split === "development")
+  .concat(includeReserved ? reservedCases : []);
 const run = await createReport("judgment", { mode: "published-baseline-and-rules", fixtureHash: fingerprint(cases), selectedIds: selected.map(item => item.id), sourceVerification: "local-catalog-only" });
 const outputs = [];
 for (const item of selected) {
@@ -67,8 +69,15 @@ for (const item of selected) {
     if (checks.includes("scope")) assert.ok(draft.assembly.decisions.filter(entry => entry.selectedUnitIds.length).every(entry => /DeepLearning/i.test(state.catalog.find(course => course.id === entry.courseId).provider)));
     if (checks.includes("unknownSource")) assert.ok(draft.assembly.sourceIssues.some(entry => entry.status === "needs_text"));
     if (checks.includes("sourceDispositions")) {
-      assert.ok(draft.assembly.sourceSelections.some(entry => entry.duplicateOf));
-      assert.ok(draft.assembly.sourceSelections.some(entry => entry.title.includes("音乐") && entry.role === "defer"));
+      // 预登记预期：重复材料标记重复；不相关材料不得被采纳为核心（defer/exclude/重复均算未采纳）。
+      const unadopted = (entry) => entry.duplicateOf || entry.role === "defer" || entry.role === "exclude";
+      if (item.id === "D3") {
+        assert.ok(draft.assembly.sourceSelections.some(entry => entry.duplicateOf));
+        assert.ok(draft.assembly.sourceSelections.some(entry => entry.title.includes("音乐") && entry.role === "defer"));
+      } else {
+        assert.ok(draft.assembly.sourceSelections.some(unadopted), "不相关或重复材料应被标记为未采纳");
+        assert.ok(draft.assembly.sourceSelections.some(entry => !unadopted(entry)), "相关材料应可被采用");
+      }
     }
     if (checks.includes("locationFallback")) assert.ok(draft.assembly.segments.some(entry => entry.locatorMissing && entry.locatorLabel));
     await service.confirmCurriculum(owner, draft.id);

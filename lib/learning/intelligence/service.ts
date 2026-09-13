@@ -538,14 +538,16 @@ export class CourseIntelligenceService {
         const adoptedCourse = courses.find(course => course.genome.url === source.canonicalUrl && assembly.mappings.some(mapping => mapping.courseId === course.genome.id && fragment.capabilityNodeIds.includes(mapping.nodeId)));
         const prerequisiteGaps = fragment.prerequisiteNodeIds.filter(id => !assembly.mappings.some(mapping => mapping.nodeId === id));
         const gapTitles = prerequisiteGaps.map(id => graph.nodes.find(node => node.id === id)?.title ?? id);
-        const role = adoptedCourse ? "adopted" as const : duplicateOf || gapTitles.length || !related ? "defer" as const : "supplement" as const;
+        // 片段能力节点已被路线覆盖时，即使声明的前置不在路线内，也应作为补充采用；前置缺失如实告知，不得清退材料。
+        const role = adoptedCourse ? "adopted" as const : duplicateOf || !related ? "defer" as const : "supplement" as const;
         return { sourceId: source.id, analysisVersion: analysis.version, fragmentId: fragment.id, title: fragment.title, url: source.canonicalUrl, nodeIds: fragment.capabilityNodeIds,
           sourceQuote: fragment.sourceQuote, reviewCautions: analysis.review?.findings.filter(item => item.kind === "claim").map(item => `${item.quote}：${item.explanation}`),
           courseId: adoptedCourse?.genome.id, duplicateOf, prerequisiteGaps: gapTitles, role,
           rationale: adoptedCourse ? "该来源的相关章节已参与正式课程编排，按路线顺序学习，无需再重复作为补充。"
             : duplicateOf ? `与“${duplicateOf}”原文相同，保留来源但不重复安排学习。`
-            : gapTitles.length ? `先补前置：${gapTitles.join("、")}。当前路线未覆盖这些前置，本片段暂缓。`
-            : related ? "主课已经覆盖相关能力；仅在需要另一种解释时补充，不增加必学承诺。" : "当前目标未涉及该片段的能力，暂缓采用。" };
+            : !related ? "当前目标未涉及该片段的能力，暂缓采用。"
+            : gapTitles.length ? `主课已覆盖该片段涉及的能力；缺少前置“${gapTitles.join("、")}”，作为可选补充采用，遇到前置概念时以主课回看为准。`
+            : "主课已经覆盖相关能力；仅在需要另一种解释时补充，不增加必学承诺。" };
       }) ?? []);
     const evalReport = evaluateCurriculumAssembly({ courses: courses.map((item) => item.genome), assembly });
     if (!evalReport.passed) throw new Error(`课程组合未通过发布检查：${evalReport.issues.map((issue) => issue.message).join("；")}`);

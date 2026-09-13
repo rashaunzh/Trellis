@@ -27,4 +27,19 @@ export const cases = [
 ];
 export const rubric = ["目标适配", "阶段递进", "取舍依据", "任务可执行性", "反馈匹配"];
 export const highRiskIds = ["D4", "D6", "H2", "H3"];
+// 新保留集（T1 冻结）：未参与任何修复调参，仅用于一次性质量复评。
+// 预期判断在运行前预先登记，见 docs/reviews/T1_RESERVED_CASES_EXPECTATIONS.md。
+const reserved = (id, name, goal, extra = {}) => ({ ...common, id, name, split: "reserved",
+  input: { goal, weeklyCapacity: "light", materials: [] },
+  feedback: { type: "understanding", value: "uncertain", note: "我能描述收益，但还不能解释失败时怎么办。", completionIntent: "keep_open" }, ...extra });
+export const reservedCases = [
+  reserved("N1", "零材料半具体目标", "想弄清 AI 能做什么不能做什么，决定要不要给产品加 AI 功能"),
+  reserved("N2", "非编程起点与兕底设计", "我是产品经理不会写代码，想为 AI 功能设计失败案例和人工兕底"),
+  reserved("N3", "材料不符", "学习 AI 产品评估", { sources: [
+    { title: "合成烘焙笔记", rawContent: "欧式面包的天然酵母培养与温度控制记录，包含多次烘焙失败与调整过程。" },
+    { title: "合成评估清单", rawContent: "评估 AI 输出需要先定义失败类型，再设计抽样检查与人工确认条件，记录每次评估的基线。" },
+  ], checks: ["sourceDispositions"] }),
+  reserved("N4", "极低投入", "我每周只有2小时，想学会AI产品评估"),
+  reserved("N5", "目标过大", "一个月内掌握AI产品设计、AI工程开发和机器学习研究"),
+];
 export function modelSchedule() { return cases.flatMap(item => Array.from({ length: highRiskIds.includes(item.id) ? 3 : 1 }, (_, index) => ({ caseId: item.id, repetition: index + 1 }))); }
