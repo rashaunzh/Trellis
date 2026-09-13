@@ -86,6 +86,17 @@ export function deriveTargetNodeIds(goal: string, graph: DomainGraph, proposed: 
   return Array.from(selected).slice(0, 14);
 }
 
+export function deriveGoalCoreNodeIds(goal: string, graph: DomainGraph, proposed: string[] = []): string[] {
+  // 核心节点 = 目标语义直接命中的节点，不含前置闭包；这些节点未覆盖时路线不得伪装完整。
+  const valid = new Set(graph.nodes.map((node) => node.id));
+  const selected = new Set(proposed.filter((id) => valid.has(id)));
+  const positiveGoal = goal.toLowerCase().replace(/(?:没有|无|不具备)\s*(?:编程|python|代码)\s*基础/g, "零基础");
+  for (const alias of goalAliases) {
+    if (alias.pattern.test(positiveGoal)) alias.nodes.filter((id) => valid.has(id)).forEach((id) => selected.add(id));
+  }
+  return Array.from(selected).slice(0, 8);
+}
+
 export function prerequisiteClosure(targetNodeIds: string[], graph: DomainGraph): string[] {
   const byId = new Map(graph.nodes.map((node) => [node.id, node]));
   const result = new Set<string>();
@@ -130,6 +141,7 @@ export function solveCurriculum(input: {
   graph: DomainGraph;
   interpretedGoal: string;
   targetNodeIds: string[];
+  coreNodeIds?: string[];
   now?: string;
   id?: string;
   constraints?: CurriculumConstraint[];
@@ -160,6 +172,13 @@ export function solveCurriculum(input: {
   const productGoal = /产品|product|pm|prd|用户价值|业务|场景|决策/.test(input.intake.goal.toLowerCase());
   const lacksProgramming = /(?:没有|无|不具备)\s*(?:编程|python|代码)\s*基础/i.test(input.intake.goal);
   const maxCurrentCourses = Math.max(3, pinned.size);
+  // 目标核心节点：未覆盖时路线不得包装成完整方案（诚实失败质量门）。
+  const coreNodeIds = (input.coreNodeIds ?? []).filter((id) => targetNodeIds.includes(id));
+  const coreSet = new Set(coreNodeIds);
+  const hardCourseCap = Math.max(5, pinned.size);
+  // 选课顺序：核心节点优先消费预算，前置基础随后；否则基础课程挤走目标核心（H1/H2/H4 的直接机制）。
+  const selectionOrder = [...targetNodeIds].sort((a, b) => Number(coreSet.has(b)) - Number(coreSet.has(a)));
+  const uncoveredCore: string[] = [];
   const supplied = suppliedCourseIds(input.intake, input.courses);
   const catalogScope = catalogScopeCourseIds(input.intake, input.courses);
   const usedUnits = new Set<string>();
@@ -169,7 +188,8 @@ export function solveCurriculum(input: {
   const stages: CurriculumAssembly["stages"] = [];
   const courseById = new Map(input.courses.map((course) => [course.genome.id, course]));
 
-  for (const nodeId of targetNodeIds) {
+  for (const nodeId of selectionOrder) {
+    const isCore = coreSet.has(nodeId);
     let candidates = input.courses
       .filter((course) => !excludedCourses.has(course.genome.id) && !deferredCourses.has(course.genome.id))
       .filter(course => !lacksProgramming || pinned.has(course.genome.id) || !course.genome.prerequisites.some(item => /python|pytorch|代码|编程/i.test(item)))
@@ -184,11 +204,13 @@ export function solveCurriculum(input: {
         score: courseScore({ course, mapping, supplied, usedUnits, selectedCourses: new Set(selectedByCourse.keys()), pinned, productGoal }),
       })))
       .sort((a, b) => b.score - a.score || a.course.genome.id.localeCompare(b.course.genome.id));
-    if (selectedByCourse.size >= maxCurrentCourses) {
+    const budget = isCore ? hardCourseCap : maxCurrentCourses;
+    if (selectedByCourse.size >= budget) {
       candidates = candidates.filter((candidate) => selectedByCourse.has(candidate.course.genome.id) || pinned.has(candidate.course.genome.id));
     }
     const selected = candidates[0];
     if (!selected) {
+      if (isCore) uncoveredCore.push(nodeId);
       uncovered.push(nodeId);
       continue;
     }
@@ -333,6 +355,17 @@ export function solveCurriculum(input: {
     rationale: catalogScope.size > 0
       ? `路线限定在 ${Array.from(catalogScope).map((id) => courseById.get(id)?.genome.provider).filter(Boolean)[0] ?? "用户指定"} 课程目录内，由已发布节点映射和前置关系压缩；模型不直接决定正式取舍。`
       : "路线由已发布领域图、前置关系、课程章节映射、用户已有材料和时间成本共同求解；模型不直接决定正式取舍。",
+    planStatus: uncoveredCore.length === 0 ? ("complete" as const) : ("limited" as const),
+    coreNodeIds,
+    limitedPlanNotice: uncoveredCore.length === 0 ? undefined : {
+      missingNodeIds: uncoveredCore,
+      message: `当前材料和取舍无法覆盖目标的核心能力：${uncoveredCore.map((id) => nodeById.get(id)?.title ?? id).join("、")}。以下只覆盖可完成的部分，不是完整路线。`,
+      options: [
+        "补充材料：提供覆盖缺失能力的课程或目录后重新生成；",
+        "缩小目标：把目标收窄到当前材料可支撑的范围，缺口部分延后；",
+        "调整取舍：解除部分排除/暂缓约束或提高同时进行课程数后重新求解。",
+      ],
+    },
     generatedAt: now,
   };
 }

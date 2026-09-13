@@ -29,7 +29,7 @@ import { assertReadableMaterialUrl, extractReadableSource, fetchPublicSource } f
 import { taskScenario } from "./scenario-bank.ts";
 import { activityProgramUnits } from "./program-bindings.ts";
 import { assessProgramCheck, publicProgramUnit, programVersion } from "./learning-program.ts";
-import { deriveTargetNodeIds, solveCurriculum } from "./curriculum-solver.ts";
+import { deriveTargetNodeIds, deriveGoalCoreNodeIds, solveCurriculum } from "./curriculum-solver.ts";
 import { interpretLearningSignal, transitionDecision, type DecisionRecord, type LearningInterpretation } from "./decision-kernel.ts";
 import {
   groundCourseOutline,
@@ -504,12 +504,14 @@ export class CourseIntelligenceService {
     });
     const refined = refinement.value;
     const chosenTargets = deriveTargetNodeIds(intake.goal, graph, refined?.targetNodeIds ?? []);
+    const coreNodeIds = deriveGoalCoreNodeIds(intake.goal, graph, refined?.targetNodeIds ?? []);
     const assembly = solveCurriculum({
       intake,
       courses,
       graph,
       interpretedGoal: refined?.summary ?? `用户希望获得的能力：${intake.goal}`,
       targetNodeIds: chosenTargets,
+      coreNodeIds,
     });
     const seenQuotes = new Map<string, string>();
     const contentSources = await this.listContentSources(ownerId);
@@ -584,6 +586,7 @@ export class CourseIntelligenceService {
       graph,
       interpretedGoal: source.assembly.learnerIntent,
       targetNodeIds: source.assembly.targetNodeIds,
+      coreNodeIds: source.assembly.coreNodeIds,
       constraints,
     });
     const latestSources = await this.listContentSources(ownerId);
@@ -1132,7 +1135,7 @@ export class CourseIntelligenceService {
     const signals = (await this.repository.listLearningSignals(ownerId, activity.curriculumId))
       .filter((signal) => signal.activityId === activityId)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-    const latest = signals[0];
+    const latest = signals.find(signal => signal.id === activity.scope?.lastFeedbackSignalId) ?? signals[0];
     if (!latest) throw Object.assign(new Error("该任务还没有学习结果"), { status: 404 });
     const graph = await this.repository.getPublishedGraph();
     const node = graph.nodes.find((item) => item.id === activity.canonicalNodeId);
@@ -1140,6 +1143,7 @@ export class CourseIntelligenceService {
       ?? (await this.repository.listKnowledgeStates(ownerId)).find((item) => item.nodeId === activity.canonicalNodeId);
     const adaptation = latest.context?.adaptation;
     const savedAdaptation = adaptation && typeof adaptation === "object" ? adaptation as MaterializedAdaptation : null;
+    const recordOnly = (latest.type === "completion_report" || latest.type === "time_constraint" || latest.type === "program_check" || latest.type === "quiz_report" && latest.value === "passed") && savedAdaptation?.outcome !== "replan";
     const correct = latest.context?.correct === true;
     const supportsProgress = latest.type === "scenario_choice" && correct && latest.context?.assessmentKind !== "reflection" || latest.type === "quiz_result" && typeof latest.value === "number" && latest.value >= 70;
     const demonstrated: string[] = [];
@@ -1151,14 +1155,14 @@ export class CourseIntelligenceService {
       capabilityTitle: node?.title ?? activity.canonicalNodeId,
       learnedConcepts: node ? [node.title] : [activity.title],
       submittedSignal: { type: latest.type, summary: [signalSummaryOf(latest), latest.note ? `你这次记录：“${latest.note}”` : ""].filter(Boolean).join("。") },
-      evidenceStrength: supportsProgress || knowledge?.status === "has_signal" ? "developing" : "weak",
+      evidenceStrength: supportsProgress ? "developing" : "weak",
       demonstrated,
       notYetProven,
       evaluationBasis: [typeof latest.context?.rationale === "string" ? latest.context.rationale : "当前依据为用户自报反馈，未经独立验证。", ...(Array.isArray(latest.context?.rubric) ? latest.context.rubric.filter((item): item is string => typeof item === "string") : [])],
       capabilityChange: { status: knowledge?.status ?? "learning", confidence: knowledge?.confidence ?? 0 },
       nextAction: savedAdaptation?.summary ?? (supportsProgress ? "继续下一项核心任务，后续用真实任务检查迁移。" : "回看当前片段中与反馈直接相关的部分，再留下一个更具体的判断。"),
       nextActionReason: savedAdaptation?.summary ?? (supportsProgress ? "当前信号支持继续，但一次检查不等于长期掌握。" : "当前信号还不足以证明稳定应用能力。"),
-      adaptation: savedAdaptation ? { summary: savedAdaptation.summary, applied: savedAdaptation.applied } : null,
+      adaptation: savedAdaptation && !recordOnly ? { summary: savedAdaptation.summary, applied: savedAdaptation.applied } : null,
     };
   }
 
@@ -1188,6 +1192,9 @@ export class CourseIntelligenceService {
   }> {
     if (!this.learningStore) throw new Error("学习运行时不可用");
     let input: LearningSignalInput = learningSignalInputSchema.parse(raw);
+    if (input.type === "quiz_report") z.enum(["passed", "failed"]).parse(input.value);
+    if (input.type === "completion_report") z.literal("completed").parse(input.value);
+    if (input.type === "time_constraint") z.literal("time_insufficient").parse(input.value);
     const activity = structuredClone(await this.learningStore.getActivity(activityId));
     if (!activity || activity.ownerId !== ownerId) throw Object.assign(new Error("学习行动不存在"), { status: 404 });
     if (!activity.curriculumId || !activity.canonicalNodeId) {
@@ -1264,6 +1271,7 @@ export class CourseIntelligenceService {
       createdAt: now,
     };
     const interpretation = interpretLearningSignal(input);
+    if (["completion_report", "time_constraint", "quiz_report"].includes(input.type)) signal.context = { understanding: input.understanding, rationale: interpretation.rationale, assessmentKind: "self_report" };
     const keepsActivityOpen = input.type === "program_check" ? activity.status !== "completed" : interpretation.keepsActivityOpen || input.completionIntent === "keep_open";
     const state: CanonicalKnowledgeState = {
       ownerId,
@@ -1288,7 +1296,7 @@ export class CourseIntelligenceService {
       outcome: interpretation.outcome, applied: interpretation.riskLevel === "low", activityId: activity.id,
       summary: interpretation.rationale,
     };
-    if (input.type !== "program_check" && (interpretation.outcome === "review" || interpretation.outcome === "reduce_scope")) {
+    if (!["program_check", "time_constraint"].includes(input.type) && (interpretation.outcome === "review" || interpretation.outcome === "reduce_scope")) {
       activity.estimatedMinutes = 30;
       activity.steps = interpretation.outcome === "reduce_scope"
         ? `只处理“${activity.scope?.locatorLabel || activity.title}”中的一个概念或一个示例；不要求完成整节。`
@@ -1637,6 +1645,9 @@ function nextActionLabelOf(mode: CurrentLearningState["resumeState"]["mode"]): s
 }
 
 function signalSummaryOf(signal: LearningSignal): string {
+  if (signal.type === "completion_report") return "已记录完成，尚未验证能力";
+  if (signal.type === "time_constraint") return `时间不足：${signal.note || "需要重新安排投入"}`;
+  if (signal.type === "quiz_report") return `自报课程测验：${signal.value === "passed" ? "通过" : "未通过"}；未读取原始成绩`;
   if (signal.type === "program_check") return `补充检查：${signal.context.programOutcome === "check_passed" ? "本次抽样通过" : signal.context.programOutcome === "practice_complete" ? "带帮助练习完成" : "需要修改"}；完整答案与逐项反馈可在教学页回读`;
   if (signal.context?.understanding === "uncertain") return "反馈：还不确定（测验或反思不会覆盖此反馈）";
   if (signal.context?.understanding === "blocked") return `卡住了：${signal.note || "需要缩小范围或补充前置"}`;

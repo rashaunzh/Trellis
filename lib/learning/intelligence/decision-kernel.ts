@@ -111,7 +111,7 @@ export interface LearningInterpretation {
 }
 
 export function interpretLearningSignal(input: {
-  type: "understanding" | "quiz_result" | "stuck" | "judgment" | "scenario_choice" | "program_check";
+  type: "understanding" | "quiz_result" | "stuck" | "judgment" | "scenario_choice" | "program_check" | "completion_report" | "time_constraint" | "quiz_report";
   value: string | number | boolean;
   note: string;
   context?: Record<string, unknown>;
@@ -126,6 +126,9 @@ export function interpretLearningSignal(input: {
   }
   if (input.understanding === "uncertain") return { outcome: "review", confidence: 0.8, rationale: "即使测验通过，用户仍报告不确定，先保留任务并回看。", keepsActivityOpen: true, riskLevel: "low" };
   if (input.understanding === "blocked") return interpretLearningSignal({ type: "stuck", value: input.value, note: input.note });
+  if (input.type === "completion_report") return { outcome: "advance", confidence: 0.5, rationale: "已记录完成，但未验证理解或应用能力。可继续下一项，之后用独立检查补充证据。", keepsActivityOpen: false, riskLevel: "low" };
+  if (input.type === "time_constraint") return { outcome: "review", confidence: 0.5, rationale: "已记录时间不足，任务保持未完成，原预计用时和范围不变。可在路线输入中修改每周投入，再审阅新方案。", keepsActivityOpen: true, riskLevel: "low" };
+  if (input.type === "quiz_report") return { outcome: input.value === "passed" ? "advance" : "review", confidence: 0.5, rationale: input.value === "passed" ? "已记录你自报的课程测验通过；没有读取原始答案或成绩，未独立验证能力。" : "已记录你自报的测验未通过；先回看错题对应内容，再复测。", keepsActivityOpen: input.value !== "passed", riskLevel: "low" };
   if (input.type === "quiz_result" && typeof input.value === "number") {
     return input.value >= 70
       ? { outcome: "advance", confidence: 0.9, rationale: "课程测试达到继续标准。", keepsActivityOpen: false, riskLevel: "low" }

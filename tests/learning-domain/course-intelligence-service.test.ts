@@ -108,7 +108,7 @@ test("AI PM 目标压缩多源目录，不把 ML 专项当默认前置", async (
   });
   const active = record.assembly.decisions.filter((decision) => ["anchor", "selected_units", "supplement"].includes(decision.role));
   assert.equal(active.filter((decision) => decision.role === "anchor").length, 1);
-  assert.ok(active.length <= 3, "AI PM 当前采用来源必须保持在三门以内");
+  assert.ok(active.length <= 5, "核心目标预算可弹性至5门（收缩版PRD切片1），默认仍趋向3门");
   assert.equal(active.some((decision) => decision.courseId === "microsoft.ai-python-beginners"), false);
   assert.equal(active.some((decision) => decision.courseId === "dlai.ai-python"), false);
   assert.equal(active.some((decision) => decision.courseId === "dlai.ml-specialization"), false);
@@ -505,4 +505,31 @@ test("低置信章节映射不能发布", async () => {
     }),
     /阻断问题/,
   );
+});
+
+test("评估型目标的核心节点被安排，或路线诚实标记为有限方案", async () => {
+  const { service } = setup();
+  await service.initialize();
+  const record = await service.createCurriculum("owner-eval-goal", {
+    goal: "我写过客服方案，希望学习 AI 可靠性评估，重点掌握产品评测设计、失败类型分析和指标实验，不想从基础理论重新开始",
+    weeklyCapacity: "steady",
+    materials: [],
+  });
+  const { assembly } = record;
+  const coveredNodes = new Set(assembly.mappings.map((mapping) => mapping.nodeId));
+  const evalCore = ["pm.eval-design", "pm.failure-taxonomy", "pm.metrics-experiment"];
+  const missingCore = evalCore.filter((id) => !coveredNodes.has(id));
+  if (assembly.planStatus === "limited") {
+    // 诚实失败：必须声明缺失核心与用户可选处理，不得伪装完整路线
+    assert.ok(assembly.limitedPlanNotice, "有限方案必须携带 limitedPlanNotice");
+    assert.ok(assembly.limitedPlanNotice!.missingNodeIds.length > 0);
+    assert.ok(assembly.limitedPlanNotice!.options.length >= 3);
+    assert.ok(missingCore.length > 0, "标记 limited 时应确有核心节点未覆盖");
+  } else {
+    // 完整路线：评估核心节点必须被安排，而不是全部进入缺口
+    assert.equal(missingCore.length, 0, `评估核心节点未安排：${missingCore.join("、")}`);
+    assert.ok(!assembly.unresolvedGaps.some((gap) => gap.includes("产品评测设计") && gap.includes("失败类型与风险场景")));
+  }
+  const active = assembly.decisions.filter((decision) => ["anchor", "selected_units", "supplement"].includes(decision.role));
+  assert.ok(active.length <= 5, "核心预算上限为 5 门");
 });

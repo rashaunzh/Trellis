@@ -191,6 +191,13 @@ export const curriculumAssemblySchema = z.object({
   comparisons: z.array(courseComparisonSchema).default([]),
   segments: z.array(studySegmentSchema).default([]),
   unresolvedGaps: z.array(nonEmpty).default([]),
+  planStatus: z.enum(["complete", "limited"]).optional(),
+  coreNodeIds: z.array(nonEmpty).optional(),
+  limitedPlanNotice: z.object({
+    missingNodeIds: z.array(nonEmpty).min(1),
+    message: nonEmpty,
+    options: z.array(nonEmpty).min(1),
+  }).optional(),
   sourceIssues: z.array(z.object({ sourceId: nonEmpty, title: nonEmpty, status: z.enum(["needs_text", "needs_review", "rejected"]), reason: nonEmpty })).optional(),
   sourceSelections: z.array(z.object({
     sourceId: nonEmpty, analysisVersion: z.number().int().positive(), fragmentId: nonEmpty,
@@ -285,7 +292,7 @@ export interface CurriculumRecord {
 }
 
 export const learningSignalInputSchema = z.object({
-  type: z.enum(["understanding", "quiz_result", "stuck", "judgment", "scenario_choice", "program_check"]),
+  type: z.enum(["understanding", "quiz_result", "stuck", "judgment", "scenario_choice", "program_check", "completion_report", "time_constraint", "quiz_report"]),
   value: z.union([z.string().trim().min(1).max(1200), z.number().min(0).max(100), z.boolean()]),
   note: z.string().trim().max(1200).default(""),
   questionId: z.string().trim().max(160).optional(),
@@ -530,6 +537,15 @@ export function evaluateCurriculumAssembly(input: {
   const targetCoverage = assembly.targetNodeIds.filter((nodeId) => coveredNodeIds.has(nodeId)).length / assembly.targetNodeIds.length;
   if (targetCoverage < 1 && assembly.unresolvedGaps.length === 0) {
     issues.push({ severity: "blocking", code: "undeclared_target_gap", message: "当前组合没有覆盖全部目标知识节点，也没有声明路线缺口。" });
+  }
+
+  // 目标核心覆盖质量门：核心节点未覆盖时必须声明有限方案，不得伪装完整路线。
+  const missingCore = (assembly.coreNodeIds ?? []).filter((nodeId) => !coveredNodeIds.has(nodeId));
+  if (missingCore.length > 0 && assembly.planStatus !== "limited") {
+    issues.push({ severity: "blocking", code: "core_goal_uncovered", message: `目标核心节点未覆盖：${missingCore.join("、")}；必须声明有限方案而不是发布完整路线。` });
+  }
+  if (assembly.planStatus === "limited" && !assembly.limitedPlanNotice) {
+    issues.push({ severity: "blocking", code: "limited_plan_missing_notice", message: "有限方案必须说明缺失能力与用户可选处理。" });
   }
 
   const decisionTraceability = assembly.decisions.filter((decision) => decision.sourceCitations.length > 0).length / assembly.decisions.length;
