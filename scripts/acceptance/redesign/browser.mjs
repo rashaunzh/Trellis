@@ -99,6 +99,59 @@ try {
       assert.equal(await page.getByRole("dialog").count(), 0, "Escape 应关闭弹窗");
     });
   });
+  await scenario("feedback-purpose", async ({ page, current, step, owner }) => {
+    if (!await step("draft-refresh-and-time-constraint", async () => {
+      await intake(page);
+      const activity = (await current()).activities[0];
+      await page.getByRole("button", { name: "学习反馈", exact: true }).click();
+      let dialog = page.getByRole("dialog", { name: "留下学习反馈" });
+      await dialog.getByRole("button", { name: "时间不足", exact: true }).click();
+      await dialog.getByLabel("补充一句（可选）").fill("这周只剩半小时，先保留当前任务");
+      await dialog.getByLabel("实际用时").fill("15");
+      await page.reload();
+      await page.getByRole("button", { name: "学习反馈", exact: true }).click();
+      dialog = page.getByRole("dialog", { name: "留下学习反馈" });
+      assert.equal(await dialog.getByLabel("补充一句（可选）").inputValue(), "这周只剩半小时，先保留当前任务");
+      assert.equal(await dialog.getByLabel("实际用时").inputValue(), "15");
+      assert.match(await dialog.getByRole("button", { name: "时间不足", exact: true }).getAttribute("class"), /active/);
+      await dialog.getByRole("button", { name: /保存并查看结果/ }).click();
+      await dialog.locator(".cl-task-result").waitFor();
+      const saved = (await current()).activities.find(item => item.id === activity.id);
+      assert.equal(saved.estimatedMinutes, activity.estimatedMinutes);
+      assert.equal(saved.steps, activity.steps);
+      assert.equal(saved.status, "in_progress");
+      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    })) return;
+    await step("self-reported-quiz-keeps-original-value", async () => {
+      await page.getByRole("button", { name: "查看上次反馈", exact: true }).click();
+      let dialog = page.getByRole("dialog", { name: "留下学习反馈" });
+      await dialog.locator(".cl-task-result").waitFor();
+      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+      await page.getByRole("button", { name: "学习反馈", exact: true }).click();
+      dialog = page.getByRole("dialog", { name: "留下学习反馈" });
+      await dialog.getByRole("button", { name: "通过", exact: true }).click();
+      await dialog.getByLabel("片段状态").selectOption("keep_open");
+      await dialog.getByRole("button", { name: /保存并查看结果/ }).click();
+      await dialog.locator(".cl-task-result").waitFor();
+      assert.ok((await dialog.innerText()).includes("自报"));
+      const rows = await server.inspectDatabase("SELECT value_json FROM learning_ci_learning_signals WHERE owner_id = ? AND signal_type = 'quiz_report'", [owner]);
+      assert.equal(rows.length, 1); assert.equal(JSON.parse(rows[0].value_json), "passed");
+      await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+    });
+    await step("completion-without-mastery", async () => {
+      const activity = (await current()).activities[0];
+      await page.getByRole("button", { name: "学习反馈", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "留下学习反馈" });
+      await dialog.getByRole("button", { name: "完成但尚未验证", exact: true }).click();
+      await dialog.getByRole("button", { name: /保存并查看结果/ }).click();
+      await dialog.locator(".cl-task-result").waitFor();
+      assert.ok((await dialog.innerText()).includes("未验证"));
+      assert.equal((await current()).activities.find(item => item.id === activity.id).status, "completed");
+      const rows = await server.inspectDatabase("SELECT signal_type, value_json FROM learning_ci_learning_signals WHERE owner_id = ?", [owner]);
+      assert.equal(rows.filter(item => item.signal_type === "completion_report").length, 1);
+      assert.equal(rows.filter(item => item.signal_type === "time_constraint").length, 1);
+    });
+  });
   await scenario("grow-confirmed", async ({ page, current, step }) => {
     if (!await step("confirm-and-dialog", async () => {
       await intake(page);
@@ -274,7 +327,7 @@ try {
     await step("stale-tab-conflict", async () => {
       const before = await signalCount();
       await staleDialog.getByRole("button", { name: /保存并查看结果/ }).click();
-      await stale.getByText("这个任务已有更新反馈", { exact: false }).waitFor();
+      await staleDialog.getByText("这个任务已有更新反馈", { exact: false }).waitFor();
       assert.equal(await signalCount(), before);
       assert.equal((await current()).activities[0].status, "in_progress");
     });

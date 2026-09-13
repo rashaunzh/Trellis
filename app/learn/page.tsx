@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { activityProgramUnits } from "../../lib/learning/intelligence/program-bindings";
 import { routeReviewSummary } from "../../lib/learning/intelligence/route-review";
+import { feedbackDraftSchema } from "../../lib/learning/intelligence/feedback-draft";
 import {
   ArrowUpRight,
   BookOpen,
@@ -99,6 +100,9 @@ export default function LearnPage() {
   const [completionIntent, setCompletionIntent] = useState<"auto" | "complete" | "keep_open">("auto");
   const [actualMinutes, setActualMinutes] = useState(30);
   const [note, setNote] = useState("");
+  const [feedbackMode, setFeedbackMode] = useState<"learning" | "completion" | "time">("learning");
+  const [feedbackRevision, setFeedbackRevision] = useState<string | null>(null);
+  const [restoredFeedbackTask, setRestoredFeedbackTask] = useState<string | null>(null);
   const [scenario, setScenario] = useState<PublicScenarioCheck | null>(null);
   const [scenarioChoice, setScenarioChoice] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -138,6 +142,7 @@ export default function LearnPage() {
     setState(nextState);
     setCurrent(nextCurrent);
     setOrchestration(nextOrchestration);
+    return nextCurrent;
   }
 
   useEffect(() => {
@@ -164,6 +169,31 @@ export default function LearnPage() {
       ?? current.activities.find((activity) => activity.status !== "completed")
       ?? null;
   }, [current]);
+  const feedbackActivityId = currentActivity?.id ?? null;
+  const currentFeedbackRevision = currentActivity?.scope?.lastFeedbackSignalId ?? null;
+  useEffect(() => {
+    if (!feedbackActivityId || restoredFeedbackTask === feedbackActivityId) return;
+    let active = true;
+    let saved: unknown = null;
+    try { saved = JSON.parse(localStorage.getItem(`trellis.feedbackDraft.${getOwnerId()}.${feedbackActivityId}`) ?? "null"); } catch { /* 无有效草稿 */ }
+    const parsed = feedbackDraftSchema.safeParse(saved);
+    queueMicrotask(() => {
+      if (!active) return;
+      const draft = parsed.success ? parsed.data : null;
+      setFeedbackMode(draft?.mode ?? "learning"); setFeedback(draft?.feedback ?? "understood");
+      setQuiz(draft?.quiz ?? "not_taken"); setCompletionIntent(draft?.completionIntent ?? "auto");
+      setActualMinutes(draft?.actualMinutes ?? 30); setNote(draft?.note ?? "");
+      setScenario(draft?.scenario ?? null); setScenarioChoice(draft?.scenarioChoice ?? "");
+      setFeedbackRevision(draft ? draft.expectedSignalId : currentFeedbackRevision);
+      setRestoredFeedbackTask(feedbackActivityId);
+    });
+    return () => { active = false; };
+  }, [feedbackActivityId, currentFeedbackRevision, restoredFeedbackTask]);
+  useEffect(() => {
+    if (!feedbackActivityId || restoredFeedbackTask !== feedbackActivityId || feedbackSummary || taskResult) return;
+    try { localStorage.setItem(`trellis.feedbackDraft.${getOwnerId()}.${feedbackActivityId}`, JSON.stringify({ version: 1, mode: feedbackMode, feedback, quiz, completionIntent, actualMinutes, note, scenario, scenarioChoice, expectedSignalId: feedbackRevision })); }
+    catch { /* 服务端提交不依赖设备草稿 */ }
+  }, [feedbackActivityId, restoredFeedbackTask, feedbackSummary, taskResult, feedbackMode, feedback, quiz, completionIntent, actualMinutes, note, scenario, scenarioChoice, feedbackRevision]);
   const completed = current?.activities.filter((activity) => activity.status === "completed").length ?? 0;
   const total = current?.activities.length ?? 0;
   const showIntake = !curriculum || editing;
@@ -301,9 +331,13 @@ export default function LearnPage() {
     setError("");
     try {
       let result: FeedbackSummaryData;
-      if (scenario && scenarioChoice) {
+      if (feedbackMode !== "learning") {
+        result = await recordLearningSignal(currentActivity.id, { expectedSignalId: feedbackRevision,
+          type: feedbackMode === "completion" ? "completion_report" : "time_constraint",
+          value: feedbackMode === "completion" ? "completed" : "time_insufficient", note, actualMinutes }) as FeedbackSummaryData;
+      } else if (scenario && scenarioChoice) {
         result = await recordLearningSignal(currentActivity.id, {
-          expectedSignalId: currentActivity.scope?.lastFeedbackSignalId ?? null,
+          expectedSignalId: feedbackRevision,
           type: "scenario_choice",
           understanding: feedback,
           value: scenarioChoice,
@@ -314,17 +348,17 @@ export default function LearnPage() {
         }) as FeedbackSummaryData;
       } else if (quiz !== "not_taken") {
         result = await recordLearningSignal(currentActivity.id, {
-          expectedSignalId: currentActivity.scope?.lastFeedbackSignalId ?? null,
-          type: "quiz_result",
+          expectedSignalId: feedbackRevision,
+          type: "quiz_report",
           understanding: feedback,
-          value: quiz === "passed" ? 100 : 50,
+          value: quiz,
           note,
           actualMinutes,
           completionIntent,
         }) as FeedbackSummaryData;
       } else {
         result = await recordLearningSignal(currentActivity.id, {
-          expectedSignalId: currentActivity.scope?.lastFeedbackSignalId ?? null,
+          expectedSignalId: feedbackRevision,
           type: feedback === "blocked" ? "stuck" : "understanding",
           understanding: feedback,
           value: feedback,
@@ -334,11 +368,14 @@ export default function LearnPage() {
         }) as FeedbackSummaryData;
       }
       setFeedbackSummary(result);
+      try { localStorage.removeItem(`trellis.feedbackDraft.${getOwnerId()}.${currentActivity.id}`); } catch { /* 已提交记录仍在账号中 */ }
       setTaskResult(null);
       setScenario(null);
       setScenarioChoice("");
       setNote("");
-      await refresh();
+      const savedCurrent = await refresh();
+      setFeedbackRevision(savedCurrent?.activities.find(item => item.id === currentActivity.id)?.scope?.lastFeedbackSignalId ?? null);
+      setQuiz("not_taken"); setFeedbackMode("learning");
       try {
         setTaskResult(await fetchLearningTaskResult(currentActivity.id));
       } catch {
@@ -361,6 +398,27 @@ export default function LearnPage() {
     } finally {
       setBusy("");
     }
+  }
+
+  async function reloadFeedbackState() {
+    if (!currentActivity) return;
+    setBusy("feedback");
+    try {
+      const saved = await refresh();
+      const latest = await fetchLearningTaskResult(currentActivity.id);
+      setFeedbackRevision(saved?.activities.find(item => item.id === currentActivity.id)?.scope?.lastFeedbackSignalId ?? null);
+      setError(`最新记录：${latest.submittedSignal.summary}。你的输入已保留，请核对后再提交。`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "读取失败，输入仍保留"); }
+    finally { setBusy(""); }
+  }
+
+  function closeFeedback() {
+    setFeedbackOpen(false); setTaskResult(null); setFeedbackSummary(null);
+  }
+  async function viewLastFeedback() {
+    if (!currentActivity) return;
+    try { setTaskResult(await fetchLearningTaskResult(currentActivity.id)); setFeedbackOpen(true); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "结果读取失败"); }
   }
 
   if (!state) return <Shell><div className="t2-center"><b>正在恢复你的学习状态…</b>{error && <p>{error}</p>}</div></Shell>;
@@ -493,6 +551,7 @@ export default function LearnPage() {
                     <button className="cl-start-button" onClick={startCurrent} disabled={busy === "start"}><Play size={18} fill="currentColor" />{current?.resumeState.nextActionLabel ?? "开始这一节"}<ArrowUpRight size={17} /></button>
                     {currentActivity.status === "in_progress" && <button className="cl-quiet-button" onClick={pauseCurrent}><Pause size={17} />暂停</button>}
                     <button className="cl-quiet-button" onClick={() => setFeedbackOpen(true)}><Check size={17} />学习反馈</button>
+                    {currentActivity.scope?.lastFeedbackSignalId && <button className="cl-quiet-button" onClick={viewLastFeedback}>查看上次反馈</button>}
                     {activityProgramUnits[currentActivity.canonicalNodeId ?? ""] && <Link className="cl-quiet-button" href={`/learn/activity/${encodeURIComponent(currentActivity.id)}`}>讲解与理解检查</Link>}
                   </div>
                 </div>
@@ -578,8 +637,12 @@ export default function LearnPage() {
       <Drawer open={locationOpen} close={() => setLocationOpen(false)} title="补充准确位置">
         <div className="cl-drawer-form"><p>保存你实际打开的章节、时间戳或页码。它只影响你的路线，不会修改共享课程。</p><label>章节链接<input type="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://…" /></label><label>位置说明<input value={locatorLabel} onChange={(event) => setLocatorLabel(event.target.value)} placeholder="例如：Module 2 · 12:30-28:00" /></label><button className="cl-start-button" disabled={!sourceUrl.trim() || busy === "location"} onClick={saveLocation}>保存位置</button></div>
       </Drawer>
-      <Drawer open={feedbackOpen} close={() => setFeedbackOpen(false)} title="留下学习反馈" wide>
+      <Drawer open={feedbackOpen} close={closeFeedback} title="留下学习反馈" wide>
         {taskResult ? <LearningTaskResultView result={taskResult} close={() => { setTaskResult(null); setFeedbackSummary(null); setFeedbackOpen(false); }} /> : feedbackSummary ? <FeedbackSummary summary={feedbackSummary} close={() => { setFeedbackSummary(null); setFeedbackOpen(false); }} /> : <FeedbackPanel
+          mode={feedbackMode}
+          setMode={setFeedbackMode}
+          error={error}
+          reload={reloadFeedbackState}
           activityTitle={currentActivity?.title ?? ""}
           feedback={feedback}
           setFeedback={setFeedback}
@@ -596,7 +659,7 @@ export default function LearnPage() {
           setScenarioChoice={setScenarioChoice}
           loadScenario={loadScenario}
           submit={submitFeedback}
-          busy={busy}
+          busy={restoredFeedbackTask !== feedbackActivityId ? "feedback" : busy}
         />}
       </Drawer>
       <Drawer open={Boolean(selectedTaskId)} close={() => setSelectedTaskId(null)} title="任务契约" wide>
@@ -657,6 +720,8 @@ function CurriculumDetails({ state, curriculum, revise, busy }: { state: CourseI
 }
 
 function FeedbackPanel(props: {
+  error: string; reload: () => void;
+  mode: "learning" | "completion" | "time"; setMode: (value: "learning" | "completion" | "time") => void;
   activityTitle: string;
   feedback: "understood" | "uncertain" | "blocked"; setFeedback: (value: "understood" | "uncertain" | "blocked") => void;
   quiz: "not_taken" | "passed" | "failed"; setQuiz: (value: "not_taken" | "passed" | "failed") => void;
@@ -665,7 +730,7 @@ function FeedbackPanel(props: {
   scenario: PublicScenarioCheck | null; scenarioChoice: string; setScenarioChoice: (value: string) => void;
   loadScenario: () => void; submit: () => void; busy: string;
 }) {
-  return <div className="cl-feedback-drawer"><div className="cl-feedback-activity"><small>当前片段</small><strong>{props.activityTitle}</strong></div><fieldset><legend>现在的感觉</legend><div className="cl-segments">{[["understood", "理解了"], ["uncertain", "还不确定"], ["blocked", "卡住了"]].map(([value, label]) => <button type="button" className={props.feedback === value ? "active" : ""} key={value} onClick={() => props.setFeedback(value as typeof props.feedback)}>{label}</button>)}</div></fieldset><fieldset><legend>课程原测验（可选）</legend><div className="cl-segments">{[["not_taken", "没有做"], ["passed", "通过"], ["failed", "未通过"]].map(([value, label]) => <button type="button" className={props.quiz === value ? "active" : ""} key={value} onClick={() => props.setQuiz(value as typeof props.quiz)}>{label}</button>)}</div></fieldset>{props.scenario ? <div className="cl-scenario"><strong>{props.scenario.prompt}</strong>{props.scenario.options.map((option) => <label key={option.id}><input type="radio" name="scenario" checked={props.scenarioChoice === option.id} onChange={() => props.setScenarioChoice(option.id)} /><span>{option.text}</span></label>)}</div> : <button className="cl-quiet-button" onClick={props.loadScenario} disabled={props.busy === "scenario"}>做一道可选情景判断</button>}<label>补充一句（可选）<textarea value={props.note} onChange={(event) => props.setNote(event.target.value)} placeholder="哪里清楚、哪里卡住，或者你会如何判断。" /></label><div className="cl-feedback-meta"><label>实际用时<input type="number" min={1} max={720} value={props.actualMinutes} onChange={(event) => props.setActualMinutes(Number(event.target.value))} /><span>分钟</span></label><label>片段状态<select value={props.completionIntent} onChange={(event) => props.setCompletionIntent(event.target.value as typeof props.completionIntent)}><option value="auto">由反馈判断</option><option value="complete">确认完成</option><option value="keep_open">保留继续</option></select></label></div><div className="cl-drawer-actions"><p>提交后会先总结你获得的信号，再说明下一步变化。</p><button className="cl-start-button" onClick={props.submit} disabled={props.busy === "feedback"}>保存并查看结果 <ChevronRight size={17} /></button></div></div>;
+  return <div className="cl-feedback-drawer">{props.error && <div role="alert"><p>{props.error}</p><button disabled={props.busy === "feedback"} onClick={props.reload}>保留输入并读取最新反馈</button></div>}<div className="cl-feedback-activity"><small>当前片段</small><strong>{props.activityTitle}</strong></div><fieldset><legend>这次记录什么</legend><div className="cl-segments">{([["learning", "理解、测验或卡点"], ["completion", "完成但尚未验证"], ["time", "时间不足"]] as const).map(([value, label]) => <button key={value} type="button" className={props.mode === value ? "active" : ""} onClick={() => props.setMode(value)}>{label}</button>)}</div></fieldset>{props.mode === "learning" ? <><fieldset><legend>现在的感觉</legend><div className="cl-segments">{[["understood", "理解了"], ["uncertain", "还不确定"], ["blocked", "卡住了"]].map(([value, label]) => <button type="button" className={props.feedback === value ? "active" : ""} key={value} onClick={() => props.setFeedback(value as typeof props.feedback)}>{label}</button>)}</div></fieldset><fieldset><legend>课程原测验（可选）</legend><div className="cl-segments">{[["not_taken", "没有做"], ["passed", "通过"], ["failed", "未通过"]].map(([value, label]) => <button type="button" className={props.quiz === value ? "active" : ""} key={value} onClick={() => props.setQuiz(value as typeof props.quiz)}>{label}</button>)}</div></fieldset>{props.scenario ? <div className="cl-scenario"><strong>{props.scenario.prompt}</strong>{props.scenario.options.map((option) => <label key={option.id}><input type="radio" name="scenario" checked={props.scenarioChoice === option.id} onChange={() => props.setScenarioChoice(option.id)} /><span>{option.text}</span></label>)}</div> : <button className="cl-quiet-button" onClick={props.loadScenario} disabled={props.busy === "scenario"}>做一道可选情景判断</button>}</> : <p>{props.mode === "completion" ? "只记录任务完成，不声明已经掌握。" : "保留未完成任务和原安排；修改投入后需审阅新方案。"}</p>}<label>补充一句（可选）<textarea maxLength={1200} value={props.note} onChange={(event) => props.setNote(event.target.value)} placeholder="哪里清楚、哪里卡住，或者你会如何判断。" /></label><div className="cl-feedback-meta"><label>实际用时<input type="number" min={1} max={720} value={props.actualMinutes} onChange={(event) => props.setActualMinutes(Number(event.target.value))} /><span>分钟</span></label>{props.mode === "learning" && <label>片段状态<select value={props.completionIntent} onChange={(event) => props.setCompletionIntent(event.target.value as typeof props.completionIntent)}><option value="auto">由反馈判断</option><option value="complete">确认完成</option><option value="keep_open">保留继续</option></select></label>}</div><p>未提交内容保存在这台设备；提交后保存到账号。</p><div className="cl-drawer-actions"><p>提交后会先总结你获得的信号，再说明下一步变化。</p><button className="cl-start-button" onClick={props.submit} disabled={props.busy === "feedback"}>保存并查看结果 <ChevronRight size={17} /></button></div></div>;
 }
 
 function TaskContract({ task }: { task: OrchestrationTask }) {
@@ -704,13 +769,13 @@ function FeedbackSummary({ summary, close }: { summary: FeedbackSummaryData; clo
 }
 
 function LearningTaskResultView({ result, close }: { result: LearningTaskResult; close: () => void }) {
-  const evidenceLabel = result.evidenceStrength === "strong" ? "较强证据" : result.evidenceStrength === "developing" ? "形成中" : "初步信号";
+  const evidenceLabel = result.evidenceStrength === "strong" ? "较强证据" : result.evidenceStrength === "developing" ? "单次检查信号" : "尚未独立验证";
   return <div className="cl-feedback-summary cl-task-result">
     <span className="cl-summary-kicker">任务结果已保存</span>
     <h3>{result.capabilityTitle}</h3>
     <p>{result.submittedSignal.summary}</p>
-    <div className="cl-summary-grid"><div><small>这次获得的能力信号</small><strong>{evidenceLabel}</strong></div><div><small>下一步</small><strong>{result.nextAction}</strong></div></div>
-    <div className="cl-result-section"><small>你刚刚接触并练习了</small>{result.learnedConcepts.map((item) => <p key={item}><Check size={14} />{item}</p>)}</div>
+    <div className="cl-summary-grid"><div><small>本次证据状态</small><strong>{evidenceLabel}</strong></div><div><small>下一步</small><strong>{result.nextAction}</strong></div></div>
+    <div className="cl-result-section"><small>本任务涉及的内容</small>{result.learnedConcepts.map((item) => <p key={item}><Check size={14} />{item}</p>)}</div>
     <div className="cl-result-section"><small>这次判断的依据</small>{result.evaluationBasis?.map((item) => <p key={item}><span>·</span>{item}</p>)}</div>
     <div className="cl-result-section"><small>目前还没有被证明</small>{(result.notYetProven.length ? result.notYetProven : ["一次任务结果不等于稳定掌握，后续还需要迁移到真实场景。"]).map((item) => <p key={item}><span>·</span>{item}</p>)}</div>
     <div className="cl-summary-change"><small>为什么这样安排下一步</small><strong>{result.nextActionReason}</strong>{result.adaptation && <span>{result.adaptation.applied ? "这次调整已应用到当前任务包" : "这次调整等待确认"}</span>}</div>

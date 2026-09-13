@@ -54,6 +54,24 @@ test("不确定反馈保留当前任务且不声称掌握能力", async () => {
   assert.ok(result.notYetProven.length > 0);
 });
 
+test("完成记录不冒充能力证据，时间不足不自动缩短任务，自报测验不伪造分数", async () => {
+  const { service, store, owner, current } = await setup();
+  const activity = current.activities[0]!;
+  await service.recordLearningSignal(owner, activity.id, { type: "time_constraint", value: "time_insufficient", note: "这周只剩半小时" });
+  const saved = await store.getActivity(activity.id);
+  assert.equal(saved?.estimatedMinutes, activity.estimatedMinutes);
+  assert.equal(saved?.steps, activity.steps);
+  assert.equal(saved?.status, "in_progress");
+  const quiz = await service.recordLearningSignal(owner, activity.id, { type: "quiz_report", value: "passed" });
+  assert.equal(quiz.signal.value, "passed");
+  assert.equal((await service.getLearningTaskResult(owner, activity.id)).evidenceStrength, "weak");
+  await service.recordLearningSignal(owner, activity.id, { type: "completion_report", value: "completed" });
+  assert.equal((await store.getActivity(activity.id))?.status, "completed");
+  const result = await service.getLearningTaskResult(owner, activity.id);
+  assert.equal(result.evidenceStrength, "weak");
+  assert.match(result.evaluationBasis.join(" "), /未验证/);
+});
+
 test("高风险反馈重试不会覆盖之后的暂停和位置修改", async () => {
   const { service, owner, current, store } = await setup();
   const id = current.activities[0]!.id;
