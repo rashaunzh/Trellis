@@ -89,7 +89,7 @@ try {
         await learner.getByLabel("想学的方向").fill("没有编程基础，想理解AI产品能力边界");
         await learner.getByLabel("每周可用时间").selectOption("light");
         await learner.getByRole("button", { name: "生成学习路线", exact: true }).click();
-        await learner.getByRole("button", { name: "确认并开始", exact: true }).click();
+        await learner.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).click();
         await learner.getByRole("link", { name: "讲解与理解检查", exact: true }).click();
         await learner.getByRole("heading", { name: "AI、机器学习与能力边界", exact: true }).waitFor();
         await learner.getByLabel("练习笔记（随检查保存，尚未评审）", { exact: true }).fill("按日期排序使用固定规则，识别投诉问题需要检查文本样本。");

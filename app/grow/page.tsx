@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CheckCircle2, CircleDot, Milestone } from "lucide-react";
 import Shell from "../_components/shell";
 import {
@@ -23,7 +23,7 @@ const statusText: Record<MapStatus, string> = {
 };
 
 function nodeStatus(state: CourseIntelligenceState, current: CurrentLearningState | null, nodeId: string): MapStatus {
-  const curriculum = state.curriculum;
+  const curriculum = current?.curriculum?.status === "confirmed" ? current.curriculum : null;
   if (!curriculum?.assembly.targetNodeIds.includes(nodeId)) return "outside";
   const canonical = current?.knowledgeStates.find((item) => item.nodeId === nodeId);
   if (canonical?.status === "confirmed") return "validated";
@@ -48,6 +48,24 @@ export default function GrowPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "route">("route");
   const [error, setError] = useState("");
+  const panel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selectedNodeId || !panel.current) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const element = panel.current;
+    element.querySelector<HTMLElement>("button")?.focus();
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") { event.preventDefault(); setSelectedNodeId(null); }
+      if (event.key !== "Tab") return;
+      const items = [...element.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], [tabindex="0"]')];
+      const first = items[0], last = items.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+    element.addEventListener("keydown", handleKey);
+    return () => { element.removeEventListener("keydown", handleKey); previous?.focus(); };
+  }, [selectedNodeId]);
 
   useEffect(() => {
     let alive = true;
@@ -56,6 +74,8 @@ export default function GrowPage() {
       .catch((cause) => { if (alive) setError(cause instanceof Error ? cause.message : "成长地图加载失败"); });
     return () => { alive = false; };
   }, []);
+
+  const curriculum = current?.curriculum?.status === "confirmed" ? current.curriculum : null;
 
   const counts = useMemo(() => {
     if (!state) return { route: 0, learning: 0, signal: 0 };
@@ -73,8 +93,8 @@ export default function GrowPage() {
   const selectedKnowledge = selected
     ? current?.knowledgeStates.find((item) => item.nodeId === selected.id) ?? null
     : null;
-  const selectedMappings = selected && state.curriculum
-    ? state.curriculum.assembly.mappings.filter((mapping) => mapping.nodeId === selected.id)
+  const selectedMappings = selected && curriculum
+    ? curriculum.assembly.mappings.filter((mapping) => mapping.nodeId === selected.id)
     : [];
   const currentActivity = current?.activities.find((activity) => activity.id === current.resumeState.activityId)
     ?? current?.activities.find((activity) => activity.status !== "completed")
@@ -82,9 +102,9 @@ export default function GrowPage() {
   const currentNodeIds = currentActivity?.scope?.nodeIds ?? (currentActivity?.canonicalNodeId ? [currentActivity.canonicalNodeId] : []);
   const currentNodes = state.graph.nodes.filter((node) => currentNodeIds.includes(node.id));
   const signaledNodes = state.graph.nodes.filter((node) => ["signal", "validated"].includes(nodeStatus(state, current, node.id)));
-  const nextStage = state.curriculum?.assembly.stages.find((stage) =>
+  const nextStage = curriculum?.assembly.stages.find((stage) =>
     stage.unitRefs.some((ref) => currentActivity?.unitId === ref.unitId))
-    ?? state.curriculum?.assembly.stages[0];
+    ?? curriculum?.assembly.stages[0];
 
   return (
     <Shell>
@@ -93,11 +113,11 @@ export default function GrowPage() {
         <div className="grow-metrics"><span><b>{state.graph.nodes.length}</b>领域节点</span><span><b>{counts.route}</b>当前路线</span><span><b>{counts.signal}</b>已有信号</span></div>
       </header>
 
-      {state.curriculum && (
+      {curriculum && (
         <section className="grow-route-focus">
           <div className="grow-route-summary">
             <span><CircleDot size={15} /> 当前路线</span>
-            <h2>{current?.routeSummary?.currentStageTitle ?? state.curriculum.assembly.learnerIntent}</h2>
+            <h2>{current?.routeSummary?.currentStageTitle ?? curriculum.assembly.learnerIntent}</h2>
             <p>{currentActivity ? `正在推进：${currentActivity.title}` : "本周片段已完成，等待下一周方案。"}</p>
             <div><strong>{counts.signal}</strong><small>有真实学习信号的节点</small><strong>{counts.learning}</strong><small>正在学习的节点</small></div>
           </div>
@@ -109,7 +129,7 @@ export default function GrowPage() {
         </section>
       )}
 
-      {orchestration && (
+      {curriculum && orchestration && (
         <section className="grow-vein-map" aria-label="能力路径分叉">
           <div className="grow-vein-trunk">
             <small>当前主干</small>
@@ -128,7 +148,7 @@ export default function GrowPage() {
         </section>
       )}
 
-      {orchestration && (
+      {curriculum && orchestration && (
         <section className="grow-capability-model">
           <header><div><p className="t2-kicker">能力画像</p><h2>路径深度不等于能力等级</h2></div><span>{orchestration.capabilityModel.dimensions.length} 个当前相关能力</span></header>
           <div>
@@ -136,7 +156,7 @@ export default function GrowPage() {
               <article key={dimension.id} className={dimension.state}>
                 <small>{dimension.branch}</small>
                 <strong>{dimension.title}</strong>
-                <p>{capabilityStateLabel(dimension.state)} · 等级 {dimension.level}/3 · 证据 {dimension.evidenceCount}</p>
+                <p>{capabilityStateLabel(dimension.state)} · 学习记录 {dimension.evidenceCount}</p>
                 <span>{dimension.nextMilestone}</span>
               </article>
             ))}
@@ -144,7 +164,7 @@ export default function GrowPage() {
         </section>
       )}
 
-      {!state.curriculum && <div className="grow-empty"><h2>还没有个人路线</h2><p>先在学习页描述目标。领域图可以浏览，但不会假装知道你需要学哪些节点。</p><a href="/learn" className="t2-primary t2-link">去说明目标</a></div>}
+      {!curriculum && <div className="grow-empty"><h2>还没有个人路线</h2><p>先在学习页描述目标。领域图可以浏览，但不会假装知道你需要学哪些节点。</p><a href="/learn" className="t2-primary t2-link">去说明目标</a></div>}
 
       <div className="grow-controls">
         <div><button className={filter === "route" ? "active" : ""} onClick={() => setFilter("route")}>当前路线</button><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>完整领域</button></div>
@@ -176,7 +196,7 @@ export default function GrowPage() {
       </div>
 
       {selected && (
-        <div className="grow-node-panel" role="dialog" aria-modal="true" aria-label={selected.title}>
+        <div ref={panel} className="grow-node-panel" role="dialog" aria-modal="true" aria-label={selected.title}>
           <button className="grow-close" aria-label="关闭" onClick={() => setSelectedNodeId(null)}>×</button>
           <p className="t2-kicker">{state.graph.categories.find((category) => category.id === selected.categoryId)?.title}</p>
           <h2>{selected.title}</h2>
@@ -191,7 +211,7 @@ export default function GrowPage() {
           </p>
           <h3>最近能力信号</h3>
           <p>{selectedKnowledge?.latestSignalId
-            ? `${statusText[nodeStatus(state, current, selected.id)]} · 最近信号 ${selectedKnowledge.latestSignalId}`
+            ? `${statusText[nodeStatus(state, current, selected.id)]}；有已保存的反馈，不代表已验证掌握。`
             : "还没有真实学习信号。计划中不算成长，完成一次反馈后才会更新。"}
           </p>
           <h3>下一次验证方式</h3>
@@ -205,7 +225,7 @@ export default function GrowPage() {
           {selectedMappings.length ? selectedMappings.map((mapping) => {
             const course = state.catalog.find((item) => item.id === mapping.courseId);
             const unit = course?.units.find((item) => item.id === mapping.unitId);
-            return <a key={`${mapping.courseId}:${mapping.unitId}`} href={course?.url} target="_blank" rel="noreferrer"><b>{course?.title}</b><span>{unit?.title} · 映射置信度 {Math.round(mapping.confidence * 100)}%</span></a>;
+            return <a key={`${mapping.courseId}:${mapping.unitId}`} href={course?.url} target="_blank" rel="noreferrer"><b>{course?.title}</b><span>{unit?.title} · 依据课程目录关联</span></a>;
           }) : <p>当前路线尚未采用覆盖这一节点的课程章节。</p>}
           <h3>结构依据</h3>
           {selected.sourceCitations.map((citation) => <a key={citation.url} href={citation.url} target="_blank" rel="noreferrer">{citation.title} ↗</a>)}

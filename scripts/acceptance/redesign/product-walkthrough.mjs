@@ -40,9 +40,9 @@ try {
     await page.getByLabel("想学的方向").fill("没有编程基础，希望学会判断客服AI方案是否可靠，能够设计失败案例与人工兜底");
     await page.getByLabel("每周可用时间").selectOption("light");
     await page.getByRole("button", { name: "生成学习路线", exact: true }).click();
-    await page.getByRole("button", { name: "确认并开始", exact: true }).waitFor({ timeout: 60000 });
+    await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).waitFor({ timeout: 60000 });
     await capture("route-review");
-    await page.getByRole("button", { name: "确认并开始", exact: true }).click();
+    await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).click();
     await page.getByRole("button", { name: "开始这一节", exact: true }).waitFor({ timeout: 45000 });
     await capture("learn-active");
   });
@@ -95,7 +95,7 @@ try {
     await visit("/learn"); await page.getByRole("button", { name: "重新说明目标", exact: true }).click();
     await page.getByLabel("想学的方向").fill("我有Python经验，希望学习神经网络训练与深度学习模型开发");
     await page.getByRole("button", { name: "生成学习路线", exact: true }).click();
-    await page.getByRole("button", { name: "确认并开始", exact: true }).waitFor({ timeout: 60000 });
+    await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).waitFor({ timeout: 60000 });
     await visit("/grow"); await capture("grow-unconfirmed-draft");
     assert.equal((await current()).curriculum.id, before.curriculum.id, "正式路线未确认不能改变");
     const shownCount = Number(await page.locator(".grow-metrics b").nth(1).innerText());

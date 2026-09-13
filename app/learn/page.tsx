@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { activityProgramUnits } from "../../lib/learning/intelligence/program-bindings";
+import { routeReviewSummary } from "../../lib/learning/intelligence/route-review";
 import {
   ArrowUpRight,
   BookOpen,
@@ -246,6 +247,14 @@ export default function LearnPage() {
     }
   }
 
+  function editRouteInput(record: CurriculumRecord) {
+    setGoal(record.intake.goal);
+    setWeeklyCapacity(record.intake.weeklyCapacity);
+    setMaterials(record.intake.materials.length ? record.intake.materials.map(item => ({ ...item })) : [emptyMaterial()]);
+    setAnalyses({});
+    setEditing(true);
+  }
+
   async function startCurrent() {
     if (!currentActivity) return;
     setBusy("start");
@@ -366,8 +375,8 @@ export default function LearnPage() {
               ? "让已有材料，成为清晰路线"
               : curriculum?.status === "confirmed"
                 ? orchestration?.weeklyPackage?.mission ?? current?.routeSummary?.currentStageTitle ?? "当前学习任务包"
-                : "检查第一周任务包"}</h1>
-            {!showIntake && <p>{orchestration?.situation.goalHypothesis ?? curriculum?.intake.goal}</p>}
+                : "审阅路线与第一步"}</h1>
+            {!showIntake && <p>{curriculum?.status === "confirmed" ? orchestration?.situation.goalHypothesis ?? curriculum.intake.goal : curriculum?.intake.goal}</p>}
           </div>
           {!showIntake && (
             <div className="cl-head-actions">
@@ -397,9 +406,10 @@ export default function LearnPage() {
             cancel={busy === "intake" ? cancelGeneration : curriculum ? () => setEditing(false) : undefined}
           />
         ) : curriculum?.status !== "confirmed" ? (
-          <ProposalView state={state} curriculum={curriculum!} busy={busy} revise={revise} confirm={confirm} />
+          <ProposalView key={curriculum!.id} state={state} curriculum={curriculum!} busy={busy} revise={revise} confirm={confirm} editInput={() => editRouteInput(curriculum!)} />
         ) : (
           <section className="cl-dashboard">
+            {routeReviewSummary(curriculum.assembly, state.graph.nodes).limited && <section className="cl-route-coverage" aria-label="当前路线覆盖限制"><h2>当前执行的是部分路线</h2><p>已完成记录继续保留，以下目标仍未安排：{routeReviewSummary(curriculum.assembly, state.graph.nodes).missing.join("、") || "见路线管理中的材料与前置缺口"}。</p><button onClick={() => editRouteInput(curriculum)}>补充材料或修改目标</button><button onClick={() => setRouteOpen(true)}>查看当前取舍</button></section>}
             <div className="cl-status-row">
               <div><small>当前处境</small><strong>{entryModeLabel(orchestration?.situation.entryMode)}</strong></div>
               <div><small>本周任务</small><strong>{completed}/{total}</strong></div>
@@ -618,8 +628,19 @@ function IntakeView(props: {
   </section>;
 }
 
-function ProposalView({ state, curriculum, busy, revise, confirm }: { state: CourseIntelligenceState; curriculum: CurriculumRecord; busy: string; revise: (items: CurriculumConstraint[]) => void; confirm: (item: CurriculumRecord) => void }) {
-  return <section className="cl-proposal"><div className="cl-proposal-hero"><div><span>方案版本 {curriculum.revision ?? 1}</span><h2>你的学习路线与第一周行动</h2><p>{curriculum.assembly.rationale}</p></div><strong>{curriculum.assembly.segments.length}<small>个材料片段</small></strong></div><CurriculumDetails state={state} curriculum={curriculum} revise={revise} busy={busy} /><footer className="cl-proposal-footer"><div><strong>确认后从第一个能力任务开始</strong><span>后续调整会生成新版本，不覆盖历史。</span></div><button className="cl-start-button" onClick={() => confirm(curriculum)} disabled={busy === "confirm"}>确认并开始 <ChevronRight size={17} /></button></footer></section>;
+function ProposalView({ state, curriculum, busy, revise, confirm, editInput }: { state: CourseIntelligenceState; curriculum: CurriculumRecord; busy: string; revise: (items: CurriculumConstraint[]) => void; confirm: (item: CurriculumRecord) => void; editInput: () => void }) {
+  const review = routeReviewSummary(curriculum.assembly, state.graph.nodes);
+  return <section className="cl-proposal">
+    <div className="cl-proposal-hero"><div><span>方案版本 {curriculum.revision ?? 1}</span><h2>{review.limited ? "先核对未覆盖的目标" : "你的学习路线与第一周行动"}</h2><p>你的目标：{curriculum.intake.goal}</p></div></div>
+    <section className="cl-route-coverage" aria-label="路线覆盖与下一步"><h3>{review.coverageLabel}</h3>
+      <p>已安排：{review.covered.join("、") || "尚无可确认的目标覆盖"}。</p>
+      {review.limited && <><p><strong>尚未安排：</strong>{review.missing.join("、") || "材料或前置仍存在缺口，详见下方取舍"}。</p><p>先做下面的内容只能完成目标的一部分；缺失目标不会因为采用路线而自动补齐。</p></>}
+      <div className="cl-route-actions"><button disabled={Boolean(busy)} onClick={editInput}>补充材料或修改目标</button><a href="#route-material-decisions">调整材料取舍</a></div>
+    </section>
+    {review.firstAction && <section className="cl-route-coverage"><h3>确认后第一步做什么</h3><p><strong>{review.firstAction.title}</strong> · 预计{review.firstAction.minutes}分钟</p><p>{review.firstAction.location}</p><p>做到这里即可：{review.firstAction.stopCondition}</p><details><summary>为什么这样安排</summary><p>{curriculum.assembly.rationale}</p></details></section>}
+    <div id="route-material-decisions" tabIndex={-1}><CurriculumDetails state={state} curriculum={curriculum} revise={revise} busy={busy} /></div>
+    <footer className="cl-proposal-footer"><div><strong>{review.limited ? "采用后仍保留上述缺口" : "确认后从第一个能力任务开始"}</strong><span>这次确认同时启用路线和首周任务；后续修改另行确认。</span></div><button className="cl-start-button" onClick={() => confirm(curriculum)} disabled={Boolean(busy) || !review.firstAction}>{review.confirmLabel} <ChevronRight size={17} /></button></footer>
+  </section>;
 }
 
 function CurriculumDetails({ state, curriculum, revise, busy }: { state: CourseIntelligenceState; curriculum: CurriculumRecord; revise: (items: CurriculumConstraint[]) => void; busy: string }) {
@@ -628,10 +649,10 @@ function CurriculumDetails({ state, curriculum, revise, busy }: { state: CourseI
   return <div className="cl-curriculum-details">
     <div className="cl-adopted-grid">{adopted.map((decision) => { const course = courseOf(state, decision.courseId); return <article key={decision.courseId}><div className="cl-course-role"><span>{roleText[decision.role]}</span><small>{decision.selectedUnitIds.length ? `${decision.selectedUnitIds.length} 个章节` : "整段采用"}</small></div><h3>{course?.title ?? decision.courseId}</h3><p>{decision.rationale}</p><div className="cl-route-actions"><button disabled={busy === "revise"} onClick={() => revise([{ type: "defer_course", courseId: decision.courseId }])}>移到后续</button><button disabled={busy === "revise"} onClick={() => revise([{ type: "exclude_course", courseId: decision.courseId }])}>暂不采用</button></div></article>; })}</div>
     <div className="cl-stage-list"><h3>学习顺序</h3>{curriculum.assembly.stages.map((stage, index) => <div key={stage.id}><i>{index + 1}</i><div><strong>{stage.title}</strong><p>{stage.objective}</p><small>到这里停止：{stage.exitCriteria.join("；")}</small></div></div>)}</div>
-    {inactive.length > 0 && <div className="cl-inactive"><h3>后续与暂不采用 <small>{inactive.length} 门</small></h3>{inactive.slice(0, 8).map((decision) => <div key={decision.courseId}><span>{roleText[decision.role]}</span><strong>{courseOf(state, decision.courseId)?.title ?? decision.courseId}</strong><button disabled={busy === "revise"} onClick={() => revise([{ type: "pin_course", courseId: decision.courseId }])}>改为采用</button></div>)}{inactive.length > 8 && <p>其余 {inactive.length - 8} 门保持暂缓，不进入当前学习主线。</p>}</div>}
+    {inactive.length > 0 && <details className="cl-inactive"><summary>后续与暂不采用 · {inactive.length} 门</summary>{inactive.slice(0, 8).map((decision) => <div key={decision.courseId}><span>{roleText[decision.role]}</span><strong>{courseOf(state, decision.courseId)?.title ?? decision.courseId}</strong><button disabled={busy === "revise"} onClick={() => revise([{ type: "pin_course", courseId: decision.courseId }])}>改为采用</button></div>)}{inactive.length > 8 && <p>其余 {inactive.length - 8} 门保持暂缓，不进入当前学习主线。</p>}</details>}
     {!!curriculum.assembly.sourceSelections?.length && <section className="cl-gaps"><h3>已有材料的取舍</h3>{curriculum.assembly.sourceSelections.map(item => <article key={item.fragmentId}><strong>{item.title} · {item.role === "adopted" ? "已纳入路线" : item.role === "supplement" ? "可选补充" : "暂缓"}</strong><p>{item.rationale}</p>{item.sourceQuote && <blockquote>原文依据：{item.sourceQuote}</blockquote>}{item.reviewCautions?.map(caution => <p key={caution}>待核验：{caution}</p>)}<small>分析版本 {item.analysisVersion} · 已确认片段，非事实核验</small>{item.url && <p><a href={item.url} target="_blank" rel="noreferrer">查看来源 ↗</a></p>}</article>)}</section>}
     {!!curriculum.assembly.sourceIssues?.length && <section className="cl-gaps"><h3>尚未进入路线的材料</h3>{curriculum.assembly.sourceIssues.map(item => <p key={item.sourceId}><strong>{item.title}</strong>：{item.reason} <a href="/workbench">去处理 ↗</a></p>)}</section>}
-    {curriculum.assembly.unresolvedGaps.length > 0 && <div className="cl-gaps"><strong>当前方案仍有缺口</strong>{curriculum.assembly.unresolvedGaps.map((gap) => <p key={gap}>{gap}</p>)}</div>}
+    {curriculum.assembly.unresolvedGaps.length > 0 && <details className="cl-gaps"><summary>查看材料与前置缺口的详细原因</summary>{curriculum.assembly.unresolvedGaps.map((gap) => <p key={gap}>{gap}</p>)}</details>}
   </div>;
 }
 

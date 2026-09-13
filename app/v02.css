@@ -3108,6 +3108,14 @@
 .cl-form-actions { justify-content: flex-end; padding-top: 5px; }
 
 .cl-proposal { display: grid; gap: 17px; }
+.cl-route-coverage { padding: 20px; border: 1px solid var(--t2-line); border-radius: 8px; background: var(--t2-panel); overflow-wrap: anywhere; }
+.cl-route-coverage h2, .cl-route-coverage h3 { font-size: 18px; margin: 0 0 12px; }
+.cl-route-coverage p { font-size: 14px; line-height: 1.7; margin: 10px 0; }
+.cl-route-coverage button, .cl-route-coverage a { display: inline-block; padding: 10px 12px; margin: 4px 8px 4px 0; border: 1px solid var(--t2-line); border-radius: 6px; color: var(--t2-green); font-size: 14px; }
+.cl-route-coverage :focus-visible { outline: 2px solid var(--t2-green); outline-offset: 3px; }
+.cl-proposal .cl-inactive summary, .cl-proposal .cl-gaps summary { font-size: 14px; cursor: pointer; line-height: 1.6; }
+.cl-proposal .cl-curriculum-details p { font-size: 13px; line-height: 1.7; }
+.cl-proposal .cl-curriculum-details small { font-size: 12px; line-height: 1.6; }
 .cl-proposal-hero { display: flex; align-items: center; justify-content: space-between; gap: 30px; padding: 28px; border-radius: 8px; background: var(--cl-dark); color: #fff; }
 .cl-proposal-hero span { color: var(--cl-lime); font-size: 9px; font-weight: 800; }
 .cl-proposal-hero h2 { margin: 8px 0; font-size: 23px; }

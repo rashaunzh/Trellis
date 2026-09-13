@@ -45,9 +45,9 @@ try {
     await page.getByLabel("想学的方向").fill("没有编程基础，想理解AI产品能力边界");
     await page.getByLabel("每周可用时间").selectOption("light");
     await page.getByRole("button", { name: "生成学习路线", exact: true }).click();
-    await page.getByRole("button", { name: "确认并开始", exact: true }).waitFor({ timeout: 60000 });
+    await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).waitFor({ timeout: 60000 });
     assert.equal(await page.locator("vite-error-overlay, [data-nextjs-dialog]").count(), 0);
-    await page.getByRole("button", { name: "确认并开始", exact: true }).click();
+    await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).click();
     await page.getByRole("button", { name: "开始这一节", exact: true }).waitFor({ timeout: 45000 });
   }
   async function feedback(page, uncertain = true) {
@@ -99,6 +99,33 @@ try {
       assert.equal(await page.getByRole("dialog").count(), 0, "Escape 应关闭弹窗");
     });
   });
+  await scenario("grow-confirmed", async ({ page, current, step }) => {
+    if (!await step("confirm-and-dialog", async () => {
+      await intake(page);
+      await page.goto(`${server.base}/grow`);
+      const node = page.locator(".grow-node").first();
+      await node.click();
+      const dialog = page.getByRole("dialog");
+      assert.equal(await dialog.evaluate(element => element.contains(document.activeElement)), true);
+      assert.ok(!/映射置信度|最近信号 signal\.|等级 \d\/3/.test(await page.locator("body").innerText()));
+      await page.keyboard.press("Escape");
+      await dialog.waitFor({ state: "hidden" });
+      assert.equal(await node.evaluate(element => document.activeElement === element), true);
+    })) return;
+    await step("draft-does-not-replace-growth", async () => {
+      const before = await page.locator(".grow-node strong").allTextContents();
+      const confirmedId = (await current()).curriculum.id;
+      await page.goto(`${server.base}/learn`);
+      await page.getByRole("button", { name: "重新说明目标", exact: true }).click();
+      await page.getByLabel("想学的方向").fill("想学习Agent工具调用和部署");
+      await page.getByRole("button", { name: "生成学习路线", exact: true }).click();
+      await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).waitFor({ timeout: 60000 });
+      await page.goto(`${server.base}/grow`);
+      await page.locator(".grow-node").first().waitFor();
+      assert.deepEqual(await page.locator(".grow-node strong").allTextContents(), before);
+      assert.equal((await current()).curriculum.id, confirmedId);
+    });
+  });
   await scenario("materials", async ({ page, context, current, step }) => {
     if (!await step("add-analyze-review", async () => {
       await page.goto(`${server.base}/workbench`);
@@ -144,7 +171,7 @@ try {
       await dialog.getByRole("button", { name: "暂不采用", exact: true }).first().click();
       await page.getByText("已生成新的方案版本，原方案和学习记录仍保留。", { exact: true }).waitFor();
       await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-      await page.getByRole("button", { name: "确认并开始", exact: true }).click();
+      await page.getByRole("button", { name: /^(确认并开始|先开始已覆盖的部分)$/ }).click();
       await page.getByRole("button", { name: /开始这一节|继续这一节/, exact: true }).waitFor();
       await page.reload(); assert.notEqual((await current()).curriculum.id, confirmedId);
     });
@@ -262,6 +289,36 @@ try {
       await page.getByRole("button", { name: "确认下一周", exact: true }).click();
       await page.getByRole("button", { name: "确认下一周", exact: true }).waitFor({ state: "hidden" });
       assert.equal((await server.inspectDatabase("SELECT status FROM learning_weekly_plans WHERE owner_id=? AND week_key=?", [owner, before.nextWeekProposal.weekKey]))[0].status, "confirmed");
+    });
+  });
+  await scenario("limited-route", async ({ page, current, step }) => {
+    const goal = "只使用DeepLearning.AI学习AI产品评测、失败风险与可观测性，没有编程基础";
+    if (!await step("review-impact-and-preserve-input", async () => {
+      await page.goto(`${server.base}/learn`);
+      await page.getByLabel("想学的方向").fill(goal);
+      await page.getByLabel("每周可用时间").selectOption("light");
+      await page.getByRole("button", { name: "生成学习路线", exact: true }).click();
+      await page.getByRole("heading", { name: "先核对未覆盖的目标", exact: true }).waitFor({ timeout: 60000 });
+      await page.getByRole("button", { name: "先开始已覆盖的部分", exact: true }).waitFor();
+      const coverage = page.getByRole("region", { name: "路线覆盖与下一步" });
+      assert.ok((await coverage.innerText()).includes("尚未安排"));
+      assert.ok(!/\b(?:pm|app|ai)\.[a-z-]+/.test(await coverage.innerText()));
+      await coverage.getByRole("button", { name: "补充材料或修改目标", exact: true }).click();
+      assert.equal(await page.getByLabel("想学的方向").inputValue(), goal);
+      assert.equal(await page.getByLabel("每周可用时间").inputValue(), "light");
+      await page.getByRole("button", { name: "取消", exact: true }).click();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({ path: resolve(run.directory, "limited-route-mobile.png"), fullPage: true });
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    })) return;
+    await step("adopt-partial-and-restore-limit", async () => {
+      await page.getByRole("button", { name: "先开始已覆盖的部分", exact: true }).click();
+      await page.getByRole("heading", { name: "当前执行的是部分路线", exact: true }).waitFor();
+      const before = await current();
+      assert.ok(before.activities.length > 0);
+      await page.reload();
+      await page.getByRole("heading", { name: "当前执行的是部分路线", exact: true }).waitFor();
+      assert.equal((await current()).curriculum.id, before.curriculum.id);
     });
   });
 } catch (error) {
