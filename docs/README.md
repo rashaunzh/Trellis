@@ -6,6 +6,7 @@
 
 1. [产品契约](product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md)：当前承诺与非目标。
 2. [桌面更新设计](product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md)：153 条点击规格，手机专项滞后。
+   产品取舍、完整操作与验收理由见[产品分析与下一版设计](product/TRELLIS_PRODUCT_ANALYSIS_2026-09-14.md)；实施每包前同步桌面规格中的对应行为，避免平行标准。
 3. [项目进展](engineering/PROJECT_STATUS.md)：实际已有能力、设计差距、验证与下一步。
 4. [架构](architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md)：状态、模型、工作流边界。
 5. [开发指南](engineering/LOCAL_DEVELOPMENT.md)、[发布指南](engineering/DEPLOYMENT_RUNBOOK.md)：运行和交付。
