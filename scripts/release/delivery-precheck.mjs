@@ -1,60 +1,55 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const requiredFiles = [
-  "README.md",
+  "README.md", "AGENTS.md", "docs/README.md",
   "docs/product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md",
-  "docs/product/TRELLIS_PORTFOLIO_CASE_STUDY.md",
-  "docs/product/TRELLIS_INTERNAL_TEST_PLAN.md",
-  "docs/product/TRELLIS_INTERNAL_TEST_LOG.md",
-  "docs/product/TRELLIS_PORTFOLIO_EVIDENCE_MATRIX.md",
-  "docs/engineering/TRELLIS_3_MIN_DEMO_SCRIPT.md",
-  "docs/architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md",
-  "docs/architecture/TRELLIS_ARCHIFY_DIAGRAMS.md",
-  "docs/architecture/MODEL_RUNTIME.md",
+  "docs/product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md",
+  "docs/engineering/PROJECT_STATUS.md",
+  "docs/engineering/LOCAL_DEVELOPMENT.md",
   "docs/engineering/DEPLOYMENT_RUNBOOK.md",
-  "docs/engineering/TRELLIS_DEPLOYMENT_DECISION.md",
+  "docs/engineering/REPOSITORY_CLEANUP_2026-09-14.md",
+  "docs/architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md",
+  "docs/architecture/MODEL_RUNTIME.md",
+  "docs/product/evidence/pm-independent-2026-09-14/README.md",
   "scripts/acceptance/acceptance-course-intelligence.mjs",
   "scripts/acceptance/acceptance-internal-test-loop.mjs",
   "scripts/acceptance/acceptance-agentic-kernel.mjs",
-  "scripts/release/production-smoke.mjs",
-  "scripts/release/model-smoke.mjs",
-  "scripts/release/model-benchmark.mjs",
-  "scripts/release/scan-secrets.mjs",
-  "scripts/release/verify-migrations.mjs",
-  "drizzle/migration-manifest.json",
-  "drizzle/0014_canonical_learning_runtime.sql",
-  "drizzle/0015_production_control_plane.sql",
-  "drizzle/0016_agentic_decision_kernel.sql",
-  "drizzle/0017_model_runtime_trace.sql",
-  "drizzle/0018_functional_learning_loop.sql",
-  "drizzle/0019_learning_continuity.sql",
-  "drizzle/0020_content_sources.sql",
-  "docs/acceptance-course-intelligence-proposal.png",
-  "docs/acceptance-course-intelligence-learn.png",
-  "docs/acceptance-course-intelligence-grow.png",
-  "docs/acceptance-course-intelligence-workbench.png",
-  "docs/acceptance-course-intelligence-mobile.png",
-  "docs/acceptance-continuous-learning-learn.png",
-  "docs/acceptance-continuous-learning-feedback.png",
-  "docs/acceptance-continuous-learning-grow.png",
-  "docs/acceptance-continuous-learning-workbench.png",
-  "docs/acceptance-continuous-learning-mobile.png",
-  "docs/acceptance-internal-test-first-use.png",
-  "docs/acceptance-internal-test-resume.png",
-  "docs/acceptance-internal-test-workbench.png",
-  "docs/acceptance-internal-test-mobile.png",
-  ".openai/hosting.json",
+  "scripts/release/scan-secrets.mjs", "scripts/release/verify-migrations.mjs",
+  "drizzle/migration-manifest.json", ".openai/hosting.json",
 ];
+const errors = [];
+for (const file of requiredFiles) if (!existsSync(file)) errors.push(`missing ${file}`);
 
-let failed = false;
-for (const file of requiredFiles) {
-  if (existsSync(file)) {
-    console.log(`PASS ${file}`);
-  } else {
-    failed = true;
-    console.error(`FAIL missing ${file}`);
+function markdownFiles(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const file = resolve(directory, entry.name);
+    return entry.isDirectory() ? markdownFiles(file) : entry.name.endsWith(".md") ? [file] : [];
+  });
+}
+const documents = ["README.md", "AGENTS.md", ...markdownFiles("docs"),
+  ...["memory/README.md", "memory/decisions", "memory/handoff", "memory/sessions"].flatMap(file =>
+    file.endsWith(".md") ? [file] : markdownFiles(file))];
+for (const file of documents) {
+  const content = readFileSync(file, "utf8");
+  for (const match of content.matchAll(/!?\[[^\]\n]*\]\(([^)\n]+)\)/g)) {
+    const href = match[1].trim().replace(/^<|>$/g, "");
+    if (/^(?:https?:|mailto:|#)/i.test(href)) continue;
+    const target = decodeURIComponent(href.split("#")[0]);
+    if (target && !existsSync(resolve(dirname(file), target))) errors.push(`broken link in ${file}: ${href}`);
   }
 }
-
-if (failed) process.exit(1);
-console.log("PASS delivery assets present");
+const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+const privatePaths = tracked.filter(file =>
+  /^(?:memory\/(?:profile|routes)\/|\.vscode\/|outputs\/|\.env(?:\.|$)|\.dev\.vars(?:\.|$))/.test(file));
+for (const file of privatePaths) errors.push(`local-only path remains tracked: ${file}`);
+for (const directory of ["scripts/legacy", "docs/archive", "docs/portfolio"]) {
+  if (tracked.some(file => file.startsWith(directory + "/"))) errors.push(`retired directory remains tracked: ${directory}`);
+}
+if (errors.length) {
+  for (const error of errors) console.error(`FAIL ${error}`);
+  process.exit(1);
+}
+console.log(`PASS delivery entrypoints (${requiredFiles.length}), document links (${documents.length}) and repository boundaries`);
+console.log("This check does not establish production readiness, history sanitization or learning outcomes.");

@@ -1,46 +1,23 @@
-# Trellis 仓库目录契约
+# 仓库目录契约
 
-## 原则
+框架入口保持在根目录。目录整齐不能以破坏运行、迁移或兼容回归为代价。
 
-仓库按“运行代码、工程支持、产品资料、长期记忆”分工。Next/Vinext、Drizzle 和 Worker 依赖若干根目录约定，不为视觉整齐移动框架入口。
-
-## 运行代码
-
-| 路径 | 职责 | 约束 |
+| 路径 | 内容 | 处理原则 |
 |---|---|---|
-| `app/` | Next/Vinext 页面、样式和 API 路由 | 框架入口，保持根目录 |
-| `lib/` | 跨页面复用的 Trellis 业务逻辑 | 新通用逻辑优先放这里 |
-| `db/` | 数据库连接和当前 Schema | 被 API 与 Drizzle 配置直接引用 |
-| `drizzle/` | 已审核的数据库迁移和迁移元数据 | 不手工改写已应用迁移 |
-| `worker/` | Cloudflare Worker 入口 | 被 Vite 配置直接引用 |
-| `public/` | 浏览器可直接访问的静态资源 | 不存放秘密或用户私密材料 |
+| app/ | 页面、样式、API | 交付源码 |
+| lib/、src/ | 业务模块与工作流注册 | 按真实依赖保留 |
+| db/、drizzle/ | Schema、已审核迁移 | 迁移不可因整理随意删除或重排 |
+| worker/、build/ | 运行入口、构建适配 | build 是源码，不是 dist |
+| public/ | 静态公共资源 | 可随应用分发 |
+| scripts/acceptance/ | 当前功能验收 | 运行产物写 outputs |
+| scripts/compatibility/ | 仍有价值的旧运行时回归 | 保留明确启用边界；不作为新版验收 |
+| scripts/release/ | 构建、扫描、迁移、预检 | 可复现的交付工具 |
+| tests/ | 模块、集成和构建测试 | 不因旧名称删除仍有效断言 |
+| docs/ | 当前规则、设计、架构、状态、必要证据 | 每类一个明确入口 |
+| memory/decisions、memory/handoff、memory/sessions | 产品决策与简短交付记录 | 只保存可审阅工程内容 |
+| memory/profile、memory/routes、.vscode | 个人资料与本机设置 | 本地保留，Git 忽略 |
+| .openai/ | 当前 Sites 非秘密绑定配置 | 保留部署所需配置 |
+| node_modules、dist、.vinext、outputs | 依赖和可重建产物 | 不提交 |
+| .wrangler/state | 本地持久数据 | 不提交，也不能当缓存随意删除 |
 
-## 工程支持
-
-| 路径 | 职责 |
-|---|---|
-| `build/` | Sites/Vinext 构建适配代码，不是构建产物 |
-| `scripts/acceptance/` | 浏览器和端到端验收；Course Intelligence 是当前正式纵向链路 |
-| `scripts/release/` | 构建、迁移、交付预检、生产 smoke 与产物验证 |
-| `scripts/lib/` | 多脚本共享的内部基础设施，不提供独立命令 |
-| `scripts/compatibility/` | 旧 StagePath、三周链和作品闭环的兼容回归 |
-| `scripts/legacy/` | 旧 V0.2、作品集和 Mastra 演示兼容脚本，不进入默认 CI |
-| `tests/learning-domain/` | 领域、应用与持久化模块测试 |
-| `tests/*.test.mjs` | 编译产物和路由 smoke 测试 |
-| `.github/` | CI 工作流 |
-| `.openai/` | 当前托管平台的非秘密配置 |
-| `.vscode/` | 仓库级编辑器与终端约束 |
-
-## 产品资料与记忆
-
-- `docs/` 保存可评审的产品、架构、研究和开发文档；当前实现以 Course Intelligence 产品契约、架构和 remediation 状态为准，V0.2 PRD 只保留产品沿革与兼容约束。
-- `memory/` 保存已确认偏好、路线、决策、会话结果和当前交接；它不是文档归档区，也不复制外部知识原文。
-- `docs/archive/` 只保存已失效但仍有追溯价值的旧版资料和设计草案；归档文件不能作为实现依据。
-
-## 可重建目录
-
-`node_modules/`、`dist/`、`.vinext/`、`.wrangler/` 和 `.sites-runtime/` 由安装、构建或本地运行产生，不进入 Git，并在 VS Code 默认隐藏。需要时通过 `npm ci`、`npm run build` 或开发命令重建。
-
-## 何时允许重构目录
-
-只有当移动能改善依赖方向或测试隔离时，才重新组织 `app/db/worker`。目录迁移必须单独提交，并在每批移动后运行完整测试。
+旧设计和演示包装从当前树删除，Git 历史可追溯。保留源码、迁移与兼容测试不代表这些能力都属于当前产品承诺。

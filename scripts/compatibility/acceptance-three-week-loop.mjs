@@ -16,10 +16,12 @@ import {
   connectCdp,
 } from "../lib/browser-cdp.mjs";
 
+mkdirSync(resolve("outputs/acceptance"), { recursive: true });
+
 const OWNER_ID = "three-week-loop-owner";
-const SHOT_LEARN = resolve("docs/acceptance-three-week-learn.png");
-const SHOT_REVIEW = resolve("docs/acceptance-three-week-review-history.png");
-const SHOT_ARTIFACT = resolve("docs/acceptance-three-week-artifact-loop.png");
+const SHOT_LEARN = resolve("outputs/acceptance/acceptance-three-week-learn.png");
+const SHOT_REVIEW = resolve("outputs/acceptance/acceptance-three-week-review-history.png");
+const SHOT_ARTIFACT = resolve("outputs/acceptance/acceptance-three-week-artifact-loop.png");
 
 const post = (path, body = {}) => apiPost(path, body, OWNER_ID);
 

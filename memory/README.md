@@ -1,21 +1,10 @@
-# Trellis Memory
+# 项目协作记录
 
-这里保存 Trellis 的可读长期记忆。它不是聊天全文归档，也不是 Obsidian 知识库的副本。
+本目录只跟踪可审阅的产品决策、当前交接和简短交付记录。
 
-## 目录
+- decisions/README.md：现行产品决策入口。
+- handoff/current.md：当前重点与下一步。
+- sessions/：每次持久交付的变更与验证摘要。
+- profile/、routes/：可选的本地个人资料，不进入当前 Git 树。
 
-- `profile/`：稳定偏好与约束
-- `routes/`：四条主线的路线状态
-- `decisions/`：已确认产品与个人决策
-- `sessions/`：按日期保存的会话摘要
-- `handoff/current.md`：下一次会话的首要入口
-- `concepts/`：概念闪卡及 Anki 导出前结构
-- `evidence/`：作品、测评、代码、简历案例等证据索引
-
-## 规则
-
-- 正式选择标记 `confirmed`，AI 建议标记 `proposal`。
-- 每个事实尽量附来源；外部原文只保存链接和必要摘要。
-- 一次会话一个文件，一项长期决策一个文件。
-- 不提交任何密钥、token、cookie、公司机密或不可公开原文。
-- 会话结束必须更新 `handoff/current.md`。
+旧过程记录通过 Git 历史追溯，不在当前目录重复堆放。完整实现状态在 docs/engineering/PROJECT_STATUS.md，不在每份会话记录中重复维护。

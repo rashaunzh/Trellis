@@ -16,12 +16,14 @@ import {
   connectCdp,
 } from "../lib/browser-cdp.mjs";
 
+mkdirSync(resolve("outputs/acceptance"), { recursive: true });
+
 const OWNER_ID = "internal-test-loop-owner";
 const SHOTS = {
-  firstUse: resolve("docs/acceptance-internal-test-first-use.png"),
-  resume: resolve("docs/acceptance-internal-test-resume.png"),
-  workbench: resolve("docs/acceptance-internal-test-workbench.png"),
-  mobile: resolve("docs/acceptance-internal-test-mobile.png"),
+  firstUse: resolve("outputs/acceptance/acceptance-internal-test-first-use.png"),
+  resume: resolve("outputs/acceptance/acceptance-internal-test-resume.png"),
+  workbench: resolve("outputs/acceptance/acceptance-internal-test-workbench.png"),
+  mobile: resolve("outputs/acceptance/acceptance-internal-test-mobile.png"),
 };
 
 const post = (path, body = {}) => apiPost(path, body, OWNER_ID);

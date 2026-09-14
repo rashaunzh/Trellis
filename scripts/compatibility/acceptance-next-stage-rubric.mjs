@@ -20,7 +20,9 @@ import {
 } from "../lib/browser-cdp.mjs";
 
 export const OWNER_ID = "next-stage-rubric-owner";
-export const SHOT = resolve("docs/learn-next-stage-rubric.png");
+export const SHOT = resolve("outputs/acceptance/learn-next-stage-rubric.png");
+mkdirSync(resolve("outputs/acceptance"), { recursive: true });
+
 const post = (path, body = {}) => apiPost(path, body, OWNER_ID);
 
 async function prepareDemoState() {

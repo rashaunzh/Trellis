@@ -16,14 +16,16 @@ import {
   connectCdp,
 } from "../lib/browser-cdp.mjs";
 
+mkdirSync(resolve("outputs/acceptance"), { recursive: true });
+
 const OWNER_ID = "course-intelligence-acceptance-owner";
 const SHOTS = {
-  proposal: resolve("docs/acceptance-continuous-learning-proposal.png"),
-  learn: resolve("docs/acceptance-continuous-learning-learn.png"),
-  feedback: resolve("docs/acceptance-continuous-learning-feedback.png"),
-  grow: resolve("docs/acceptance-continuous-learning-grow.png"),
-  workbench: resolve("docs/acceptance-continuous-learning-workbench.png"),
-  mobile: resolve("docs/acceptance-continuous-learning-mobile.png"),
+  proposal: resolve("outputs/acceptance/acceptance-continuous-learning-proposal.png"),
+  learn: resolve("outputs/acceptance/acceptance-continuous-learning-learn.png"),
+  feedback: resolve("outputs/acceptance/acceptance-continuous-learning-feedback.png"),
+  grow: resolve("outputs/acceptance/acceptance-continuous-learning-grow.png"),
+  workbench: resolve("outputs/acceptance/acceptance-continuous-learning-workbench.png"),
+  mobile: resolve("outputs/acceptance/acceptance-continuous-learning-mobile.png"),
 };
 
 const post = (path, body = {}) => apiPost(path, body, OWNER_ID);

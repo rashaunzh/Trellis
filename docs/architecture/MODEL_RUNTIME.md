@@ -46,7 +46,7 @@ TRELLIS_AI_FALLBACK_STRUCTURED_OUTPUT
 
 本地 `npm run benchmark:model` 自动读取被 Git 忽略的 `.env.local`；本地 Worker 使用同样被忽略的 `.dev.vars`。生产环境继续使用托管平台 secret，不上传这两个文件。
 
-当前真实基准采用 `qwen / qwen3.8-flash` 为主模型，`glm / glm-5.3-flash` 为备用模型。两者均通过 8/8 golden cases；Qwen 总延迟约 20.5 秒，GLM 约 35.1 秒，因此主备顺序按任务实测确定，而不是按厂商品牌固定。模型或 provider 版本变化后必须重新运行基准。
+主备模型由目标环境配置及版本绑定的真实基准决定。历史模型名、延迟或通过数量不作为当前生产可用性证明；每次模型或合同升级需重新验证。本次仓库整理未运行付费模型基准。
 
 可选配置 `*_INPUT_USD_PER_MILLION` 和 `*_OUTPUT_USD_PER_MILLION`，让 benchmark 估算成本。未提供价格时按质量门、延迟和 token 使用比较。
 

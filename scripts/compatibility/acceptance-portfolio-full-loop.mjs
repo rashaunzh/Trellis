@@ -20,10 +20,12 @@ import {
   connectCdp,
 } from "../lib/browser-cdp.mjs";
 
+mkdirSync(resolve("outputs/acceptance"), { recursive: true });
+
 const OWNER_ID = "portfolio-full-loop-owner";
-const SHOT_ONBOARDING = resolve("docs/acceptance-portfolio-onboarding.png");
-const SHOT_STAGE = resolve("docs/acceptance-portfolio-stage-path.png");
-const SHOT_NEXT = resolve("docs/acceptance-portfolio-next-stage.png");
+const SHOT_ONBOARDING = resolve("outputs/acceptance/acceptance-portfolio-onboarding.png");
+const SHOT_STAGE = resolve("outputs/acceptance/acceptance-portfolio-stage-path.png");
+const SHOT_NEXT = resolve("outputs/acceptance/acceptance-portfolio-next-stage.png");
 
 const GOAL = "我是转 AI PM 的小白，希望完成一个 AI Agent 产品 PRD 作品集项目";
 

@@ -1,79 +1,41 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
+# Dependencies and build output
+/node_modules/
 /.pnp
 .pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
+/.yarn/*
+!/.yarn/patches/
+!/.yarn/plugins/
 /.next/
 /out/
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-
-# 本地 Codex/Agent 分析工具，不属于 Trellis 产品源码
-/.agents/
-/AGENTS.local.md
-/skills-lock.json
-
-# 历史浏览器验收产物；当前 Course Intelligence 交付截图显式保留在 docs/
-/docs/acceptance-portfolio-*.png
-/docs/acceptance-three-week-*.png
-/docs/learn-*.png
-/docs/mastra-studio-*.png
-/docs/mastra-studio-run-output.json
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-.codex-*.log
-
-# env files (can opt-in for committing if needed)
-.env*
-.dev.vars*
-
-# vercel
-.vercel
-
-# typescript
-next-env.d.ts
 /dist/
 /.vinext/
+/.mastra/
+/coverage/
+*.tsbuildinfo
+
+# Runtime data, logs, test output and local tools
 /.wrangler/
 /.sites-runtime/
 /outputs/
-/.tmp-jd-research.txt
 /work/
-
-# TypeScript incremental build cache
-*.tsbuildinfo
-
-# Python 运行时产物
-__pycache__/
-*.pyc
-
-# 浏览器自动化：临时 Chrome profile、中间截图、日志（分发前 hygiene）
-/.mastra/
-/.tmp-next-stage-chrome/
-/.tmp-next-stage-chrome-*/
-/.tmp-trellis-browser-*/
-/.tmp-mastra-studio-chrome/
-**/.tmp-chrome-*/
+/.agents/
+/.vscode/
+/AGENTS.local.md
+/skills-lock.json
+/.tmp-*/
 scripts/.tmp-*.mjs
 **/.acceptance-shots/
 **/acceptance-shots/
+__pycache__/
+*.pyc
 *.log
 *.log.*
-npm-debug.log*
+
+# Local personal data and secrets (never publish via Git)
+/memory/profile/
+/memory/routes/
+.env*
+.dev.vars*
+*.pem
+.DS_Store
+/.vercel/

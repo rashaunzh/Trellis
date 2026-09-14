@@ -1,22 +1,25 @@
-# Trellis 工程脚本
+# 工程脚本
 
-脚本按调用责任分类，正式入口统一由 `package.json` 暴露，不要求协作者记住文件路径。
+| 目录 | 用途 |
+|---|---|
+| acceptance/ | 当前材料、路线、反馈与隔离验收 |
+| compatibility/ | 旧运行时的显式兼容回归，不证明新版交互完成 |
+| release/ | 构建、迁移、扫描、交付预检、真实模型与生产检查 |
+| lib/ | 浏览器等内部共享支持 |
 
-| 目录 | 状态 | 职责 |
-|---|---|---|
-| `acceptance/` | 正式 | 当前 Course Intelligence 纵向浏览器验收 |
-| `release/` | 正式 | 构建、迁移验证、交付预检、生产 smoke 和产物验证 |
-| `lib/` | 正式内部模块 | 浏览器 CDP 等多个脚本共享的基础设施；不直接执行 |
-| `compatibility/` | 兼容回归 | StagePath、作品闭环、三周链和旧作品集发布检查 |
-| `legacy/` | 历史兼容 | V0.2 Python 验收、旧截图和 Mastra 演示；不进入默认 `npm run check` |
-| 根层 `*.sh` | 正式环境入口 | Sites/Vinext 环境包装；依赖同目录的 `sites-env.sh`，因此保持根层 |
-
-## 默认验证
+默认验证：
 
 ```bash
 npm run check
-npm run acceptance:course-intelligence
 npm run delivery:precheck
 ```
 
-`acceptance:next-stage`、`acceptance:portfolio`、`acceptance:three-week-loop` 和 `demo:mastra` 是兼容入口。删除前必须先确认旧领域模块和作品集证据不再需要回归。
+已有本地服务时，可运行 acceptance:course-intelligence、acceptance:internal-test-loop、acceptance:agentic-kernel。它们使用明确测试身份；需确认测试环境后运行，不能对个人账号或线上数据执行 reset。
+
+acceptance:redesign-core 使用隔离服务与数据库；保留案例预期见[预登记](../docs/reviews/T1_RESERVED_CASES_EXPECTATIONS.md)。输出默认放 outputs，不自动进入交付目录。
+
+acceptance:three-week-loop、acceptance:next-stage、acceptance:portfolio 是兼容入口。旧演示包装和只检查旧截图存在的发布脚本已删除；业务回归仍保留。
+
+真实模型调用仅在需要模型验收时运行 smoke:model 或 benchmark:model；密钥不进入报告。默认 check 不依赖付费模型。
+
+每次生成的日志、截图和打包文件写 outputs 或已有被忽略的构建目录。公开可审阅证据须人工选择，并附环境和范围；生成脚本不会直接覆盖 docs 中的精选截图。

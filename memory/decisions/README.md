@@ -1,17 +1,11 @@
-# Trellis 决策索引
+# 当前产品决策
 
-这里只收录已经确认、需要跨会话持续生效的决定。提案和讨论过程放在 `memory/sessions/`，未经用户确认不得写成正式决策。
+按相关范围读取，不以历史测试数字宣称当前上线状态。
 
-## 当前决策
+- [课程智能责任](2026-08-30-course-intelligence-center.md)：材料理解、有限路线、推进与恢复。
+- [生产身份与运行时](2026-08-31-production-runtime.md)：托管身份、D1 与工作流。
+- [决策记录与确认边界](2026-09-01-agentic-decision-kernel.md)：候选、确认、版本与事实源。
 
-- `2026-09-07-week-delivery.md`：一周内优先受控演示与 AI PM 作品集，产品实践、评价与复盘共同推进。
+当前范围以[产品契约](../../docs/product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md)表达；[桌面设计](../../docs/product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md)为下一版待审阅交互，手机专项滞后。实际完成程度只看[项目进展](../../docs/engineering/PROJECT_STATUS.md)。
 
-- `2026-08-07-foundation.md`：Trellis 命名、四主线、规划单位、AI 与工具边界等基础决策
-- `2026-08-12-v0.2-adaptive-learning.md`：V0.2 自适应学习方向；在未来产品定位和信息架构上取代基础决策中的对应部分
-- `2026-08-13-ai-literacy-v1.md`：非年龄用户分类、AI 通识 V1 能力模型、内容设计责任和首个实现切片
-- `2026-08-13-v0.2-mvp-scope.md`：新版 MVP 不再止于路径确认，默认入口进入自适应学习闭环
-- `2026-08-30-course-intelligence-center.md`：Course Intelligence 成为正式产品中心，课程目录范围、AI 降级和旧链路退出规则
-- `2026-08-31-production-runtime.md`：ChatGPT 托管身份、正式 Mastra 工作流与 D1 业务真相边界
-- `2026-09-01-agentic-decision-kernel.md`：统一决策记录、四条正式工作流、Solver v2、主备模型和旧链退出规则
-
-如两份决策发生冲突，以范围更具体且日期更新的已确认决策为准；V0.1 生产兼容事项仍按基础决策处理。
+早期已被替代的路线与交付方案不作为并行实施标准，历史可由 Git 查阅。
