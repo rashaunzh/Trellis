@@ -5,8 +5,7 @@
 ## 从这里开始
 
 1. [产品契约](product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md)：当前承诺与非目标。
-2. [桌面更新设计](product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md)：153 条点击规格，手机专项滞后。
-   最新逐次点击以[产品分析与下一版设计第 21 章](product/TRELLIS_PRODUCT_ANALYSIS_2026-09-14.md#21-桌面逐次点击设计开发者不可省略的行为约定)的 200 条细则为准；旧桌面文件保留布局背景，避免混用不同操作规则。
+2. [产品设计决策](product/TRELLIS_PRODUCT_ANALYSIS_2026-09-14.md)：学习辅助价值、完整样例、AI 责任与交付排序；[桌面交互规格](product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md)：导学、学习、尝试、反馈、修订、收尾的逐次点击与恢复。两份均为 2026-09-15 学习辅助闭环版，旧点击表退出当前实施标准，手机专项后置。
 3. [项目进展](engineering/PROJECT_STATUS.md)：实际已有能力、设计差距、验证与下一步。
 4. [架构](architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md)：状态、模型、工作流边界。
 5. [开发指南](engineering/LOCAL_DEVELOPMENT.md)、[发布指南](engineering/DEPLOYMENT_RUNBOOK.md)：运行和交付。
