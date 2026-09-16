@@ -14,11 +14,11 @@
 
 - [模型运行](architecture/MODEL_RUNTIME.md)
 - [Mastra 与 D1 决策](architecture/ADR_MASTRA_D1_RESPONSIBILITIES.md)
-- [协作记录与隐私](architecture/MEMORY_ARCHITECTURE.md)
-- [目录契约](development/REPOSITORY_STRUCTURE.md)
+- [当前关键决策](architecture/DECISIONS.md)
+- [仓库交付标准](engineering/REPOSITORY_DELIVERY_STANDARD.md)：开源仓库参照、目录边界、分支与公开发布要求。
+- [贡献指南](../CONTRIBUTING.md)
 - [固定保留案例预期](reviews/T1_RESERVED_CASES_EXPECTATIONS.md)：不得为使测试通过而改写。
 - [本轮桌面样例证据](product/evidence/pm-independent-2026-09-14/README.md)
 - [学习竞品一手证据](product/evidence/LEARNING_PRODUCT_PATTERNS_2026-09-15.md)：三个直接学习产品与 Reader 替代流程，区分官方描述和未核实事项。
-- [仓库整理记录](engineering/REPOSITORY_CLEANUP_2026-09-14.md)
 
 旧版 PRD、重复评审和中间产物已退出当前目录，历史通过 Git 追溯，不再将旧文件作为并行实施依据。

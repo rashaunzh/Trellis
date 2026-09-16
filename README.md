@@ -1,42 +1,58 @@
 # Trellis
 
-Trellis 帮助 AI 领域的自主学习者，把目标和已有材料转化为有依据的路线、可执行的学习活动和连续记录。课程教学主要留在原课程，Trellis 负责材料取舍、学习顺序、开始与恢复，以及依据反馈提出调整。
+把 AI 学习目标和材料，变成有依据的学习路线、可执行的活动和连续记录。
 
-**当前阶段：已有可运行功能基础，正在进入桌面交互更新。** 最新设计尚未全部实现；本仓库不宣称已经完成公开产品验收或验证长期学习效果。
+Trellis 面向 AI 领域的自主学习者。主要教学来自外部课程；Trellis 帮助选择学习范围、安排顺序、记录问题，并根据学习反馈决定如何继续。
 
-## 审阅入口
+## 当前能力
 
-| 想了解什么 | 文档 |
-|---|---|
-| 当前实现程度、验证和下一步 | [项目进展](docs/engineering/PROJECT_STATUS.md) |
-| 当前产品责任与边界 | [产品契约](docs/product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md) |
-| 下一版逐点击设计 | [桌面更新设计](docs/product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md) |
-| 数据流与 AI 写入边界 | [架构](docs/architecture/TRELLIS_COURSE_INTELLIGENCE_ARCHITECTURE.md) |
-| 本地运行与测试 | [开发指南](docs/engineering/LOCAL_DEVELOPMENT.md) |
-| 部署条件与验收边界 | [发布指南](docs/engineering/DEPLOYMENT_RUNBOOK.md) |
-| 清理范围与可审阅边界 | [仓库整理记录](docs/engineering/REPOSITORY_CLEANUP_2026-09-14.md) |
+- 从目标、每周投入和可选材料生成路线候选，审阅后采用。
+- 保存和分析材料，区分实际读取范围、候选片段与正式采用。
+- 开始、暂停和恢复活动，记录完成情况、学习位置及反馈。
+- 在有限主题中提供补充讲解、选择题检查、逐题反馈和历史记录。
 
-## 本地启动
+当前处于开发阶段。完整的导学、开放回答、反馈修订与跨次学习体验正在设计和实现中；详细边界见[项目状态](docs/engineering/PROJECT_STATUS.md)。
 
-使用 Node.js 22.13 或更新的受支持版本，推荐按 CI 使用 Node 22。
+## 本地开发
+
+需要 Node.js 22.13+（CI 使用 Node 22）、npm 和 Git。
 
 ```bash
+git clone https://github.com/rashaunzh/AI-Learning-OS.git
+cd AI-Learning-OS
 npm ci
 npm run db:verify
+npx wrangler d1 migrations apply DB --local --config wrangler.migrate.json
 npm run dev
 ```
 
-默认入口为 `http://127.0.0.1:5174/learn`。已有本地数据库不可通过删除状态目录初始化；完整设置步骤见开发指南。
+访问 `http://127.0.0.1:5174/learn`。`db:verify` 在内存中验证迁移；下一条命令将待应用迁移写入本地开发数据库，先核对命令列出的迁移再确认。已有数据库不要删除重建；详情见[开发指南](docs/engineering/LOCAL_DEVELOPMENT.md)。Windows 执行策略拦截时可使用 `npm.cmd` 和 `npx.cmd`。
+
+不配置模型密钥也可使用已发布基线。需要真实模型时，从 [.env.example](.env.example) 了解可选变量，按[模型配置](docs/architecture/MODEL_RUNTIME.md)设置本地或托管环境。
 
 ```bash
 npm run check
 npm run delivery:precheck
 ```
 
-测试通过证明指定样例与工程约束通过，不代表真实模型输出、线上登录或学习效果已经验收。
+## 文档与贡献
 
-## 仓库内容
+- [文档导航](docs/README.md)：产品规则、设计、架构、开发与验证。
+- [贡献指南](CONTRIBUTING.md)：问题反馈、变更范围、检查与提交。
+- [项目状态](docs/engineering/PROJECT_STATUS.md)：已有能力、已验证范围和下一步。
+- [部署指南](docs/engineering/DEPLOYMENT_RUNBOOK.md)：托管身份、数据迁移与发布。
 
-`app/` 是界面与 API，`lib/` 是业务逻辑，`db/`、`drizzle/` 是状态与迁移，`worker/`、`build/` 是部署入口和构建适配，`scripts/`、`tests/` 提供可复现验证。详见[目录契约](docs/development/REPOSITORY_STRUCTURE.md)。
+## 代码布局
 
-个人路线、个人偏好、机器设置与运行数据仅保留本地，不进入当前 Git 树。Git 历史仍可能包含此前私有内容；仓库保持私有，本次整理不是公开发布授权或历史脱敏证明。
+| 路径 | 用途 |
+|---|---|
+| `app/` | 页面、样式与 API |
+| `lib/`、`src/` | 业务逻辑与工作流 |
+| `db/`、`drizzle/` | 数据结构与迁移 |
+| `worker/`、`build/` | 运行入口与构建适配 |
+| `tests/`、`scripts/` | 测试、验收与交付工具 |
+| `docs/` | 当前产品和工程文档 |
+
+## 访问与许可
+
+仓库目前为私有，克隆需要访问权限；尚未选择开源许可证。按公开交付标准整理目录不代表已经开源。公开发布前的历史与配置审阅要求见[仓库交付标准](docs/engineering/REPOSITORY_DELIVERY_STANDARD.md)。

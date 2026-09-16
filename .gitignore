@@ -34,7 +34,10 @@ __pycache__/
 # Local personal data and secrets (never publish via Git)
 /memory/profile/
 /memory/routes/
+/memory/sessions/*
+!/memory/sessions/latest.md
 .env*
+!.env.example
 .dev.vars*
 *.pem
 .DS_Store

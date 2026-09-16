@@ -21,6 +21,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - run: npm run delivery:precheck
       - run: npm run check
       - name: Package Sites artifact
         run: tar -cf trellis-sites.tar dist
