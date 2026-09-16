@@ -43,4 +43,4 @@
 
 说明性文档使用简体中文；代码标识、协议、路径和命令可用英文。
 
-Issue/PR 使用 GitHub 仓库 rashaunzh/AI-Learning-OS，优先 gh CLI，见 docs/agents/issue-tracker.md。分诊标签见 docs/agents/triage-labels.md；领域词汇见 CONTEXT.md。
+Issue/PR 使用 GitHub 仓库 rashaunzh/Trellis（公开）；历史存档在私有仓库 rashaunzh/AI-Learning-OS。优先 gh CLI，见 docs/agents/issue-tracker.md。分诊标签见 docs/agents/triage-labels.md；领域词汇见 CONTEXT.md。
