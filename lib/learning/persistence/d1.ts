@@ -1,0 +1,854 @@
+// V0.2 learning persistence — D1 实现（生产）
+// 使用原生 D1 SQL（env.DB.prepare().bind().run()），绕开 drizzle-orm/d1
+// 对 upsert 的序列化问题（其生成 "ON CONFLICT (\"table\".\"id\")" 表名限定符，
+// SQLite 不接受，导致 miniflare D1 执行失败）。
+// 接口与 LearningStore 一致，应用层零感知。
+
+import type {
+  AdjustmentRecord,
+  Evidence,
+  LearningActivity,
+  NodeProgress,
+  UserResource,
+  WeeklyPlan,
+} from "../domain/types.ts";
+import { learningContentPack } from "../domain/content.ts";
+import type { DiagnosticSnapshot, LearningStore, LearnerProfile, WeekReviewRecord } from "./store.ts";
+
+// D1 实例类型：D1Database 全局类型依赖未安装的 @miniflare/d1，
+// 这里用 any 桥接（仓库 pre-existing 问题，worker/index.ts 同样受影响）。
+// 类型安全由 LearningStore 接口与应用层保证。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Db = any;
+
+export class D1LearningStore implements LearningStore {
+  private db: Db;
+
+  constructor(db: Db) {
+    this.db = db;
+  }
+
+  async activateCurriculumRuntime(input: {
+    curriculumId: string;
+    ownerId: string;
+    profile: LearnerProfile;
+    weeklyPlan: WeeklyPlan;
+    activities: LearningActivity[];
+    nodeProgress: NodeProgress[];
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const canonicalRouteId = input.profile.activeRouteId;
+    const canonicalNodeIds = [...new Set(input.activities.map((activity) => activity.nodeId))];
+    const statements = [
+      this.db.prepare(`INSERT OR IGNORE INTO learning_routes (id,version,title,description)
+        VALUES (?,1,'AI 学习领域图','由已发布领域图投影出的正式学习路线')`)
+        .bind(canonicalRouteId),
+      ...canonicalNodeIds.map((nodeId) => this.db.prepare(`INSERT OR IGNORE INTO learning_nodes
+        (id,route_id,title,module_id,title_en,description,outcomes,source_refs,activity_templates,
+          assessment_rubric,target_level,is_key_milestone)
+        VALUES (?,?,?,'canonical',?,?,'[]','[]','[]','',1,0)`)
+        .bind(nodeId, canonicalRouteId, nodeId, nodeId, "由 Trellis 领域图管理的 canonical node")),
+      this.db.prepare(`INSERT INTO learning_profiles
+        (id,owner_id,goal,active_route_id,weekly_minutes,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(owner_id) DO UPDATE SET goal=excluded.goal,active_route_id=excluded.active_route_id,
+          weekly_minutes=excluded.weekly_minutes,status=excluded.status,updated_at=excluded.updated_at`)
+        .bind(input.profile.id, input.profile.ownerId, input.profile.goal, input.profile.activeRouteId,
+          input.profile.weeklyMinutes, input.profile.status, now),
+      this.db.prepare(`INSERT INTO learning_weekly_plans
+        (id,owner_id,route_id,week_key,capacity_minutes,status,rationale,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(owner_id,route_id,week_key) DO UPDATE SET capacity_minutes=excluded.capacity_minutes,
+          status=excluded.status,rationale=excluded.rationale,updated_at=excluded.updated_at`)
+        .bind(input.weeklyPlan.id, input.weeklyPlan.ownerId, input.weeklyPlan.routeId,
+          input.weeklyPlan.weekKey, input.weeklyPlan.capacityMinutes, input.weeklyPlan.status,
+          input.weeklyPlan.rationale, now),
+      this.db.prepare(`DELETE FROM learning_activities
+        WHERE owner_id=? AND weekly_plan_id=? AND status IN ('planned','in_progress')
+          AND id NOT IN (SELECT activity_id FROM learning_evidence WHERE owner_id=?)`)
+        .bind(input.ownerId, input.weeklyPlan.id, input.ownerId),
+      ...input.activities.map((activity) => this.db.prepare(`INSERT INTO learning_activities
+        (id,owner_id,weekly_plan_id,node_id,curriculum_id,course_version_id,course_id,unit_key,
+          canonical_node_id,scope_json,title,activity_type,goal,estimated_minutes,is_core,status,is_skip_validation,
+          input_refs,steps,expected_evidence,evaluation_criteria,next_advice,sequence,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?)
+        ON CONFLICT(id) DO UPDATE SET status=excluded.status,input_refs=excluded.input_refs,
+          next_advice=excluded.next_advice,curriculum_id=excluded.curriculum_id,
+          course_version_id=excluded.course_version_id,course_id=excluded.course_id,
+          unit_key=excluded.unit_key,canonical_node_id=excluded.canonical_node_id,
+          scope_json=excluded.scope_json,updated_at=excluded.updated_at`)
+        .bind(activity.id, activity.ownerId, activity.weeklyPlanId, activity.nodeId,
+          activity.curriculumId ?? null, activity.courseVersionId ?? null, activity.courseId ?? null,
+          activity.unitId ?? null, activity.canonicalNodeId ?? null, JSON.stringify(activity.scope ?? {}),
+          activity.title, activity.activityType,
+          activity.goal, activity.estimatedMinutes, activity.isCore ? 1 : 0, activity.status,
+          activity.isSkipValidation ? 1 : 0, activity.inputRefs.join(","), activity.steps,
+          activity.expectedEvidence, activity.evaluationCriteria, activity.nextAdvice, activity.sequence, now)),
+      ...input.nodeProgress.map((progress) => this.db.prepare(`INSERT INTO learning_node_progress
+        (id,owner_id,node_id,status,confidence,last_validated_at,confirmed_at,review_interval_days,
+          next_review_at,review_count,supporting_evidence_ids,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(owner_id,node_id) DO NOTHING`)
+        .bind(progress.id, progress.ownerId, progress.nodeId, progress.status, progress.confidence,
+          progress.lastValidatedAt, progress.confirmedAt, progress.reviewIntervalDays,
+          progress.nextReviewAt, progress.reviewCount, progress.supportingEvidenceIds.join(","), now)),
+      this.db.prepare(`UPDATE learning_ci_curricula SET status='superseded',updated_at=?
+        WHERE owner_id=? AND id!=? AND status IN ('draft','confirmed')`)
+        .bind(now, input.ownerId, input.curriculumId),
+      this.db.prepare(`UPDATE learning_ci_curricula SET status='confirmed',activation_status='active',
+        activation_error='',updated_at=? WHERE id=? AND owner_id=?`)
+        .bind(now, input.curriculumId, input.ownerId),
+    ];
+    await this.db.batch(statements);
+  }
+
+  // ── 内容层种子（幂等）──────────────────────────────
+  // 学习地图内容包是版本化只读数据，存于代码；首次使用时写入 D1
+  // 内容层表，保证状态层外键（active_route_id 等）有真实引用。
+  async seedContent(): Promise<void> {
+    const pack = learningContentPack;
+    const seedId = `legacy-content-pack@${pack.version}`;
+    const seeded = await this.db.prepare("SELECT id FROM learning_content_seed_versions WHERE id=? LIMIT 1").bind(seedId).first();
+    if (seeded) return;
+
+    for (const route of pack.routes) {
+      await this.db
+        .prepare(
+          "INSERT OR IGNORE INTO learning_routes (id, version, title, description) VALUES (?, ?, ?, ?)",
+        )
+        .bind(route.id, route.version, route.title, route.description)
+        .run();
+    }
+
+    for (const node of pack.nodes) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_nodes
+             (id, route_id, title, module_id, title_en, description,
+              outcomes, source_refs, activity_templates, assessment_rubric,
+              target_level, is_key_milestone)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          node.id,
+          node.routeId,
+          node.title,
+          node.moduleId,
+          node.titleEn,
+          node.description,
+          JSON.stringify(node.outcomes),
+          JSON.stringify(node.sourceRefs),
+          JSON.stringify(node.activityTemplates),
+          node.assessmentRubric,
+          node.targetLevel,
+          node.isKeyMilestone ? 1 : 0,
+        )
+        .run();
+    }
+
+    for (const edge of pack.edges) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_edges (source_node_id, target_node_id, relation_type)
+           VALUES (?, ?, ?)`,
+        )
+        .bind(edge.sourceNodeId, edge.targetNodeId, edge.relationType)
+        .run();
+    }
+
+    for (const branch of pack.branches) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_branches (id, route_id, name, description, main_node_id)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .bind(branch.id, branch.routeId, branch.name, branch.description, branch.mainNodeId)
+        .run();
+    }
+
+    for (const resource of pack.resources) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_resources
+             (id, title, url, source_type, credibility_level, summary)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          resource.id,
+          resource.title,
+          resource.url,
+          resource.sourceType,
+          resource.credibilityLevel,
+          resource.summary,
+        )
+        .run();
+    }
+
+    for (const mapping of pack.resourceMappings) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_resource_mappings (resource_id, node_id, usage)
+           VALUES (?, ?, ?)`,
+        )
+        .bind(mapping.resourceId, mapping.nodeId, mapping.usage)
+        .run();
+    }
+
+    for (const tool of pack.tools) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_tools (id, name, url, description)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .bind(tool.id, tool.name, tool.url, tool.description)
+        .run();
+    }
+
+    for (const mapping of pack.toolMappings) {
+      await this.db
+        .prepare(
+          `INSERT OR IGNORE INTO learning_tool_mappings (tool_id, node_id, usage, activity_context)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .bind(mapping.toolId, mapping.nodeId, mapping.usage, mapping.activityContext)
+        .run();
+    }
+
+    await this.db.prepare("INSERT OR IGNORE INTO learning_content_seed_versions (id) VALUES (?)").bind(seedId).run();
+  }
+
+  // ── 学习者画像 ──────────────────────────────────────
+  async getProfile(ownerId: string): Promise<LearnerProfile | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_profiles WHERE owner_id = ? LIMIT 1")
+      .bind(ownerId)
+      .first();
+    return row
+      ? {
+          id: row.id,
+          ownerId: row.owner_id,
+          goal: row.goal,
+          activeRouteId: row.active_route_id,
+          weeklyMinutes: row.weekly_minutes,
+          status: row.status,
+        }
+      : null;
+  }
+
+  async saveProfile(profile: LearnerProfile): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_profiles
+           (id, owner_id, goal, active_route_id, weekly_minutes, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           goal = excluded.goal,
+           active_route_id = excluded.active_route_id,
+           weekly_minutes = excluded.weekly_minutes,
+           status = excluded.status,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        profile.id,
+        profile.ownerId,
+        profile.goal,
+        profile.activeRouteId,
+        profile.weeklyMinutes,
+        profile.status,
+        now,
+      )
+      .run();
+  }
+
+  // ── 诊断输入快照（V0.1 遗留表 learning_diagnostics，无 schema 变更）──
+  async getDiagnostic(ownerId: string): Promise<DiagnosticSnapshot | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_diagnostics WHERE owner_id = ? LIMIT 1")
+      .bind(ownerId)
+      .first();
+    return row
+      ? {
+          id: String(row.id),
+          ownerId: String(row.owner_id),
+          contentPackId: String(row.content_pack_id),
+          contentPackVersion: String(row.content_pack_version),
+          goal: String(row.goal ?? ""),
+          weeklyMinutes: Number(row.weekly_minutes ?? 180),
+          selfReportJson: String(row.self_report_json ?? "{}"),
+          materialsJson: String(row.materials_json ?? "[]"),
+          answersJson: String(row.answers_json ?? "{}"),
+          status: (row.status as DiagnosticSnapshot["status"]) ?? "submitted",
+        }
+      : null;
+  }
+
+  async saveDiagnostic(snapshot: DiagnosticSnapshot): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_diagnostics
+           (id, owner_id, content_pack_id, content_pack_version, goal, weekly_minutes,
+            self_report_json, materials_json, answers_json, scores_json, status,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           goal = excluded.goal,
+           weekly_minutes = excluded.weekly_minutes,
+           self_report_json = excluded.self_report_json,
+           materials_json = excluded.materials_json,
+           answers_json = excluded.answers_json,
+           status = excluded.status,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        snapshot.id,
+        snapshot.ownerId,
+        snapshot.contentPackId,
+        snapshot.contentPackVersion,
+        snapshot.goal,
+        snapshot.weeklyMinutes,
+        snapshot.selfReportJson,
+        snapshot.materialsJson,
+        snapshot.answersJson,
+        snapshot.status,
+        now,
+      )
+      .run();
+  }
+
+  // ── 周计划 ────────────────────────────────────────
+  async getWeeklyPlanByWeek(ownerId: string, routeId: string, weekKey: string): Promise<WeeklyPlan | null> {
+    const row = await this.db
+      .prepare(
+        "SELECT * FROM learning_weekly_plans WHERE owner_id = ? AND route_id = ? AND week_key = ? LIMIT 1",
+      )
+      .bind(ownerId, routeId, weekKey)
+      .first();
+    return row
+      ? {
+          id: row.id,
+          ownerId: row.owner_id,
+          routeId: row.route_id,
+          weekKey: row.week_key,
+          capacityMinutes: row.capacity_minutes,
+          status: row.status,
+          rationale: row.rationale,
+        }
+      : null;
+  }
+
+  async saveWeeklyPlan(plan: WeeklyPlan): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_weekly_plans
+           (id, owner_id, route_id, week_key, capacity_minutes, status, rationale, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           capacity_minutes = excluded.capacity_minutes,
+           status = excluded.status,
+           rationale = excluded.rationale,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        plan.id,
+        plan.ownerId,
+        plan.routeId,
+        plan.weekKey,
+        plan.capacityMinutes,
+        plan.status,
+        plan.rationale,
+        now,
+      )
+      .run();
+  }
+
+  async listWeeklyPlans(ownerId: string, routeId: string): Promise<WeeklyPlan[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_weekly_plans WHERE owner_id = ? AND route_id = ? ORDER BY week_key ASC")
+      .bind(ownerId, routeId)
+      .all();
+    return (rows.results ?? []).map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      ownerId: String(row.owner_id),
+      routeId: String(row.route_id),
+      weekKey: String(row.week_key),
+      capacityMinutes: Number(row.capacity_minutes),
+      status: row.status as WeeklyPlan["status"],
+      rationale: String(row.rationale),
+    }));
+  }
+
+  async getWeekReview(ownerId: string, routeId: string, weekKey: string): Promise<WeekReviewRecord | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_week_reviews WHERE owner_id = ? AND route_id = ? AND week_key = ? LIMIT 1")
+      .bind(ownerId, routeId, weekKey)
+      .first();
+    return row ? weekReviewFromRow(row) : null;
+  }
+
+  async saveWeekReview(review: WeekReviewRecord): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_week_reviews
+           (id, owner_id, route_id, week_key, summary, completed_count,
+            accepted_evidence_count, revision_count, open_activity_count,
+            next_best_move, review_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (owner_id, route_id, week_key) DO UPDATE SET
+           summary = excluded.summary,
+           completed_count = excluded.completed_count,
+           accepted_evidence_count = excluded.accepted_evidence_count,
+           revision_count = excluded.revision_count,
+           open_activity_count = excluded.open_activity_count,
+           next_best_move = excluded.next_best_move,
+           review_json = excluded.review_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        review.id,
+        review.ownerId,
+        review.routeId,
+        review.weekKey,
+        review.summary,
+        review.completedCount,
+        review.acceptedEvidenceCount,
+        review.revisionCount,
+        review.openActivityCount,
+        review.nextBestMove,
+        review.reviewJson,
+        now,
+      )
+      .run();
+  }
+
+  // ── 活动 ──────────────────────────────────────────
+  async listActivitiesByPlan(planId: string): Promise<LearningActivity[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_activities WHERE weekly_plan_id = ? ORDER BY sequence ASC")
+      .bind(planId)
+      .all();
+    return (rows.results ?? []).map(activityFromRow);
+  }
+
+  async getActivity(activityId: string): Promise<LearningActivity | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_activities WHERE id = ? LIMIT 1")
+      .bind(activityId)
+      .first();
+    return row ? activityFromRow(row) : null;
+  }
+
+  async saveActivity(activity: LearningActivity): Promise<void> {
+    if (activity.canonicalNodeId && activity.curriculumId) {
+      // 后续周首次涉及的领域节点也需要运行时外键；仅从发布图投影，不创建臆造节点。
+      await this.db.prepare(`INSERT OR IGNORE INTO learning_nodes
+        (id,route_id,title,module_id,title_en,description,outcomes,source_refs,activity_templates,assessment_rubric,target_level,is_key_milestone)
+        SELECT ?,p.route_id,json_extract(n.value,'$.title'),'canonical',?,json_extract(n.value,'$.description'),'[]','[]','[]','',1,0
+        FROM learning_weekly_plans p,learning_ci_graph_versions g,json_each(g.graph_json,'$.nodes') n
+        WHERE p.id=? AND p.owner_id=? AND g.status='published' AND json_extract(n.value,'$.id')=?`)
+        .bind(activity.nodeId, activity.nodeId, activity.weeklyPlanId, activity.ownerId, activity.nodeId).run();
+    }
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+         `INSERT INTO learning_activities
+           (id, owner_id, weekly_plan_id, node_id, curriculum_id, course_version_id,
+            course_id, unit_key, canonical_node_id, scope_json, title, activity_type, goal,
+            estimated_minutes, is_core, status, is_skip_validation, input_refs,
+            steps, expected_evidence, evaluation_criteria, next_advice, sequence,
+            started_at, last_opened_at, paused_at, completed_at, pause_reason, actual_minutes,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           status = excluded.status,
+           input_refs = excluded.input_refs,
+           estimated_minutes = excluded.estimated_minutes,
+           steps = excluded.steps,
+           expected_evidence = excluded.expected_evidence,
+           evaluation_criteria = excluded.evaluation_criteria,
+           next_advice = excluded.next_advice,
+           curriculum_id = excluded.curriculum_id,
+           course_version_id = excluded.course_version_id,
+           course_id = excluded.course_id,
+           unit_key = excluded.unit_key,
+           canonical_node_id = excluded.canonical_node_id,
+           scope_json = excluded.scope_json,
+           started_at = excluded.started_at,
+           last_opened_at = excluded.last_opened_at,
+           paused_at = excluded.paused_at,
+           completed_at = excluded.completed_at,
+           pause_reason = excluded.pause_reason,
+           actual_minutes = excluded.actual_minutes,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        activity.id,
+        activity.ownerId,
+        activity.weeklyPlanId,
+        activity.nodeId,
+        activity.curriculumId ?? null,
+        activity.courseVersionId ?? null,
+        activity.courseId ?? null,
+        activity.unitId ?? null,
+        activity.canonicalNodeId ?? null,
+        JSON.stringify(activity.scope ?? {}),
+        activity.title,
+        activity.activityType,
+        activity.goal,
+        activity.estimatedMinutes,
+        activity.isCore ? 1 : 0,
+        activity.status,
+        activity.isSkipValidation ? 1 : 0,
+        activity.inputRefs.join(","),
+        activity.steps,
+        activity.expectedEvidence,
+        activity.evaluationCriteria,
+        activity.nextAdvice,
+        activity.sequence,
+        activity.startedAt ?? null,
+        activity.lastOpenedAt ?? null,
+        activity.pausedAt ?? null,
+        activity.completedAt ?? null,
+        activity.pauseReason ?? "",
+        activity.actualMinutes ?? null,
+        now,
+      )
+      .run();
+  }
+
+  async clearOpenActivitiesForPlan(ownerId: string, planId: string): Promise<void> {
+    await this.db
+      .prepare(
+        `DELETE FROM learning_activities
+         WHERE owner_id = ?
+           AND weekly_plan_id = ?
+           AND status IN ('planned', 'in_progress', 'paused')
+           AND id NOT IN (
+             SELECT activity_id FROM learning_evidence WHERE owner_id = ?
+           )`,
+      )
+      .bind(ownerId, planId, ownerId)
+      .run();
+  }
+
+  // ── 证据 ──────────────────────────────────────────
+  async listEvidenceByActivity(activityId: string): Promise<Evidence[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_evidence WHERE activity_id = ?")
+      .bind(activityId)
+      .all();
+    return (rows.results ?? []).map(evidenceFromRow);
+  }
+
+  async listEvidenceByNode(nodeId: string): Promise<Evidence[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_evidence WHERE node_id = ?")
+      .bind(nodeId)
+      .all();
+    return (rows.results ?? []).map(evidenceFromRow);
+  }
+
+  async getEvidence(evidenceId: string): Promise<Evidence | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_evidence WHERE id = ? LIMIT 1")
+      .bind(evidenceId)
+      .first();
+    return row ? evidenceFromRow(row) : null;
+  }
+
+  async saveEvidence(evidence: Evidence): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_evidence
+           (id, owner_id, activity_id, node_id, evidence_type, content, external_url,
+            status, feedback, extracted_json, review_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           content = excluded.content,
+           external_url = excluded.external_url,
+           status = excluded.status,
+           feedback = excluded.feedback,
+           extracted_json = excluded.extracted_json,
+           review_json = excluded.review_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        evidence.id,
+        evidence.ownerId,
+        evidence.activityId,
+        evidence.nodeId,
+        evidence.evidenceType,
+        evidence.content,
+        evidence.externalUrl,
+        evidence.status,
+        evidence.feedback,
+        evidence.extractedJson,
+        evidence.reviewJson,
+        now,
+      )
+      .run();
+  }
+
+  // ── 节点进度 ──────────────────────────────────────
+  async getNodeProgress(ownerId: string, nodeId: string): Promise<NodeProgress | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_node_progress WHERE owner_id = ? AND node_id = ? LIMIT 1")
+      .bind(ownerId, nodeId)
+      .first();
+    return row ? nodeProgressFromRow(row) : null;
+  }
+
+  async listNodeProgress(ownerId: string): Promise<NodeProgress[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_node_progress WHERE owner_id = ?")
+      .bind(ownerId)
+      .all();
+    return (rows.results ?? []).map(nodeProgressFromRow);
+  }
+
+  async saveNodeProgress(progress: NodeProgress): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_node_progress
+           (id, owner_id, node_id, status, confidence, last_validated_at,
+            confirmed_at, review_interval_days, next_review_at, review_count,
+            supporting_evidence_ids, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           status = excluded.status,
+           confidence = excluded.confidence,
+           last_validated_at = excluded.last_validated_at,
+           confirmed_at = excluded.confirmed_at,
+           review_interval_days = excluded.review_interval_days,
+           next_review_at = excluded.next_review_at,
+           review_count = excluded.review_count,
+           supporting_evidence_ids = excluded.supporting_evidence_ids,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        progress.id,
+        progress.ownerId,
+        progress.nodeId,
+        progress.status,
+        progress.confidence,
+        progress.lastValidatedAt,
+        progress.confirmedAt,
+        progress.reviewIntervalDays,
+        progress.nextReviewAt,
+        progress.reviewCount,
+        progress.supportingEvidenceIds.join(","),
+        now,
+      )
+      .run();
+  }
+
+  // ── 调整记录 ──────────────────────────────────────
+  async listAdjustments(ownerId: string): Promise<AdjustmentRecord[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_adjustments WHERE owner_id = ? ORDER BY updated_at DESC")
+      .bind(ownerId)
+      .all();
+    return (rows.results ?? []).map(adjustmentFromRow);
+  }
+
+  async getAdjustment(adjustmentId: string): Promise<AdjustmentRecord | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM learning_adjustments WHERE id = ? LIMIT 1")
+      .bind(adjustmentId)
+      .first();
+    return row ? adjustmentFromRow(row) : null;
+  }
+
+  async saveAdjustment(adjustment: AdjustmentRecord): Promise<void> {
+    const now = new Date().toISOString();
+    await this.db
+      .prepare(
+        `INSERT INTO learning_adjustments
+           (id, owner_id, route_id, weekly_plan_id, adjustment_type, reason, status,
+            summary, action_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           status = excluded.status,
+           summary = excluded.summary,
+           action_json = excluded.action_json,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(
+        adjustment.id,
+        adjustment.ownerId,
+        adjustment.routeId,
+        adjustment.weeklyPlanId,
+        adjustment.adjustmentType,
+        adjustment.reason,
+        adjustment.status,
+        adjustment.summary,
+        adjustment.actionJson,
+        now,
+      )
+      .run();
+  }
+
+  // 重置：清空该用户全部学习状态（重新诊断用），内容层不动；
+  // 删除顺序先子后父（证据/调整引用活动，活动引用周计划/节点，周计划引用画像）
+    async listUserResources(ownerId: string): Promise<UserResource[]> {
+    const rows = await this.db
+      .prepare("SELECT * FROM learning_user_resources WHERE owner_id = ? ORDER BY created_at DESC")
+      .bind(ownerId)
+      .all();
+    return (rows.results ?? []).map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      ownerId: String(row.owner_id),
+      title: String(row.title),
+      type: row.type as UserResource["type"],
+      content: String(row.content),
+      sourceUrl: String(row.source_url),
+      relatedNodeIds: String(row.related_node_ids || "").split(",").filter(Boolean),
+      createdAt: String(row.created_at),
+    }));
+  }
+
+  async saveUserResource(resource: UserResource): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO learning_user_resources
+           (id, owner_id, title, type, content, source_url, related_node_ids, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO UPDATE SET
+           title = excluded.title,
+           type = excluded.type,
+           content = excluded.content,
+           source_url = excluded.source_url,
+           related_node_ids = excluded.related_node_ids`,
+      )
+      .bind(
+        resource.id,
+        resource.ownerId,
+        resource.title,
+        resource.type,
+        resource.content,
+        resource.sourceUrl,
+        resource.relatedNodeIds.join(","),
+        resource.createdAt,
+      )
+      .run();
+  }
+
+async resetLearner(ownerId: string): Promise<void> {
+    await this.db.batch([
+      this.db.prepare("DELETE FROM learning_evidence WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_adjustments WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_week_reviews WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_activities WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_node_progress WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_weekly_plans WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_profiles WHERE owner_id = ?").bind(ownerId),
+      this.db.prepare("DELETE FROM learning_diagnostics WHERE owner_id = ?").bind(ownerId),
+    ]);
+  }
+}
+
+function weekReviewFromRow(row: Record<string, unknown>): WeekReviewRecord {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    routeId: String(row.route_id),
+    weekKey: String(row.week_key),
+    summary: String(row.summary),
+    completedCount: Number(row.completed_count),
+    acceptedEvidenceCount: Number(row.accepted_evidence_count),
+    revisionCount: Number(row.revision_count),
+    openActivityCount: Number(row.open_activity_count),
+    nextBestMove: String(row.next_best_move),
+    reviewJson: String(row.review_json ?? "{}"),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+// ── 行映射辅助 ──────────────────────────────────────
+function activityFromRow(row: Record<string, unknown>): LearningActivity {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    weeklyPlanId: String(row.weekly_plan_id),
+    nodeId: String(row.node_id),
+    curriculumId: row.curriculum_id ? String(row.curriculum_id) : undefined,
+    courseVersionId: row.course_version_id ? String(row.course_version_id) : undefined,
+    courseId: row.course_id ? String(row.course_id) : undefined,
+    unitId: row.unit_key ? String(row.unit_key) : undefined,
+    canonicalNodeId: row.canonical_node_id ? String(row.canonical_node_id) : undefined,
+    scope: row.scope_json ? JSON.parse(String(row.scope_json)) as LearningActivity["scope"] : undefined,
+    title: String(row.title),
+    activityType: row.activity_type as LearningActivity["activityType"],
+    goal: String(row.goal),
+    estimatedMinutes: Number(row.estimated_minutes),
+    isCore: Boolean(row.is_core),
+    status: row.status as LearningActivity["status"],
+    isSkipValidation: Boolean(row.is_skip_validation),
+    inputRefs: row.input_refs ? String(row.input_refs).split(",").filter(Boolean) : [],
+    steps: String(row.steps),
+    expectedEvidence: String(row.expected_evidence),
+    evaluationCriteria: String(row.evaluation_criteria),
+    nextAdvice: String(row.next_advice),
+    sequence: Number(row.sequence),
+    startedAt: row.started_at ? String(row.started_at) : null,
+    lastOpenedAt: row.last_opened_at ? String(row.last_opened_at) : null,
+    pausedAt: row.paused_at ? String(row.paused_at) : null,
+    completedAt: row.completed_at ? String(row.completed_at) : null,
+    pauseReason: String(row.pause_reason ?? ""),
+    actualMinutes: row.actual_minutes == null ? null : Number(row.actual_minutes),
+  };
+}
+
+function evidenceFromRow(row: Record<string, unknown>): Evidence {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    activityId: String(row.activity_id),
+    nodeId: String(row.node_id),
+    evidenceType: row.evidence_type as Evidence["evidenceType"],
+    content: String(row.content),
+    externalUrl: String(row.external_url ?? ""),
+    status: row.status as Evidence["status"],
+    feedback: String(row.feedback ?? ""),
+    extractedJson: String(row.extracted_json ?? "{}"),
+    reviewJson: String(row.review_json ?? "{}"),
+  };
+}
+
+function nodeProgressFromRow(row: Record<string, unknown>): NodeProgress {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    nodeId: String(row.node_id),
+    status: row.status as NodeProgress["status"],
+    confidence: Number(row.confidence),
+    lastValidatedAt: row.last_validated_at ? String(row.last_validated_at) : null,
+    confirmedAt: row.confirmed_at ? String(row.confirmed_at) : null,
+    reviewIntervalDays: row.review_interval_days != null ? Number(row.review_interval_days) : 14,
+    nextReviewAt: row.next_review_at ? String(row.next_review_at) : null,
+    reviewCount: row.review_count != null ? Number(row.review_count) : 0,
+    supportingEvidenceIds: row.supporting_evidence_ids
+      ? String(row.supporting_evidence_ids).split(",").filter(Boolean)
+      : [],
+  };
+}
+
+function adjustmentFromRow(row: Record<string, unknown>): AdjustmentRecord {
+  return {
+    id: String(row.id),
+    ownerId: String(row.owner_id),
+    routeId: String(row.route_id),
+    weeklyPlanId: row.weekly_plan_id ? String(row.weekly_plan_id) : null,
+    adjustmentType: row.adjustment_type as AdjustmentRecord["adjustmentType"],
+    reason: String(row.reason),
+    status: row.status as AdjustmentRecord["status"],
+    summary: String(row.summary),
+    actionJson: String(row.action_json ?? "[]"),
+  };
+}

@@ -1,0 +1,24 @@
+.program-preview { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; color: #e8efe9; background: #11221c; min-height: 100vh; line-height: 1.75; }
+.program-preview a { color: #8bdfb7; }
+.preview-boundary { border-left: 3px solid #d4b770; padding: 12px 18px; background: #243025; }
+.program-form { display: flex; flex-wrap: wrap; gap: 16px; align-items: end; margin: 24px 0; }
+.program-preview label { display: block; margin: 10px 0; color: #e8efe9; font-size: 16px; }
+.program-preview h1 { font-size: 28px; font-weight: 650; margin: 20px 0; }
+.program-preview h2 { font-size: 23px; font-weight: 650; margin: 24px 0 12px; }
+.program-preview h3 { font-size: 19px; font-weight: 600; margin: 20px 0 10px; }
+.program-preview h4 { font-size: 17px; font-weight: 600; margin: 18px 0 8px; }
+.program-preview input:not([type=radio]):not([type=checkbox]), .program-preview select, .program-preview textarea { display: block; background: #192f26; color: #fff; border: 1px solid #718c7e; border-radius: 6px; padding: 10px; max-width: 100%; }
+.program-preview textarea { width: 100%; box-sizing: border-box; }
+.program-preview label:has(> input[type=radio]), .program-preview label:has(> input[type=checkbox]) { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 8px 0; }
+.program-preview input[type=radio], .program-preview input[type=checkbox] { display: inline-block; width: 18px; height: 18px; flex: 0 0 18px; margin: 5px 0 0; accent-color: #a1e3be; }
+.program-preview button { background: #a1e3be; color: #11251b; border: 0; border-radius: 6px; padding: 10px 14px; cursor: pointer; font: inherit; text-align: left; }
+.program-preview button:disabled { opacity: .6; cursor: wait; }
+.program-preview :focus-visible { outline: 3px solid #f3cc73; outline-offset: 4px; }
+.program-weeks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 24px; }
+.program-weeks section, .program-preview fieldset { border: 1px solid #536c60; padding: 18px; border-radius: 10px; margin: 16px 0; min-width: 0; }
+.program-weeks ul { padding: 0; list-style: none; }
+.program-weeks li { display: grid; gap: 4px; margin: 14px 0; }
+.program-weeks li button { background: #254b39; color: #e8efe9; }
+.program-preview article { max-width: 760px; margin: 24px auto; }
+.program-preview [role=alert] { background: #542b24; padding: 12px; }
+@media(max-width: 600px) { .program-weeks { grid-template-columns: 1fr; } .program-preview { padding: 20px 16px 60px; } .program-form { display: block; } .program-form select, .program-form input { width: 100%; box-sizing: border-box; } }

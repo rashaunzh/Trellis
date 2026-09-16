@@ -1,0 +1,239 @@
+// P0：掌握确认（pending_confirmation / confirm-mastery）+ 延迟复测（retest / dueReviews / 降级顺延）
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  LearningApplicationService,
+} from "../../lib/learning/application/learning-service.ts";
+import { InMemoryLearningStore } from "../../lib/learning/persistence/in-memory.ts";
+import { createRuleAgents } from "../../lib/learning/agents/index.ts";
+
+function createService() {
+  return new LearningApplicationService(
+    new InMemoryLearningStore(),
+    createRuleAgents(),
+  );
+}
+
+const OWNER = "p0-mastery-owner-01";
+const DAY = 86400000;
+
+const GOOD_EVIDENCE =
+  "训练机制解释：语言模型从训练数据中学统计规律而非存储事实，训练阶段调整参数，推理阶段逐词预测。概率推理说明：输出按概率分布采样，流畅不等于正确。幻觉风险识别：幻觉来自概率采样与训练数据覆盖不足。泛化边界说明：泛化依赖训练数据分布，超出分布会失败。AI 与普通程序区分：普通程序按规则执行，AI 从数据学习，判断 AI 方案看任务委托、输出校验、失败兜底。";
+
+async function setupConfirmedLearner() {
+  const service = createService();
+  await service.runDiagnostic({ ownerId: OWNER, goal: "学 AI", weeklyMinutes: 360 });
+  await service.confirmProposal(OWNER);
+  return service;
+}
+
+// ── 掌握确认 ──────────────────────────────────────────
+test("综合任务证据 accepted 后节点进入 pending_confirmation（不直接验证）", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const task = ws.activities.find((a) => a.activityType === "integrated_task")!;
+  assert.ok(task, "6h 计划应含综合情境任务");
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  const { workspace } = await service.reviewEvidence(OWNER, evidence.id);
+  const np = workspace.nodeProgress.find((p) => p.nodeId === task.nodeId)!;
+  assert.equal(np.status, "pending_confirmation", "综合任务验证需用户确认，不应直接 validated");
+  assert.equal(np.confirmedAt, null);
+});
+
+test("confirmMastery confirmed → 节点 validated + mastery_confirm 记录", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const task = ws.activities.find((a) => a.activityType === "integrated_task")!;
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const ws2 = await service.confirmMastery(OWNER, task.nodeId, { decision: "confirmed" });
+  const np = ws2.nodeProgress.find((p) => p.nodeId === task.nodeId)!;
+  assert.equal(np.status, "validated", "用户确认后节点进入已验证");
+  assert.ok(np.confirmedAt, "应记录确认时间");
+  assert.ok(
+    ws2.adjustments.some((a) => a.adjustmentType === "mastery_confirm" && a.status === "accepted"),
+    "应写入 mastery_confirm(accepted) 调整记录",
+  );
+});
+
+test("confirmMastery corrected → 节点回 growing + 降级 + 补强建议", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const task = ws.activities.find((a) => a.activityType === "integrated_task")!;
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const ws2 = await service.confirmMastery(OWNER, task.nodeId, { decision: "corrected", note: "还没完全懂" });
+  const np = ws2.nodeProgress.find((p) => p.nodeId === task.nodeId)!;
+  assert.equal(np.status, "growing", "纠正后回成长中");
+  assert.ok(
+    ws2.adjustments.some((a) => a.adjustmentType === "mastery_confirm" && a.status === "rejected"),
+    "应写入 mastery_confirm(rejected)",
+  );
+  const boost = ws2.adjustments.find((a) => {
+    if (a.adjustmentType !== "weekly_light" || a.status !== "proposed") return false;
+    const actions = JSON.parse(a.actionJson);
+    return Array.isArray(actions) && actions.some((action) => action.action === "insert_activity");
+  });
+  assert.ok(boost, "应生成补强建议（weekly_light proposed）");
+  // 补强建议可执行：actionJson 含 insert_activity，指向被纠正节点
+  const boostActions = JSON.parse(boost!.actionJson);
+  assert.ok(Array.isArray(boostActions) && boostActions.length === 1, "actionJson 应可解析且含 1 个动作");
+  assert.equal(boostActions[0].action, "insert_activity");
+  assert.equal(boostActions[0].targetNodeId, task.nodeId);
+  assert.ok(
+    ws2.adjustments.some((a) => a.adjustmentType === "weekly_light" && a.status === "proposed"),
+    "应生成补强建议",
+  );
+});
+
+test("采纳补强建议：confirmAdjustment(boost) 后插入补强活动", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const task = ws.activities.find((a) => a.activityType === "integrated_task")!;
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  await service.confirmMastery(OWNER, task.nodeId, { decision: "corrected", note: "还没完全懂" });
+  const ws2 = await service.getWorkspace(OWNER);
+  const boost = ws2.adjustments.find((a) => {
+    if (a.adjustmentType !== "weekly_light" || a.status !== "proposed") return false;
+    const actions = JSON.parse(a.actionJson);
+    return Array.isArray(actions) && actions.some((action) => action.action === "insert_activity");
+  })!;
+  assert.ok(boost, "应生成 weekly_light proposed 补强建议");
+  // mastery_confirm rejected 记录保持存在，不被采纳流程破坏
+  assert.ok(
+    ws2.adjustments.some((a) => a.adjustmentType === "mastery_confirm" && a.status === "rejected"),
+    "mastery_confirm(rejected) 应仍在",
+  );
+
+  const beforeCount = ws2.activities.length;
+  await service.confirmAdjustment(OWNER, boost.id);
+  const ws3 = await service.getWorkspace(OWNER);
+  // 采纳后活动数 +1，新活动指向原节点且为非核心补强活动
+  assert.equal(ws3.activities.length, beforeCount + 1, "确认后应插入 1 个补强活动");
+  const inserted = ws3.activities.find((a) => !ws2.activities.some((b) => b.id === a.id))!;
+  assert.ok(inserted, "应找到新插入的活动");
+  assert.ok(inserted.title.startsWith("补强活动："), `标题应以补强活动开头：${inserted.title}`);
+  assert.equal(inserted.nodeId, task.nodeId, "补强活动应指向被纠正节点");
+  assert.equal(inserted.isCore, false, "补强活动不计入核心承诺");
+  assert.equal(inserted.activityType, "independent_practice");
+  // 调整记录状态流转为已采纳
+  const acceptedBoost = ws3.adjustments.find((a) => a.id === boost.id);
+  assert.equal(acceptedBoost?.status, "accepted");
+});
+
+test("普通活动证据 accepted 仍自动验证（不要求确认）", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  const { workspace } = await service.reviewEvidence(OWNER, evidence.id);
+  const np = workspace.nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
+  assert.equal(np.status, "validated", "普通活动保持自动验证（向后兼容）");
+});
+
+// ── 延迟复测 ──────────────────────────────────────────
+test("复测到期节点出现在 dueReviews", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  // 手动把复测时间设为过去
+  const np = (await service.getWorkspace(OWNER)).nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
+  np.nextReviewAt = new Date(Date.now() - DAY).toISOString();
+  await service["store"].saveNodeProgress(np);
+  const ws2 = await service.getWorkspace(OWNER);
+  assert.ok(ws2.dueReviews.some((d) => d.nodeId === activity.nodeId), "到期节点应出现在 dueReviews");
+});
+
+test("retestNode 生成 retest 活动（isCore=false）", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const ws2 = await service.retestNode(OWNER, activity.nodeId);
+  const retest = ws2.activities.find((a) => a.activityType === "retest" && a.nodeId === activity.nodeId);
+  assert.ok(retest, "应生成 retest 活动");
+  assert.equal(retest!.isCore, false, "复测不计入核心承诺");
+});
+
+test("复测通过：nextReviewAt 顺延 + reviewCount 增加（间隔翻倍）", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const ws2 = await service.retestNode(OWNER, activity.nodeId);
+  const retest = ws2.activities.find((a) => a.activityType === "retest" && a.nodeId === activity.nodeId)!;
+  await service.startActivity(OWNER, retest.id);
+  await service.submitEvidence(OWNER, retest.id, { content: GOOD_EVIDENCE });
+  const ev2 = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === retest.id)!;
+  await service.reviewEvidence(OWNER, ev2.id);
+  const np = (await service.getWorkspace(OWNER)).nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
+  assert.equal(np.reviewCount, 1, "复测次数 +1");
+  assert.equal(np.reviewIntervalDays, 28, "间隔翻倍 14→28");
+  assert.ok(np.nextReviewAt && new Date(np.nextReviewAt).getTime() > Date.now(), "下次复测顺延到未来");
+});
+
+test("复测失败：节点回 growing + 熟练等级降级", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id);
+  const ws2 = await service.retestNode(OWNER, activity.nodeId);
+  const retest = ws2.activities.find((a) => a.activityType === "retest" && a.nodeId === activity.nodeId)!;
+  await service.startActivity(OWNER, retest.id);
+  await service.submitEvidence(OWNER, retest.id, { content: "太短。" });
+  const ev2 = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === retest.id)!;
+  const before = (await service.getWorkspace(OWNER)).nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
+  await service.reviewEvidence(OWNER, ev2.id);
+  const ws3 = await service.getWorkspace(OWNER);
+  const np = ws3.nodeProgress.find((p) => p.nodeId === activity.nodeId)!;
+  assert.equal(np.status, "growing", "复测失败回成长中");
+  assert.ok(np.confidence <= before.confidence, "熟练等级不升反降");
+  const adjustment = ws3.adjustments.find((a) => a.adjustmentType === "activity_replan" && a.status === "proposed");
+  assert.ok(adjustment, "复测失败应生成调整建议");
+  assert.ok(adjustment!.reason.includes("复测未通过"), adjustment!.reason);
+  assert.ok(adjustment!.reason.includes("降级回成长中"), adjustment!.reason);
+});
+
+test("已验证节点再完成综合任务 → 再次待确认（强证据需用户确认）", async () => {
+  const service = await setupConfirmedLearner();
+  const ws = await service.getWorkspace(OWNER);
+  const activity = ws.activities.find((a) => a.activityType === "build_model")!;
+  await service.startActivity(OWNER, activity.id);
+  await service.submitEvidence(OWNER, activity.id, { content: GOOD_EVIDENCE });
+  const evidence = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === activity.id)!;
+  await service.reviewEvidence(OWNER, evidence.id); // 概念活动自动验证 → validated
+  const task = (await service.getWorkspace(OWNER)).activities.find((a) => a.activityType === "integrated_task")!;
+  await service.startActivity(OWNER, task.id);
+  await service.submitEvidence(OWNER, task.id, { content: GOOD_EVIDENCE });
+  const ev2 = (await service.getWorkspace(OWNER)).evidence.find((e) => e.activityId === task.id)!;
+  const { workspace } = await service.reviewEvidence(OWNER, ev2.id);
+  const np = workspace.nodeProgress.find((p) => p.nodeId === task.nodeId)!;
+  assert.equal(np.status, "pending_confirmation", "已验证节点综合任务再次进入待确认");
+  const ws2 = await service.confirmMastery(OWNER, task.nodeId, { decision: "confirmed" });
+  assert.equal(ws2.nodeProgress.find((p) => p.nodeId === task.nodeId)!.status, "validated");
+});

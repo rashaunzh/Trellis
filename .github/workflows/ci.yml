@@ -1,0 +1,33 @@
+name: Trellis CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Package Sites artifact
+        run: tar -cf trellis-sites.tar dist
+      - name: Upload Sites artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trellis-sites-${{ github.sha }}
+          path: trellis-sites.tar
+          if-no-files-found: error
+          retention-days: 7

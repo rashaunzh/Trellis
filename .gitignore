@@ -1,0 +1,42 @@
+# Dependencies and build output
+/node_modules/
+/.pnp
+.pnp.*
+/.yarn/*
+!/.yarn/patches/
+!/.yarn/plugins/
+/.next/
+/out/
+/dist/
+/.vinext/
+/.mastra/
+/coverage/
+*.tsbuildinfo
+
+# Runtime data, logs, test output and local tools
+/.wrangler/
+/.sites-runtime/
+/outputs/
+/work/
+/.agents/
+/.vscode/
+/AGENTS.local.md
+/skills-lock.json
+/.tmp-*/
+scripts/.tmp-*.mjs
+**/.acceptance-shots/
+**/acceptance-shots/
+__pycache__/
+*.pyc
+*.log
+*.log.*
+
+# Local personal data and secrets (never publish via Git)
+/memory/profile/
+/memory/routes/
+/PRODUCT-AUDIT.md
+.env*
+.dev.vars*
+*.pem
+.DS_Store
+/.vercel/
