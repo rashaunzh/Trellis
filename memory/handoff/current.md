@@ -1,15 +1,20 @@
-# Trellis 当前交接
+# 当前交接
 
-更新：2026-09-15。用户将从另一台 PC 克隆/拉取开发，交付同步到 GitHub main 与当前开发分支。
+更新：2026-09-16。跨设备协作以 GitHub main 和当前开发分支的实际提交为准；开始前检查状态并拉取。
 
-最新进展：完成开源准备并发布——新增 MIT LICENSE，lib/trellis.ts 种子数据脱敏，README/AGENTS.md 更新为开源语境，检查全部通过。历史处置：原仓库 AI-Learning-OS 保持私有存档；公开仓库 Trellis 以干净树初始提交独立发布。详见[本次会话](../sessions/2026-09-15-open-source-prep.md)。
+产品重点是桌面学习辅助闭环，点击数量不是优化目标。下一包 P0 先制作一个受支持主题的连续可操作页面，再落实导学、尝试、反馈、修订、收尾和恢复。手机专项后置。
+
+开源已发布：新增 MIT LICENSE，lib/trellis.ts 种子数据脱敏为通用示例，公开仓库 Trellis 以干净树独立发布（历史处置方案 A）；原 AI-Learning-OS 仓库保持私有存档。详见[最新摘要](../sessions/latest.md)。
 
 用户最新约束：点击多不是主要问题；流程链路清楚、辅助学习价值和高级 AI 产品经理设计质量优先。手机专项在桌面之后。
 
-先读[产品设计决策](../../docs/product/TRELLIS_PRODUCT_ANALYSIS_2026-09-14.md)，再读[桌面交互规格](../../docs/product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md)。两份为学习辅助闭环版，文件名保留首次建立日期。前者负责价值、机制、样例与评价，后者负责页面与逐次点击；旧 CK-001–200 不再作为当前实施标准。
 
-下一步 P0 是一个受支持主题的导学、学习、尝试、具体反馈、修订、收尾和恢复；只有活动列表与完成按钮不算交付。现有 learning-program/program-bindings/scenario-bank 是待审阅复用基础，不代表任意材料已有完整辅导。
+- [项目状态](../../docs/engineering/PROJECT_STATUS.md)：唯一实现状态与验证记录。
+- [产品分析](../../docs/product/TRELLIS_PRODUCT_ANALYSIS_2026-09-14.md)：需求、竞品、完整性门和内容分层。
+- [交互规格](../../docs/product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md)：第 18–23 节为页面、原子操作、连续内容稿与验收。
+- [关键决策](../../docs/architecture/DECISIONS.md)：AI 写入、状态与运行边界。
+- [仓库交付标准](../../docs/engineering/REPOSITORY_DELIVERY_STANDARD.md)：目录保留和分支整理规则。
 
-正式进展只维护[PROJECT_STATUS](../../docs/engineering/PROJECT_STATUS.md)。本轮只重写文档，未实现业务代码、未部署、未做真实学习评价。文档预检通过不等于新版功能可用。详见[本次会话](../sessions/2026-09-15-learning-assistance-design.md)。
+现有活动教学页已有讲解、选择题和逐题反馈。设计稿不等于新流程已实现；开放回答修订、连续原型与真实新手验证仍未完成。
 
-个人资料与运行数据保持本地，Git 只同步交付内容。继续实现前核对 git status 并拉取；冲突时不覆盖其他设备提交。
+当前交付树只保留本交接和[最新摘要](../sessions/latest.md)，旧会话由 Git 历史追溯。个人资料仍仅本地。公开仓库 Trellis 已按 MIT 发布；公开交付以干净树为准，与私有历史存档分离。

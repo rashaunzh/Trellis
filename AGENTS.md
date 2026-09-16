@@ -8,7 +8,7 @@
 1. 检查 git status 并拉取最新分支；发生冲突时停止，不覆盖其他设备工作。
 2. 阅读 memory/handoff/current.md 与 docs/engineering/PROJECT_STATUS.md。
 3. 产品工作阅读 docs/product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md；界面工作按需读 docs/product/TRELLIS_DESKTOP_UPDATE_DESIGN_2026-09-14.md 的相关点击规格。
-4. 涉及持久状态或 AI 写入时阅读对应架构和 memory/decisions/README.md。
+4. 涉及持久状态或 AI 写入时阅读对应架构和 docs/architecture/DECISIONS.md。
 5. 与个人计划有关时，可读取本地 memory/profile/preferences.yaml 和 memory/routes/；新克隆没有这些文件是正常情况，不虚构用户事实。
 
 ## 设计与执行
@@ -28,14 +28,14 @@
 - 按变更运行必要检查，默认工程门为 npm run check；文档与仓库整理另运行 npm run delivery:precheck。
 - 测试通过、设计完成、本地可用、线上验收和真实用户效果必须分开报告。
 - 当前实现状态只维护在 docs/engineering/PROJECT_STATUS.md；下一版设计不是已经实现的功能。
-- 结束前写一份简短 memory/sessions/ 记录并更新 current handoff，提交推送用于跨设备协作。
+- 结束前覆写 memory/sessions/latest.md 最新交付摘要并更新 current handoff；过去摘要由 Git 历史追溯。提交推送用于跨设备协作。
 - 对个人路线或偏好的实质修改先提建议；不把推测写成事实。
 
 ## 资料与隐私
 
 - 代码、可复现测试、当前规格、关键决策和带来源的精选证据进入 Git。
 - 个人资料、机器设置、秘密、运行数据库和中间产物仅本地保留并忽略提交。不得提交 Cookie、令牌、密码、雇主机密或敏感简历。仓库内示例数据必须保持通用，不得包含真实个人路线。
-- Git 历史包含项目早期作为个人工具的提交，已确认不含密钥；对外分享或公开前需确认历史可见性符合预期。
+- 公开交付以干净树为准：公开仓库 Trellis 采用独立初始提交，不含早期个人历史；私有存档仓库的历史不作为公开内容。
 - 截图与日志先写 outputs，核验后再精选进入 docs/product/evidence；禁止用过时截图证明当前版本。
 - 旧规格退出当前树，由 Git 历史追溯；避免平行 PRD 和多份“当前进展”。
 
@@ -43,4 +43,4 @@
 
 说明性文档使用简体中文；代码标识、协议、路径和命令可用英文。
 
-Issue/PR 使用 GitHub 仓库 rashaunzh/Trellis（公开）；历史存档在私有仓库 rashaunzh/AI-Learning-OS。优先 gh CLI，见 docs/agents/issue-tracker.md。分诊标签见 docs/agents/triage-labels.md；领域词汇见 CONTEXT.md。
+Issue/PR 使用公开 GitHub 仓库 rashaunzh/Trellis，优先 gh CLI，具体流程见 CONTRIBUTING.md；领域词汇见 CONTEXT.md。仓库整理按 docs/engineering/REPOSITORY_DELIVERY_STANDARD.md。

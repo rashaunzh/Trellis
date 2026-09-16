@@ -2,7 +2,7 @@
 const common = {
   allowed: ["路线可以不同，但需解释起点、范围与下一步", "无法读取的内容保留未知"],
   forbidden: ["虚构章节或已读正文", "用自报或点击完成证明掌握", "未确认就改变正式路线"],
-  evidence: ["docs/product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md", "memory/decisions/2026-08-30-course-intelligence-center.md"],
+  evidence: ["docs/product/TRELLIS_COURSE_INTELLIGENCE_PRODUCT_CONTRACT.md", "docs/architecture/DECISIONS.md"],
 };
 const sample = (id, name, goal, extra = {}) => ({ ...common, id, name, split: id.startsWith("H") ? "holdout" : "development",
   input: { goal, weeklyCapacity: "light", materials: [] },
