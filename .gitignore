@@ -36,6 +36,8 @@ __pycache__/
 /memory/routes/
 /memory/sessions/*
 !/memory/sessions/latest.md
+# Local portfolio / career-narrative working docs (not for public delivery)
+/docs/portfolio/
 .env*
 !.env.example
 .dev.vars*

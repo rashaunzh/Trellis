@@ -1,25 +1,25 @@
 # Trellis
 
-把 AI 学习目标和材料，变成有依据的学习路线、可执行的活动和连续记录。
+把自学 AI 转型的目标和材料，变成有依据的学习路线、可执行的活动和连续记录。
 
-Trellis 面向 AI 领域的自主学习者。主要教学来自外部课程；Trellis 帮助选择学习范围、安排顺序、记录问题，并根据学习反馈决定如何继续。
+Trellis 面向自学 AI 的职场人。主要教学来自外部课程；Trellis 负责选择学习范围、安排顺序、在学习中提供辅导，并根据反馈决定下一步。
 
 ## 当前能力
 
-- 从目标、每周投入和可选材料生成路线候选，审阅后采用。
+- 从目标、每周投入和可选材料生成路线候选，审阅后采用；路线内每个活动标明实际支持的辅导范围。
 - 保存和分析材料，区分实际读取范围、候选片段与正式采用。
 - 开始、暂停和恢复活动，记录完成情况、学习位置及反馈。
-- 在有限主题中提供补充讲解、选择题检查、逐题反馈和历史记录。
+- 8 个主题提供原创讲解、应用练习、两组检查与逐题反馈；路线内其余活动提供来源定位与学习记录。
 
-当前处于开发阶段。完整的导学、开放回答、反馈修订与跨次学习体验正在设计和实现中；详细边界见[项目状态](docs/engineering/PROJECT_STATUS.md)。
+当前处于开发阶段。开放回答的逐项反馈、修订对照与收尾总结正在实现中；详细边界见[项目状态](docs/engineering/PROJECT_STATUS.md)。
 
 ## 本地开发
 
 需要 Node.js 22.13+（CI 使用 Node 22）、npm 和 Git。
 
 ```bash
-git clone https://github.com/rashaunzh/AI-Learning-OS.git
-cd AI-Learning-OS
+git clone https://github.com/rashaunzh/Trellis.git
+cd Trellis
 npm ci
 npm run db:verify
 npx wrangler d1 migrations apply DB --local --config wrangler.migrate.json
@@ -44,15 +44,12 @@ npm run delivery:precheck
 
 ## 代码布局
 
-| 路径 | 用途 |
-|---|---|
-| `app/` | 页面、样式与 API |
-| `lib/`、`src/` | 业务逻辑与工作流 |
-| `db/`、`drizzle/` | 数据结构与迁移 |
-| `worker/`、`build/` | 运行入口与构建适配 |
-| `tests/`、`scripts/` | 测试、验收与交付工具 |
-| `docs/` | 当前产品和工程文档 |
+- `app/`：页面与 API 路由（学习、成长、工作台、产品说明与内部页）。
+- `lib/learning/`：领域逻辑，按 domain / intelligence / agents / application / persistence 分层。
+- `db/`、`drizzle/`：数据 schema 与迁移。
+- `worker/`、`build/`：运行与构建源码，以及非秘密托管绑定。
+- `tests/`：领域测试与构建/渲染测试；`scripts/`：工程、验收与发布脚本。
 
-## 访问与许可
+## 许可与开源
 
-仓库目前为私有，克隆需要访问权限；尚未选择开源许可证。按公开交付标准整理目录不代表已经开源。公开发布前的历史与配置审阅要求见[仓库交付标准](docs/engineering/REPOSITORY_DELIVERY_STANDARD.md)。
+本项目基于 [MIT License](LICENSE) 开源，公开仓库为 [rashaunzh/Trellis](https://github.com/rashaunzh/Trellis)。欢迎通过 Issue 反馈问题或提交 PR。个人路线、个人偏好、机器设置与运行数据仅保留本地，不进入 Git；仓库内示例路线与演示数据均为通用内容，不代表任何真实用户。

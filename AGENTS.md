@@ -34,8 +34,8 @@
 ## 资料与隐私
 
 - 代码、可复现测试、当前规格、关键决策和带来源的精选证据进入 Git。
-- 个人资料、机器设置、秘密、运行数据库和中间产物仅本地保留并忽略提交。不得提交 Cookie、令牌、密码、雇主机密或敏感简历。
-- 本仓库保持私有；清理当前树不等于清除 Git 历史。改变可见性或重写历史需明确授权。
+- 个人资料、机器设置、秘密、运行数据库和中间产物仅本地保留并忽略提交。不得提交 Cookie、令牌、密码、雇主机密或敏感简历。仓库内示例数据必须保持通用，不得包含真实个人路线。
+- 公开交付以干净树为准：本仓库为公开交付仓库，当前树不含个人资料与本地机器设置。
 - 截图与日志先写 outputs，核验后再精选进入 docs/product/evidence；禁止用过时截图证明当前版本。
 - 旧规格退出当前树，由 Git 历史追溯；避免平行 PRD 和多份“当前进展”。
 
@@ -43,4 +43,4 @@
 
 说明性文档使用简体中文；代码标识、协议、路径和命令可用英文。
 
-Issue/PR 使用 GitHub 仓库 rashaunzh/AI-Learning-OS，优先 gh CLI，具体流程见 CONTRIBUTING.md；领域词汇见 CONTEXT.md。仓库整理按 docs/engineering/REPOSITORY_DELIVERY_STANDARD.md。
+Issue/PR 使用公开 GitHub 仓库 rashaunzh/Trellis，优先 gh CLI，具体流程见 CONTRIBUTING.md；领域词汇见 CONTEXT.md。仓库整理按 docs/engineering/REPOSITORY_DELIVERY_STANDARD.md。
